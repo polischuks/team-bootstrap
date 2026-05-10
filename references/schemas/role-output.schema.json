@@ -1,0 +1,340 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "team-bootstrap role output",
+  "description": "Validates a single role handoff against its role-specific schema. Discriminated by the `role` field.",
+  "oneOf": [
+    { "$ref": "#/$defs/product-ba" },
+    { "$ref": "#/$defs/delivery-manager" },
+    { "$ref": "#/$defs/cto-architect" },
+    { "$ref": "#/$defs/backend-engineer" },
+    { "$ref": "#/$defs/frontend-engineer" },
+    { "$ref": "#/$defs/qa-test-engineer" },
+    { "$ref": "#/$defs/release-docs" },
+    { "$ref": "#/$defs/discovery-research" },
+    { "$ref": "#/$defs/product-manager" },
+    { "$ref": "#/$defs/business-analyst" },
+    { "$ref": "#/$defs/cto-tech-lead" },
+    { "$ref": "#/$defs/solution-architect" },
+    { "$ref": "#/$defs/devops-platform" },
+    { "$ref": "#/$defs/overengineering-reviewer" },
+    { "$ref": "#/$defs/code-reviewer" },
+    { "$ref": "#/$defs/release-manager" },
+    { "$ref": "#/$defs/documentation-agent" },
+    { "$ref": "#/$defs/security-reviewer" },
+    { "$ref": "#/$defs/performance-reviewer" },
+    { "$ref": "#/$defs/accessibility-reviewer" },
+    { "$ref": "#/$defs/data-schema-reviewer" },
+    { "$ref": "#/$defs/test-designer" },
+    { "$ref": "#/$defs/incident-responder" },
+    { "$ref": "#/$defs/stakeholder-communicator" }
+  ],
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "properties": {
+        "kind": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" }
+      },
+      "required": ["kind", "path", "description"],
+      "additionalProperties": false
+    },
+    "check": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["passed", "failed", "skipped"] },
+        "details": { "type": "string" }
+      },
+      "required": ["name", "status", "details"],
+      "additionalProperties": false
+    },
+    "nullableString": {
+      "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }]
+    },
+    "severityCounts": {
+      "type": "object",
+      "properties": {
+        "critical": { "type": "integer", "minimum": 0 },
+        "high": { "type": "integer", "minimum": 0 },
+        "medium": { "type": "integer", "minimum": 0 },
+        "low": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["critical", "high", "medium", "low"],
+      "additionalProperties": false
+    },
+    "base": {
+      "type": "object",
+      "properties": {
+        "status": { "enum": ["completed", "blocked", "needs_input"] },
+        "role": { "type": "string", "minLength": 1 },
+        "summary": { "type": "string", "minLength": 1 },
+        "artifacts": { "type": "array", "items": { "$ref": "#/$defs/artifact" }, "minItems": 1 },
+        "checks": { "type": "array", "items": { "$ref": "#/$defs/check" }, "minItems": 1 },
+        "next_role": { "$ref": "#/$defs/nullableString" },
+        "risks_or_blockers": { "type": "array", "items": { "type": "string" } },
+        "manual_approval_requested": { "type": "boolean" },
+        "stop_reason": { "$ref": "#/$defs/nullableString" },
+        "rollback_recommended": { "type": "boolean" },
+        "rollback_scope": { "$ref": "#/$defs/nullableString" }
+      },
+      "required": [
+        "status",
+        "role",
+        "summary",
+        "artifacts",
+        "checks",
+        "next_role",
+        "risks_or_blockers",
+        "manual_approval_requested",
+        "stop_reason",
+        "rollback_recommended",
+        "rollback_scope"
+      ]
+    },
+    "product-ba": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        { "properties": { "role": { "const": "product-ba" } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "delivery-manager": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        { "properties": { "role": { "const": "delivery-manager" } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "cto-architect": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        { "properties": { "role": { "const": "cto-architect" } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "backend-engineer": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        { "properties": { "role": { "const": "backend-engineer" } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "frontend-engineer": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "role": { "const": "frontend-engineer" },
+            "frontend_required": { "type": "boolean" }
+          },
+          "required": ["frontend_required"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "qa-test-engineer": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "role": { "const": "qa-test-engineer" },
+            "release_risk": { "enum": ["low", "medium", "high"] }
+          },
+          "required": ["release_risk"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "release-docs": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "role": { "const": "release-docs" },
+            "release_decision": { "enum": ["go", "no_go"] }
+          },
+          "required": ["release_decision"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "discovery-research": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        { "properties": { "role": { "const": "discovery-research" } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "product-manager": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        { "properties": { "role": { "const": "product-manager" } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "business-analyst": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        { "properties": { "role": { "const": "business-analyst" } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "cto-tech-lead": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        { "properties": { "role": { "const": "cto-tech-lead" } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "solution-architect": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        { "properties": { "role": { "const": "solution-architect" } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "devops-platform": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "role": { "const": "devops-platform" },
+            "ci_status": { "enum": ["green", "yellow", "red"] }
+          },
+          "required": ["ci_status"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "overengineering-reviewer": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "role": { "const": "overengineering-reviewer" },
+            "verdict": { "enum": ["appropriate", "overengineered", "underengineered"] }
+          },
+          "required": ["verdict"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "code-reviewer": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "role": { "const": "code-reviewer" },
+            "approval_status": { "enum": ["approved", "changes_requested"] }
+          },
+          "required": ["approval_status"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "release-manager": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "role": { "const": "release-manager" },
+            "release_decision": { "enum": ["go", "no_go"] }
+          },
+          "required": ["release_decision"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "documentation-agent": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        { "properties": { "role": { "const": "documentation-agent" } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "security-reviewer": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "role": { "const": "security-reviewer" },
+            "severity_counts": { "$ref": "#/$defs/severityCounts" },
+            "secrets_audit_passed": { "type": "boolean" }
+          },
+          "required": ["severity_counts", "secrets_audit_passed"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "performance-reviewer": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "role": { "const": "performance-reviewer" },
+            "severity_counts": { "$ref": "#/$defs/severityCounts" }
+          },
+          "required": ["severity_counts"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "accessibility-reviewer": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "role": { "const": "accessibility-reviewer" },
+            "severity_counts": { "$ref": "#/$defs/severityCounts" },
+            "wcag_aa_compliant": { "type": "boolean" }
+          },
+          "required": ["severity_counts", "wcag_aa_compliant"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "data-schema-reviewer": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "role": { "const": "data-schema-reviewer" },
+            "severity_counts": { "$ref": "#/$defs/severityCounts" },
+            "migration_safe": { "type": "boolean" }
+          },
+          "required": ["severity_counts", "migration_safe"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "test-designer": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        { "properties": { "role": { "const": "test-designer" } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "incident-responder": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "role": { "const": "incident-responder" },
+            "incident_severity": { "enum": ["P1", "P2", "P3", "P4"] },
+            "incident_status": { "enum": ["active", "mitigated", "resolved"] }
+          },
+          "required": ["incident_severity", "incident_status"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "stakeholder-communicator": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        { "properties": { "role": { "const": "stakeholder-communicator" } } }
+      ],
+      "unevaluatedProperties": false
+    }
+  }
+}

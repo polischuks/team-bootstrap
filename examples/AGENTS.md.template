@@ -1,0 +1,88 @@
+# AGENTS.md
+
+> Replace this template with your project's actual values. team-bootstrap reads this file at run start.
+> Required fields are marked **REQUIRED** — runs block if these are missing.
+> See [references/agents-md-contract.md](../references/agents-md-contract.md) for the full contract.
+
+## Build & Run
+
+**REQUIRED**
+
+- Install: `npm ci`
+- Dev: `npm run dev`
+- Build: `npm run build`
+
+## Test
+
+**REQUIRED**
+
+- Unit: `npm run test:unit`
+- Typecheck: `npm run typecheck`
+- Lint: `npm run lint`
+
+## Testing
+
+- E2E: `npm run e2e`
+- Integration: `npm run test:integration`
+- Coverage target: 80% lines, 75% branches
+- Fixture setup: `npm run test:setup` before E2E (resets test DB)
+
+## Code Style
+
+**REQUIRED** (even if minimal)
+
+- Follow existing conventions in the file being edited.
+- TypeScript strict mode is on; no implicit `any`.
+- Prefer named exports.
+- Imports sorted alphabetically within groups (external, internal, relative).
+- No comments unless they explain *why* the non-obvious choice was made.
+
+## Security
+
+**REQUIRED**
+
+- Secrets: 1Password vault `Engineering` (paths in `infra/secrets.md`); local dev uses `.env.local`.
+- Never commit: `.env*`, `*.pem`, `*.key`, `secrets.json`, files under `secrets/`.
+- API keys are rotated quarterly; `STRIPE_SECRET_KEY` and `OPENAI_API_KEY` are the most sensitive.
+- PII in logs is forbidden; redact email/phone via `lib/redact.ts`.
+
+## PR Conventions
+
+- Commit messages: Conventional Commits (`feat:`, `fix:`, `chore:`, etc.)
+- PR titles: same prefix scheme; subject < 70 chars.
+- Branch naming: `<initials>/<short-kebab-summary>` (e.g., `sp/oauth-callback`).
+- Every PR needs a green CI; QA roles must run the test commands above.
+
+## Monorepo Scoping
+
+This is a monorepo. Packages:
+
+- `packages/web` — Next.js frontend
+- `packages/api` — Express backend
+- `packages/shared` — Shared types and utilities
+- `packages/infra` — Terraform / scripts
+
+Per-package `AGENTS.md` files override these defaults; see e.g. [packages/api/AGENTS.md](packages/api/AGENTS.md).
+
+## Destructive Scripts
+
+Project-specific commands with `irreversible` semantics (require explicit per-call approval):
+
+- `npm run db:reset` — drops and recreates the dev database
+- `bin/deploy prod` — production deployment
+- `bin/cleanup-old-staging` — purges all staging environments older than 7d
+- MCP `deploy.deploy_prod` — production deploy via deploy MCP server
+
+## Known Hazards
+
+- `packages/api/src/billing/` — Stripe integration; coordinate with finance before changes.
+- `packages/web/src/checkout/` — Conversion-critical; always run E2E before merge.
+- `migrations/` — Migrations are forward-only; use `data-schema-reviewer` for any schema change.
+- `lib/cache/` — Has subtle invalidation bugs; tests are flaky.
+
+## Notes for Agents
+
+- Prefer `Read` + targeted `Edit` over `Write` for existing files.
+- Run `npm run typecheck` after every batch of TypeScript edits before considering implementation complete.
+- For UI changes, dev server must be started and screenshots captured before claiming success.
+- If `AGENTS.md` itself is unclear, the agent should ask for clarification rather than guess.

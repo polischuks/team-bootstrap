@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://team-bootstrap/schemas/role-frontmatter.schema.json",
+  "title": "team-bootstrap role frontmatter",
+  "description": "Validates the YAML frontmatter at the top of each role.md file in references/roles/.",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "Role identifier; matches the role name used in pipelines and handoffs."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9a-zA-Z.-]+)?$",
+      "description": "Semantic version of the role playbook."
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Model the role was authored against (e.g. claude-opus-4-7)."
+    },
+    "compatible_pipelines": {
+      "type": "array",
+      "items": {
+        "enum": ["mvp", "full", "single-thread", "incident"]
+      },
+      "minItems": 1,
+      "uniqueItems": true,
+      "description": "Pipelines this role is allowed to participate in."
+    },
+    "tool_surface": {
+      "type": "object",
+      "properties": {
+        "allow": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true,
+          "description": "Tools the role may invoke. Built-in names (Read, Edit, Write, Bash, Grep, Glob, etc.) or `mcp__<server>__<tool>` for explicit MCP tools."
+        },
+        "deny": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true,
+          "description": "Tools explicitly forbidden, even if otherwise covered by `allow` or `mcp`."
+        },
+        "mcp": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true,
+          "description": "MCP server names; all of the server's tools are implicitly in `allow` unless listed in `deny`."
+        }
+      },
+      "required": ["allow", "deny", "mcp"],
+      "additionalProperties": false
+    },
+    "permission_mode": {
+      "enum": ["plan", "ask", "acceptEdits"],
+      "description": "Default permission mode the harness uses for this role's tool calls. See references/irreversibility.md."
+    }
+  },
+  "required": ["name", "version", "model", "compatible_pipelines", "tool_surface", "permission_mode"],
+  "additionalProperties": false
+}

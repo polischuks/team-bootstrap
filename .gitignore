@@ -1,0 +1,9 @@
+runs/
+*.trace.json
+.DS_Store
+.idea/
+.vscode/
+node_modules/
+__pycache__/
+*.pyc
+*.swp
