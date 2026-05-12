@@ -17,7 +17,9 @@ Dispatch **only** when context isolation strictly outweighs the cost of summariz
 | Long-form research (discovery-research with web fetches) | Web content is bulky and rarely needed by downstream roles verbatim |
 | User explicitly requests isolation for compliance reasons | Auditable separation of inputs |
 
-**Do not dispatch** for:
+### Do not dispatch
+
+For these roles, inline execution is mandatory by default ([subagent-mapping.md](subagent-mapping.md#inline-only-roles) lists the same set):
 
 - Planning roles (product-ba, delivery-manager, architects) — they need full context to make decisions
 - Implementation roles (backend, frontend) — edits + verification are tightly coupled and must stay coherent
@@ -89,6 +91,16 @@ This is the only place team-bootstrap intentionally fans out. The `full` pipelin
 
 ## Implementation note for orchestrator
 
-Use Claude Code's `Task` tool with `subagent_type: general-purpose` (or a more specific type if registered) and pass the structured input as the prompt. The orchestrator must include explicit instructions to return the handoff YAML — the `Task` tool returns one final string, so the prompt must direct the subagent to emit valid YAML.
+Use Claude Code's `Task` tool. **Resolve `subagent_type` from the role's `preferred_subagent_types` frontmatter** per [subagent-mapping.md](subagent-mapping.md):
 
-See [orchestrator.md](orchestrator.md) for the dispatch decision point in the execution loop.
+1. Read `preferred_subagent_types: [...]` from `references/roles/<role>.md` frontmatter.
+2. Apply stack overrides from [subagent-mapping.md](subagent-mapping.md) — e.g. `nextjs-developer` when `AGENTS.md > ## Stack` lists Next.js, `fastapi-developer` for FastAPI, etc. Stack vector is resolved **once** at run start and cached in run metadata.
+3. Walk the (possibly stack-overridden) list left-to-right; pick the first slug that resolves in the host environment.
+4. If none resolve, fall back to `subagent_type: general-purpose`.
+5. Record the resolved slug as `team_bootstrap.subagent_type` on the role span ([tracing.md](tracing.md)) so eval/replay sees the routing decision.
+
+The orchestrator's own guardrails (`tool_surface`, `permission_mode`, irreversibility class) are applied on top of the specialist's defaults — the specialist's expertise is used, but team-bootstrap wins on tools and permissions.
+
+The orchestrator must include explicit instructions to return the handoff YAML — the `Task` tool returns one final string, so the prompt must direct the subagent to emit valid YAML.
+
+See [orchestrator.md](orchestrator.md) for the dispatch decision point in the execution loop, and [subagent-mapping.md](subagent-mapping.md) for the role→specialist mapping table.

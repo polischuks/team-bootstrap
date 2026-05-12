@@ -8,6 +8,7 @@ tool_surface:
   deny: [Write, Edit, Bash]
   mcp: []
 permission_mode: plan
+preferred_subagent_types: [backend-architect, api-designer, architect-reviewer]
 ---
 
 # Solution Architect

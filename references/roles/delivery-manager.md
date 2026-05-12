@@ -8,6 +8,7 @@ tool_surface:
   deny: [Write, Edit, Bash]
   mcp: [linear]
 permission_mode: plan
+preferred_subagent_types: [studio-producer, sprint-prioritizer]
 ---
 
 # Delivery Manager

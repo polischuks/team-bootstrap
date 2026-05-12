@@ -8,6 +8,7 @@ tool_surface:
   deny: [Write, Edit, Bash]
   mcp: [notion]
 permission_mode: plan
+preferred_subagent_types: [docs-architect, api-documenter, tutorial-engineer, reference-builder]
 ---
 
 # Documentation Agent

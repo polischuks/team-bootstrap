@@ -26,7 +26,12 @@
     { "$ref": "#/$defs/data-schema-reviewer" },
     { "$ref": "#/$defs/test-designer" },
     { "$ref": "#/$defs/incident-responder" },
-    { "$ref": "#/$defs/stakeholder-communicator" }
+    { "$ref": "#/$defs/stakeholder-communicator" },
+    { "$ref": "#/$defs/ai-engineer" },
+    { "$ref": "#/$defs/ux-researcher" },
+    { "$ref": "#/$defs/whimsy-injector" },
+    { "$ref": "#/$defs/chaos-engineer" },
+    { "$ref": "#/$defs/legal-compliance-checker" }
   ],
   "$defs": {
     "artifact": {
@@ -333,6 +338,46 @@
       "allOf": [
         { "$ref": "#/$defs/base" },
         { "properties": { "role": { "const": "stakeholder-communicator" } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "ai-engineer": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        { "properties": { "role": { "const": "ai-engineer" } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "ux-researcher": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        { "properties": { "role": { "const": "ux-researcher" } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "whimsy-injector": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        { "properties": { "role": { "const": "whimsy-injector" } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "chaos-engineer": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        { "properties": { "role": { "const": "chaos-engineer" } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "legal-compliance-checker": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "role": { "const": "legal-compliance-checker" },
+            "release_recommendation": { "enum": ["hold", "conditional_go", "go"] }
+          }
+        }
       ],
       "unevaluatedProperties": false
     }

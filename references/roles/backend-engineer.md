@@ -8,6 +8,7 @@ tool_surface:
   deny: []
   mcp: []
 permission_mode: acceptEdits
+preferred_subagent_types: [backend-developer, fullstack-developer, backend-architect]
 ---
 
 # Backend Engineer

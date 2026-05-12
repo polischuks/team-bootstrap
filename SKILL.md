@@ -37,7 +37,7 @@ See [USAGE.md](USAGE.md) for full semantics.
    - [single-thread.md](references/pipelines/single-thread.md) — default
    - [mvp.md](references/pipelines/mvp.md) — 7 roles
    - [full.md](references/pipelines/full.md) — 20 roles
-3. For each role, load its playbook from [references/roles/](references/roles/), enforce the declared `tool_surface` and `permission_mode`, run inline or as subagent per [references/subagent-dispatch.md](references/subagent-dispatch.md).
+3. For each role, load its playbook from [references/roles/](references/roles/), enforce the declared `tool_surface` and `permission_mode`, run inline or as subagent per [references/subagent-dispatch.md](references/subagent-dispatch.md). When dispatching, resolve the concrete `subagent_type` from the role's `preferred_subagent_types` frontmatter per [references/subagent-mapping.md](references/subagent-mapping.md) (fallback: `general-purpose`).
 4. After each role, validate the handoff against [references/schemas/role-output.schema.json](references/schemas/role-output.schema.json) and append to the run document ([references/shared-blackboard.md](references/shared-blackboard.md)).
 5. Apply [references/failure-policy.md](references/failure-policy.md) on validation/blocked/needs_input.
 6. Apply [references/irreversibility.md](references/irreversibility.md) to gate destructive actions.
@@ -80,6 +80,7 @@ Operational:
 - [orchestrator.md](references/orchestrator.md) — execution loop
 - [shared-blackboard.md](references/shared-blackboard.md) — context propagation
 - [subagent-dispatch.md](references/subagent-dispatch.md) — when to spawn a subagent
+- [subagent-mapping.md](references/subagent-mapping.md) — role → specialist `subagent_type` routing table (v1.1)
 - [failure-policy.md](references/failure-policy.md) — retries, stop reasons, approvals
 - [irreversibility.md](references/irreversibility.md) — action class taxonomy
 

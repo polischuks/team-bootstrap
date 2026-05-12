@@ -8,6 +8,7 @@ tool_surface:
   deny: [Write, Edit, Bash]
   mcp: [linear, notion]
 permission_mode: plan
+preferred_subagent_types: [sprint-prioritizer]
 ---
 
 # Product Manager

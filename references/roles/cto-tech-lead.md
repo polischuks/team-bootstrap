@@ -8,6 +8,7 @@ tool_surface:
   deny: [Write, Edit, Bash]
   mcp: []
 permission_mode: plan
+preferred_subagent_types: [architect-reviewer, architect-review, backend-architect]
 ---
 
 # CTO Tech Lead

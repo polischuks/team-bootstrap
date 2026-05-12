@@ -8,6 +8,7 @@ tool_surface:
   deny: [Write, Edit]
   mcp: []
 permission_mode: plan
+preferred_subagent_types: [database-administrator, database-architect, database-optimizer, sql-pro]
 ---
 
 # Data Schema Reviewer

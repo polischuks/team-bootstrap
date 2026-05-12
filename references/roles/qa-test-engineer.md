@@ -8,6 +8,7 @@ tool_surface:
   deny: [Write, Edit]
   mcp: []
 permission_mode: ask
+preferred_subagent_types: [qa-expert, test-automator, test-writer-fixer, test-engineer]
 ---
 
 # QA And Test Engineer

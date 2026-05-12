@@ -8,6 +8,7 @@ tool_surface:
   deny: []
   mcp: []
 permission_mode: acceptEdits
+preferred_subagent_types: [frontend-developer, fullstack-developer, ui-designer]
 ---
 
 # Frontend Engineer

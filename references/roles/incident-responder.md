@@ -8,6 +8,7 @@ tool_surface:
   deny: []
   mcp: [pagerduty, slack, github]
 permission_mode: ask
+preferred_subagent_types: [incident-responder, devops-incident-responder, devops-troubleshooter, error-detective]
 ---
 
 # Incident Responder

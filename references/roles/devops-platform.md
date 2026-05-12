@@ -8,6 +8,7 @@ tool_surface:
   deny: [Write, Edit]
   mcp: [github]
 permission_mode: ask
+preferred_subagent_types: [devops-engineer, deployment-engineer, devops-automator, sre-engineer]
 ---
 
 # DevOps Platform

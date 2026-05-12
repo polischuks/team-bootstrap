@@ -28,7 +28,8 @@ Run a pipeline entirely inside Claude by:
 - Generate `run_id` (UUID).
 - Read AGENTS.md and validate required fields ([agents-md-contract.md](agents-md-contract.md)). On missing → `needs_input`, stop.
 - Discover available MCP servers ([mcp-integration.md](mcp-integration.md)). On missing strict-required server → `needs_input`, stop.
-- Initialize shared blackboard (run document) with metadata, spec, AGENTS.md hash ([shared-blackboard.md](shared-blackboard.md)).
+- Resolve the **stack vector** from `AGENTS.md > ## Stack` (or infer from manifests when missing); cache it in run metadata so all later subagent dispatches see the same stack ([subagent-mapping.md](subagent-mapping.md#stack-detection-rule)).
+- Initialize shared blackboard (run document) with metadata, spec, stack vector, AGENTS.md hash ([shared-blackboard.md](shared-blackboard.md)).
 - Open the run-level OpenTelemetry span ([tracing.md](tracing.md)).
 
 ### Step 1 — Pick the pipeline
@@ -45,12 +46,20 @@ For multi-role pipelines, pipeline = ordered role list. For single-thread, pipel
 
 Read `references/roles/<role>.md`. Validate the frontmatter against [schemas/role-frontmatter.schema.json](schemas/role-frontmatter.schema.json). Verify `compatible_pipelines` includes the active pipeline; if not, refuse to run and emit `stop_reason: unexpected_next_role`.
 
-### Step 3 — Decide inline vs subagent
+### Step 3 — Decide inline vs subagent (and resolve subagent_type)
 
 Per [subagent-dispatch.md](subagent-dispatch.md):
 
 - Default: **inline** — activate the role's instructions and proceed in the main thread.
 - Dispatch as subagent (Task tool) only for context-isolation triggers: research-heavy roles, parallel reviewers, deep audits.
+
+When the dispatch decision is "subagent", resolve the concrete `subagent_type` from the role's `preferred_subagent_types` frontmatter per [subagent-mapping.md](subagent-mapping.md):
+
+1. Read `preferred_subagent_types: [...]` from the role file.
+2. Apply stack overrides (resolved once in Step 0 from `AGENTS.md > ## Stack`).
+3. Walk left-to-right, pick the first slug the host can resolve.
+4. Fallback: `general-purpose`.
+5. Record the resolved slug as `team_bootstrap.subagent_type` on the role span.
 
 ### Step 4 — Execute the role
 
@@ -158,6 +167,7 @@ role: <role-name>
 
 - [shared-blackboard.md](shared-blackboard.md) — how context propagates
 - [subagent-dispatch.md](subagent-dispatch.md) — when to dispatch
+- [subagent-mapping.md](subagent-mapping.md) — role → `subagent_type` slug routing
 - [failure-policy.md](failure-policy.md) — retries, stop reasons, approvals
 - [irreversibility.md](irreversibility.md) — action gating
 - [tracing.md](tracing.md) — observability

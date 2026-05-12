@@ -8,6 +8,7 @@ tool_surface:
   deny: [Write, Edit, Bash]
   mcp: [slack]
 permission_mode: plan
+preferred_subagent_types: [content-creator, support-responder]
 ---
 
 # Stakeholder Communicator
