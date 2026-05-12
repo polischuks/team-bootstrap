@@ -2,7 +2,7 @@
 name: code-reviewer
 version: 1.0.0
 model: claude-opus-4-7
-compatible_pipelines: [full]
+compatible_pipelines: [full, audit]
 tool_surface:
   allow: [Read, Grep, Glob, Bash]
   deny: [Write, Edit]

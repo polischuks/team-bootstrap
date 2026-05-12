@@ -2,7 +2,7 @@
 name: security-reviewer
 version: 1.0.0
 model: claude-opus-4-7
-compatible_pipelines: [full, single-thread]
+compatible_pipelines: [full, single-thread, audit]
 tool_surface:
   allow: [Read, Grep, Glob, Bash]
   deny: [Write, Edit]

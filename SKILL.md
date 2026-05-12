@@ -20,13 +20,16 @@ Skill entry point. The product overview, install steps, usage, and architecture 
 team-bootstrap activates when the user types `/team-bootstrap <args>` or asks Claude to run a multi-role engineering workflow. Three invocation patterns:
 
 ```text
-/team-bootstrap single-thread <task>    # recommended default
-/team-bootstrap mvp <task>               # 7-role audit pipeline
-/team-bootstrap full <task>              # 20-role pipeline
+/team-bootstrap single-thread <task>    # recommended default for implementation
+/team-bootstrap mvp <task>               # 7-role implementation pipeline
+/team-bootstrap full <task>              # 20-role implementation pipeline
+/team-bootstrap audit <spec>             # 15-role read-only assessment, outputs prioritized backlog
 /team-bootstrap role <name> <task>       # single role
 /team-bootstrap resume <run_id>          # resume from checkpoint
 /team-bootstrap replay <run_id>          # re-run from trace
 ```
+
+The `audit` pipeline is read-only: it assesses an existing codebase against a reference (spec, design, production-readiness checklist) and outputs a prioritized backlog. Each backlog item then becomes a separate `single-thread` / `mvp` / `full` run.
 
 See [USAGE.md](USAGE.md) for full semantics.
 
@@ -34,9 +37,10 @@ See [USAGE.md](USAGE.md) for full semantics.
 
 1. Read [references/orchestrator.md](references/orchestrator.md) — drives the run loop.
 2. Pick the active pipeline at [references/pipelines/](references/pipelines/):
-   - [single-thread.md](references/pipelines/single-thread.md) — default
+   - [single-thread.md](references/pipelines/single-thread.md) — default for implementation
    - [mvp.md](references/pipelines/mvp.md) — 7 roles
    - [full.md](references/pipelines/full.md) — 20 roles
+   - [audit.md](references/pipelines/audit.md) — 15 roles, read-only assessment → backlog
 3. For each role, load its playbook from [references/roles/](references/roles/), enforce the declared `tool_surface` and `permission_mode`, run inline or as subagent per [references/subagent-dispatch.md](references/subagent-dispatch.md). When dispatching, resolve the concrete `subagent_type` from the role's `preferred_subagent_types` frontmatter per [references/subagent-mapping.md](references/subagent-mapping.md) (fallback: `general-purpose`).
 4. After each role, validate the handoff against [references/schemas/role-output.schema.json](references/schemas/role-output.schema.json) and append to the run document ([references/shared-blackboard.md](references/shared-blackboard.md)).
 5. Apply [references/failure-policy.md](references/failure-policy.md) on validation/blocked/needs_input.

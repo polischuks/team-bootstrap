@@ -1,5 +1,27 @@
 # Role Matrix
 
+## Audit Team (15 roles, read-only)
+
+Use this for project-state assessment against a reference (spec, design, production-readiness checklist). Output: prioritized backlog. Each item then runs through `single-thread` / `mvp` / `full` separately. See [pipelines/audit.md](pipelines/audit.md).
+
+| Role | Purpose |
+| --- | --- |
+| `discovery-research` | Gather external context: spec docs, design refs, standards. |
+| `cto-tech-lead` | Set quality bar and risk posture for the audit. |
+| `solution-architect` | Assess architecture against spec; identify structural gaps. |
+| `data-schema-reviewer` | Schema, migrations, data integrity. |
+| `security-reviewer` | OWASP, secrets, auth, PII. |
+| `accessibility-reviewer` | WCAG compliance of shipped UI. |
+| `performance-reviewer` | N+1, memory, scalability, hot paths. |
+| `ai-engineer` (optional) | LLM/RAG/agent layer state, evals, cost. |
+| `legal-compliance-checker` (optional) | GDPR/CCPA/HIPAA/PCI/COPPA/platform-policy. |
+| `ux-researcher` (optional) | Design compliance, friction. |
+| `qa-test-engineer` | Test coverage, suite health. |
+| `overengineering-reviewer` | Complexity vs value. |
+| `code-reviewer` | Overall code quality, conventions. |
+| `documentation-agent` | Docs gap analysis. |
+| `release-manager` | Synthesize → backlog + go/no_go. |
+
 ## MVP Team (7 roles)
 
 Use this by default for quick iterations.
@@ -54,6 +76,7 @@ Use this for production releases with full quality gates.
 
 ## Selection Rule
 
+- **Audit:** Project-state assessment, production-readiness review, quarterly health check. Read-only; outputs a backlog for `single-thread` / `mvp` / `full` follow-up runs.
 - **MVP:** Quick iterations, internal tools, low-risk changes.
 - **Full:** Production releases, customer-facing features, security-sensitive changes.
 - **With security-reviewer:** Any auth, payment, PII, or external API integration.

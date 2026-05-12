@@ -27,7 +27,7 @@ run                                    span_kind=internal
 | Attribute | Type | Example |
 |---|---|---|
 | `run.id` | string (UUID) | `01HJ7…` |
-| `run.pipeline` | string | `mvp`, `full`, `single-thread` |
+| `run.pipeline` | string | `mvp`, `full`, `single-thread`, `audit`, `incident` |
 | `run.spec_path` | string | `./specs/oauth.md` |
 | `run.repo_root` | string | `/path/to/repo` |
 | `run.started_at` | RFC 3339 | `2026-05-10T14:23:00Z` |

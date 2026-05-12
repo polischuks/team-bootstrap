@@ -17,7 +17,7 @@ Run a pipeline entirely inside Claude by:
 
 - Project spec or task brief
 - Repository `AGENTS.md` (or `CLAUDE.md`) — required-field check per [agents-md-contract.md](agents-md-contract.md); missing fields → `needs_input` and stop
-- Selected pipeline: `single-thread` (default) | `mvp` | `full` | `incident` (for incident response)
+- Selected pipeline: `single-thread` (default) | `mvp` | `full` | `audit` (read-only assessment) | `incident` (for incident response)
 - Optional explicit stop point ("run until QA")
 - Optional resume token (run_id from a prior run; see [memory.md](memory.md))
 
@@ -36,11 +36,12 @@ Run a pipeline entirely inside Claude by:
 
 Read the active pipeline:
 
-- [pipelines/single-thread.md](pipelines/single-thread.md) — default
+- [pipelines/single-thread.md](pipelines/single-thread.md) — default for implementation
 - [pipelines/mvp.md](pipelines/mvp.md) — 7 roles
 - [pipelines/full.md](pipelines/full.md) — 20 roles
+- [pipelines/audit.md](pipelines/audit.md) — 15 roles, read-only assessment → prioritized backlog
 
-For multi-role pipelines, pipeline = ordered role list. For single-thread, pipeline = three logical phases (plan → implement → verify).
+For multi-role pipelines, pipeline = ordered role list. For single-thread, pipeline = three logical phases (plan → implement → verify). `audit` runs read-only: implementation roles are excluded by contract; verify the pipeline's role list excludes any role with `Write`/`Edit` in `tool_surface.allow`.
 
 ### Step 2 — Load the next role
 

@@ -25,7 +25,7 @@ The run document is markdown:
 
 - run_id: <uuid>
 - workflow: team-bootstrap
-- pipeline: mvp | full | single-thread
+- pipeline: mvp | full | single-thread | audit | incident
 - spec: <path-to-spec>
 - repository: <repo-path>
 - started_at: <ISO timestamp>
