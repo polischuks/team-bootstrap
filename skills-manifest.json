@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Skills referenced by team-bootstrap roles. Skills are external to this repo — install separately from your skill marketplace of choice (e.g. /plugin install <name>, or git clone into ~/.claude/skills/). Run bin/check-skills.sh to verify presence before invoking the relevant pipelines.",
   "skill_root": "~/.claude/skills",
   "pipelines": {
@@ -71,6 +71,67 @@
           "purpose": "Parse Word contract templates; produce memo as .docx deliverable",
           "fallback": "Convert to markdown first",
           "note": "Bundled with Anthropic skill pack"
+        }
+      ]
+    },
+    "full": {
+      "required": [],
+      "recommended": [
+        {
+          "name": "frontend-ui-engineering",
+          "used_by": ["ui-designer"],
+          "purpose": "Production-quality UI patterns — design-system adherence, accessibility, composition rules, anti-AI-aesthetic principles. Highest-leverage skill for ui-designer; without it the reference prototype tends toward generic AI aesthetic.",
+          "fallback": "Manual reference from shadcn/ui + Tailwind docs; significantly less coherent design system output"
+        },
+        {
+          "name": "research-synthesis",
+          "used_by": ["ux-designer"],
+          "purpose": "Synthesize raw user research (transcripts, NPS, support tickets) into themes + segment patterns before flow design. Same skill used by audit-dd's customer-health-analyst.",
+          "fallback": "Read transcripts directly, summarize manually"
+        },
+        {
+          "name": "idea-refine",
+          "used_by": ["ux-designer", "ui-designer"],
+          "purpose": "Divergent → convergent thinking for greenfield design space (new product, novel interaction paradigm, no existing visual identity). Without it, designs converge on familiar-but-wrong patterns.",
+          "fallback": "Manual brainstorming + critique (more passes needed)"
+        },
+        {
+          "name": "competitor-analysis",
+          "used_by": ["ux-designer", "ui-designer"],
+          "purpose": "Map specific UX/UI patterns from named reference products (e.g. 'Linear-like', 'Notion-feel') with rationale for adoption/divergence. Concrete patterns instead of aesthetic vibes.",
+          "fallback": "WebFetch reference products + manual pattern extraction"
+        }
+      ],
+      "optional": [
+        {
+          "name": "api-and-interface-design",
+          "used_by": ["ui-designer"],
+          "purpose": "Component prop contract design — composition vs configuration, slot patterns, hard-to-misuse APIs at the component-interface level.",
+          "fallback": "Reference shadcn/ui prop patterns; less rigorous interface design"
+        },
+        {
+          "name": "image-generation",
+          "used_by": ["ui-designer"],
+          "purpose": "Custom iconography or illustration reference (agent glyphs, empty-state art, brand imagery preview before commissioning).",
+          "fallback": "Source from existing icon libraries (Phosphor, Lucide, Heroicons); commission custom work separately"
+        },
+        {
+          "name": "documentation-and-adrs",
+          "used_by": ["ui-designer"],
+          "purpose": "Design-system ADRs (token naming rationale, motion timing decisions, color palette choices) that survive team changes.",
+          "fallback": "Inline rationale in design tokens file"
+        },
+        {
+          "name": "tavily-research",
+          "used_by": ["ux-designer"],
+          "purpose": "Cited examples of established UX patterns for novel interactions (agentic UIs, approval queues, training loops).",
+          "fallback": "WebSearch + manual pattern collection"
+        },
+        {
+          "name": "persona-customer-support",
+          "used_by": ["ux-designer"],
+          "purpose": "Persona constraints + ticket triage flow patterns when designing customer-facing operator interfaces.",
+          "fallback": "Manual persona modeling from product brief"
         }
       ]
     }

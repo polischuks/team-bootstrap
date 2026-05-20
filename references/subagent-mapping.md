@@ -58,6 +58,15 @@ The harness — not the LLM — enforces `tool_surface` and `permission_mode` fr
 | `chaos-engineer` | `chaos-engineer` | — | `sre-engineer`, `general-purpose` |
 | `legal-compliance-checker` | `legal-compliance-checker` | `regulated framework audit (HIPAA/PCI/SOC2/GDPR) → compliance-auditor` | `general-purpose` |
 
+## Design roles (v1.3 — dedicated UX + UI design stages)
+
+| Role | Primary | Stack overrides | Fallbacks |
+| --- | --- | --- | --- |
+| `ux-designer` | `ux-researcher` | — | `ui-designer`, `design-bridge`, `general-purpose` |
+| `ui-designer` | `ui-designer` | — | `design-bridge`, `frontend-developer`, `general-purpose` |
+
+**Inline-only by default:** Both design roles produce artifacts that downstream roles inherit (component inventory, design tokens, reference prototype). Fragmenting them across subagent contexts risks `frontend-engineer` missing the design-token-to-implementation handoff or the UX writing guidelines. Dispatch only with explicit `--isolate` when running an audit-only design review with no implementation downstream.
+
 ## Audit-DD roles (v1.2 — commercial / financial DD)
 
 These six roles are exclusive to the `audit-dd` pipeline. None have a perfect-fit specialist subagent (DD is a generalist task crossing finance, market research, legal, and HR domains), so most route through `general-purpose` with at least one narrower fallback for partial coverage.
@@ -91,6 +100,7 @@ These roles **must not** be dispatched as subagents (see [subagent-dispatch.md](
 - `stakeholder-communicator` — depends on release decision context
 - `investment-thesis-author` — final synthesizer for `audit-dd`; must read all prior DD blackboard
 - All other `audit-dd` roles — see Audit-DD section above; cross-axis correlations need shared context
+- `ux-designer`, `ui-designer` — see Design roles section above; design artifacts (IA / tokens / prototype) inherited by downstream roles
 
 Their `preferred_subagent_types` is still set (for the rare override case: e.g. user explicitly requests `--isolate` on an architect role for compliance separation). The default is inline.
 

@@ -70,6 +70,8 @@ Use this for production releases with full quality gates.
 | `incident-responder` | Execute rollback, post-mortem, prevention planning. | Production incident | (separate `incident` pipeline) |
 | `ai-engineer` | Implement LLM/RAG/agent features with evals and cost budgets. | Spec mentions LLM/RAG/agents/embeddings | `solution-architect` (before implementation) |
 | `ux-researcher` | Surface user segments, friction, mental models. | New user-facing flow without prior research | `discovery-research` (before product-manager) |
+| `ux-designer` | Translate research into IA, flows, wireframes, interaction patterns, mental-model mapping, UX writing. | New user-facing product/feature; novel interaction patterns; UX = core moat | `ux-researcher` or `product-manager` (before ui-designer) |
+| `ui-designer` | Translate UX architecture into design tokens, component library, reference prototype. | New product visual identity; design-system from scratch; visual polish = differentiation | `ux-designer` (before frontend-engineer) |
 | `whimsy-injector` | Add delightful micro-interactions, copy, animations. | New user-facing UI surface | `frontend-engineer` (before accessibility-reviewer) |
 | `chaos-engineer` | Design (and optionally run) failure experiments. | New external dep in hot path; SLO change | `qa-test-engineer` (before release-manager) |
 | `legal-compliance-checker` | Flag GDPR/CCPA/HIPAA/PCI/COPPA/platform-policy obligations. | PII/PHI/payments/new region/new processor | `security-reviewer` (before release-manager) |
@@ -99,6 +101,8 @@ Use this for **commercial / financial / strategic** due diligence — pre-fundra
 - **With performance-reviewer:** Any data-heavy or high-traffic endpoints.
 - **With ai-engineer:** Any LLM/RAG/agent/embeddings feature.
 - **With ux-researcher:** New audience or redesigned flow without prior research.
+- **With ux-designer:** New user-facing product/feature with novel flows; UX architecture decisions can't be left to frontend-engineer's discretion.
+- **With ui-designer:** New product visual identity; need design tokens + reference prototype before frontend implementation.
 - **With whimsy-injector:** New user-facing surface where delight matters.
 - **With chaos-engineer:** New hot-path dependency or tightened SLO.
 - **With legal-compliance-checker:** PII/PHI/payments, new region, new processor, or platform-policy surface.

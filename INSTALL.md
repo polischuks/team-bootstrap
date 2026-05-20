@@ -132,6 +132,47 @@ The `anthropic-skills:*` namespace is Anthropic's bundled skill pack — availab
 bin/check-skills.sh audit-dd --json | jq '.recommended_missing'
 ```
 
+## Optional: Full pipeline — install referenced skills for design roles
+
+The `full` pipeline becomes meaningfully stronger when `ux-designer` and `ui-designer` are inserted between research/product and frontend implementation. Both roles **gracefully degrade** without their recommended skills (output drops in quality but role still runs), but the design system + reference prototype is materially weaker.
+
+### Verify what's already installed
+
+```bash
+bin/check-skills.sh full
+```
+
+Same output legend as `audit-dd`.
+
+### Skill catalog for ux-designer + ui-designer (full pipeline)
+
+| Skill | Role(s) | Purpose | Fallback if missing |
+|---|---|---|---|
+| `frontend-ui-engineering` | ui-designer | Production-quality UI patterns, design-system adherence, anti-AI-aesthetic principles | Manual shadcn/ui + Tailwind reference (less coherent system) |
+| `research-synthesis` | ux-designer | Synthesize raw user research into themes before flow design | Read transcripts directly, summarize manually |
+| `idea-refine` | ux-designer / ui-designer | Divergent → convergent thinking for greenfield design space | Manual brainstorm + critique (more passes) |
+| `competitor-analysis` | ux-designer / ui-designer | Specific UX/UI patterns from named reference products with rationale | WebFetch + manual extraction |
+| `api-and-interface-design` *(optional)* | ui-designer | Component prop contracts — composition vs configuration, slot patterns | Reference shadcn/ui patterns; less rigorous |
+| `image-generation` *(optional)* | ui-designer | Custom iconography / illustration reference before commissioning | Existing icon libraries (Phosphor, Lucide); commission separately |
+| `documentation-and-adrs` *(optional)* | ui-designer | Design-system ADRs (token rationale, motion decisions) | Inline rationale in tokens file |
+| `tavily-research` *(optional)* | ux-designer | Cited examples of established UX patterns for novel interactions | WebSearch + manual pattern collection |
+| `persona-customer-support` *(optional)* | ux-designer | Persona + ticket triage flow patterns for operator interfaces | Manual persona modeling from product brief |
+
+### When to actually install these
+
+The full pipeline's design stages are **opt-in** (see [pipelines/full.md](references/pipelines/full.md) — "Design stages — when to include"). Skill install priority follows the same logic:
+
+- **Greenfield consumer / prosumer product** — install all 4 recommended (`frontend-ui-engineering`, `research-synthesis`, `idea-refine`, `competitor-analysis`); strongly consider `image-generation` + `documentation-and-adrs`
+- **B2B product where UX = core moat** — install all 4 recommended; `tavily-research` if novel interaction patterns
+- **Internal admin tool / dashboard** — skip design stages entirely; no design skills needed
+- **Iteration on existing design system** — install `frontend-ui-engineering` only (visual coherence with existing tokens)
+
+### CI integration
+
+```bash
+bin/check-skills.sh full --json | jq '.recommended_missing'
+```
+
 ## Uninstall
 
 ```bash

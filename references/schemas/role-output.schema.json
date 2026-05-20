@@ -29,6 +29,8 @@
     { "$ref": "#/$defs/stakeholder-communicator" },
     { "$ref": "#/$defs/ai-engineer" },
     { "$ref": "#/$defs/ux-researcher" },
+    { "$ref": "#/$defs/ux-designer" },
+    { "$ref": "#/$defs/ui-designer" },
     { "$ref": "#/$defs/whimsy-injector" },
     { "$ref": "#/$defs/chaos-engineer" },
     { "$ref": "#/$defs/legal-compliance-checker" },
@@ -358,6 +360,20 @@
       "allOf": [
         { "$ref": "#/$defs/base" },
         { "properties": { "role": { "const": "ux-researcher" } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "ux-designer": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        { "properties": { "role": { "const": "ux-designer" } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "ui-designer": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        { "properties": { "role": { "const": "ui-designer" } } }
       ],
       "unevaluatedProperties": false
     },

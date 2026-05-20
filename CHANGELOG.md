@@ -2,6 +2,47 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-05-20
+
+### Added
+
+Dedicated UX/UI design stages for the `full` and `single-thread` pipelines. Closes a gap from v1.0–v1.2 where `frontend-engineer` was expected to consume "UI specs" that no upstream role produced — design decisions defaulted to runtime intuition, which is the root cause of generic AI-aesthetic output across the pipeline.
+
+- **`ux-designer` role** ([references/roles/ux-designer.md](references/roles/ux-designer.md)) — Translates research into interaction architecture: information architecture, user flows, screen-by-screen wireframes (structural only, no visual styling), interaction patterns, mental-model mapping, UX writing guidelines. Position: after `ux-researcher` (or `product-manager` if research skipped), before `ui-designer`. Inline-only by default (downstream roles inherit component inventory + mental model).
+
+- **`ui-designer` role** ([references/roles/ui-designer.md](references/roles/ui-designer.md)) — Translates UX architecture into visual design: design tokens (color/type/spacing/motion/radii), component library spec (variants/states/a11y contract), screen-by-screen reference prototype in HTML + Tailwind, implementation mapping (component → primitive → token usage). Position: after `ux-designer`, before `frontend-engineer`. Inline-only by default.
+
+- **Skill ecosystem integration for both roles** — `Skill` in `tool_surface.allow`; `## Recommended skills` section per role with skill-name → when-to-invoke → what-it-gives mapping:
+  - `ux-designer`: `research-synthesis`, `idea-refine`, `competitor-analysis`, `tavily-research`, `persona-customer-support`
+  - `ui-designer`: `frontend-ui-engineering` (highest-leverage), `api-and-interface-design`, `image-generation`, `competitor-analysis`, `documentation-and-adrs`, `idea-refine`
+  - All recommended skills present in canonical local skill installs (`~/.claude/skills/<name>/SKILL.md`)
+
+- **`skills-manifest.json`** v1.1.0 — added `full` pipeline section with 4 recommended + 5 optional skills per design role. `bin/check-skills.sh full` now verifies install state for design stages.
+
+- **`pipelines/full.md`** updated — new "Optional Roles" section explicitly lists `ux-designer` + `ui-designer` insertion points; new "Design stages — when to include" decision matrix; updated role flow diagram with optional design stage branches.
+
+- **`subagent-mapping.md`** updated — new "Design roles (v1.3 — dedicated UX + UI design stages)" section with primary + fallback subagent types; both roles added to inline-only list.
+
+- **`role-matrix.md`** updated — both roles in Optional Roles table with triggers + "Inserts after" position; new selection-rule entries.
+
+- **`role-output.schema.json`** updated — `ux-designer` + `ui-designer` added to root `oneOf`; new per-role definitions extending `base`.
+
+- **`INSTALL.md`** updated with new "Full pipeline — install referenced skills for design roles" section. Includes per-skill table + "When to actually install these" decision matrix (greenfield consumer / B2B / internal tool / iteration).
+
+### Why dedicated design stages
+
+The pipeline previously assumed UI specs would arrive from somewhere — `product-manager` produces requirements (the *what*), but neither requirements nor research produce IA/flows/wireframes/tokens (the *how*). Without dedicated design roles, `frontend-engineer` makes visual decisions at implementation time, which is the wrong cognitive context (focus on code correctness, not design coherence). Result: generic AI-aesthetic interfaces that look obviously LLM-generated.
+
+For products where UX = differentiation moat (operator-first tools, prosumer apps, AI-native workflows, anything consumer-facing), this is the difference between shippable and shippable-by-a-top-company.
+
+### Migration
+
+Backwards compatible — no breaking changes to existing roles or pipelines. Existing `mvp` / `full` / `single-thread` / `audit` / `audit-dd` runs continue unchanged when design roles are not opted in. Opt into design stages by inserting `ux-designer` and/or `ui-designer` in the pipeline per the [pipelines/full.md](references/pipelines/full.md) "Design stages — when to include" decision matrix.
+
+### Inline-only rationale
+
+Both `ux-designer` and `ui-designer` run inline by default — their artifacts (IA / wireframes / tokens / reference prototype) are inherited by `frontend-engineer` as the foundation for implementation. Fragmenting them across subagent contexts risks design-token-to-implementation mismatches that produce visual inconsistency in the shipped UI. Dispatch only with explicit `--isolate` when running an audit-only design review with no implementation downstream.
+
 ## [1.2.1] - 2026-05-20
 
 ### Added
