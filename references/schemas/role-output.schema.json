@@ -31,7 +31,13 @@
     { "$ref": "#/$defs/ux-researcher" },
     { "$ref": "#/$defs/whimsy-injector" },
     { "$ref": "#/$defs/chaos-engineer" },
-    { "$ref": "#/$defs/legal-compliance-checker" }
+    { "$ref": "#/$defs/legal-compliance-checker" },
+    { "$ref": "#/$defs/financial-analyst" },
+    { "$ref": "#/$defs/market-analyst" },
+    { "$ref": "#/$defs/customer-health-analyst" },
+    { "$ref": "#/$defs/ip-contracts-reviewer" },
+    { "$ref": "#/$defs/culture-team-dd" },
+    { "$ref": "#/$defs/investment-thesis-author" }
   ],
   "$defs": {
     "artifact": {
@@ -377,6 +383,101 @@
             "role": { "const": "legal-compliance-checker" },
             "release_recommendation": { "enum": ["hold", "conditional_go", "go"] }
           }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "financial-analyst": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "role": { "const": "financial-analyst" },
+            "financial_verdict": { "enum": ["green", "yellow", "red"] },
+            "runway_months": { "type": "integer", "minimum": 0 },
+            "arr_current": { "type": "number", "minimum": 0 },
+            "nrr_pct": { "type": "number" },
+            "rule_of_40": { "type": "number" }
+          },
+          "required": ["financial_verdict"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "market-analyst": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "role": { "const": "market-analyst" },
+            "market_verdict": { "enum": ["green", "yellow", "red"] },
+            "tam_estimate": { "type": "number", "minimum": 0 },
+            "moat_composite_score": { "type": "number", "minimum": 1, "maximum": 5 },
+            "ai_displacement_horizon_months": { "type": "integer", "minimum": 0 }
+          },
+          "required": ["market_verdict"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "customer-health-analyst": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "role": { "const": "customer-health-analyst" },
+            "customer_health_verdict": { "enum": ["green", "yellow", "red"] },
+            "nrr_pct": { "type": "number" },
+            "grr_pct": { "type": "number" },
+            "top_customer_share_pct": { "type": "number", "minimum": 0, "maximum": 100 }
+          },
+          "required": ["customer_health_verdict"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "ip-contracts-reviewer": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "role": { "const": "ip-contracts-reviewer" },
+            "ip_verdict": { "enum": ["green", "yellow", "red"] },
+            "agpl_in_server": { "type": "boolean" },
+            "critical_contract_clauses": { "type": "integer", "minimum": 0 }
+          },
+          "required": ["ip_verdict"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "culture-team-dd": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "role": { "const": "culture-team-dd" },
+            "org_verdict": { "enum": ["green", "yellow", "red"] },
+            "bus_factor_critical_roles": { "type": "integer", "minimum": 0 },
+            "attrition_12mo_pct": { "type": "number", "minimum": 0, "maximum": 100 }
+          },
+          "required": ["org_verdict"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "investment-thesis-author": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "role": { "const": "investment-thesis-author" },
+            "investment_recommendation": { "enum": ["invest", "pass", "conditional"] },
+            "thesis_confidence": { "enum": ["high", "medium", "low"] },
+            "top_risk_severity": { "enum": ["critical", "high", "medium", "low"] },
+            "probability_weighted_moic": { "type": "number", "minimum": 0 }
+          },
+          "required": ["investment_recommendation", "thesis_confidence"]
         }
       ],
       "unevaluatedProperties": false

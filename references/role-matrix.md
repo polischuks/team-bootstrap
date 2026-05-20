@@ -74,9 +74,23 @@ Use this for production releases with full quality gates.
 | `chaos-engineer` | Design (and optionally run) failure experiments. | New external dep in hot path; SLO change | `qa-test-engineer` (before release-manager) |
 | `legal-compliance-checker` | Flag GDPR/CCPA/HIPAA/PCI/COPPA/platform-policy obligations. | PII/PHI/payments/new region/new processor | `security-reviewer` (before release-manager) |
 
+## Audit-DD Team (6 roles, read-only)
+
+Use this for **commercial / financial / strategic** due diligence — pre-fundraise, M&A, board prep, annual review. Distinct from `audit` (technical / operational). Composes well with `audit`: run technical audit first, then DD around it. See [pipelines/audit-dd.md](pipelines/audit-dd.md).
+
+| Role | Purpose |
+| --- | --- |
+| `financial-analyst` | ARR build, unit economics, capital efficiency, valuation (Bull/Base/Bear). 2026 benchmarks: NRR ≥ 110%, Rule of 40 ≥ 40%, Burn Multiple < 2×. |
+| `market-analyst` | TAM/SAM/SOM (triangulated top-down × bottoms-up), 5-vector moat scoring, AI-search displacement risk. |
+| `customer-health-analyst` | Cohort retention curves, NRR/GRR/logo retention separately, concentration table, AI-product-specific signals. |
+| `ip-contracts-reviewer` | OSS license audit (AGPL/SSPL/Elastic-2.0 contamination), foundation-model TOS (2026-aware), customer contract red flags, data residency (GDPR/CCPA/India DPDPA). |
+| `culture-team-dd` | Org depth, key-person risk (bus factor), retention signals, comp posture, founder dynamics, ethically-gathered public sentiment. |
+| `investment-thesis-author` | Synthesize → one-page memo + ten-page deep dive + invest/pass/conditional verdict with probability-weighted MOIC. |
+
 ## Selection Rule
 
 - **Audit:** Project-state assessment, production-readiness review, quarterly health check. Read-only; outputs a backlog for `single-thread` / `mvp` / `full` follow-up runs.
+- **Audit-DD:** Pre-fundraise, M&A, board prep — commercial / financial / strategic DD. Outputs investor-grade memo. Compose with `audit` for full technical + commercial coverage.
 - **MVP:** Quick iterations, internal tools, low-risk changes.
 - **Full:** Production releases, customer-facing features, security-sensitive changes.
 - **With security-reviewer:** Any auth, payment, PII, or external API integration.

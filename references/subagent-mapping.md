@@ -58,6 +58,21 @@ The harness — not the LLM — enforces `tool_surface` and `permission_mode` fr
 | `chaos-engineer` | `chaos-engineer` | — | `sre-engineer`, `general-purpose` |
 | `legal-compliance-checker` | `legal-compliance-checker` | `regulated framework audit (HIPAA/PCI/SOC2/GDPR) → compliance-auditor` | `general-purpose` |
 
+## Audit-DD roles (v1.2 — commercial / financial DD)
+
+These six roles are exclusive to the `audit-dd` pipeline. None have a perfect-fit specialist subagent (DD is a generalist task crossing finance, market research, legal, and HR domains), so most route through `general-purpose` with at least one narrower fallback for partial coverage.
+
+| Role | Primary | Stack overrides | Fallbacks |
+| --- | --- | --- | --- |
+| `financial-analyst` | `business-analyst` | — | `general-purpose` |
+| `market-analyst` | `trend-researcher` | — | `general-purpose` |
+| `customer-health-analyst` | `feedback-synthesizer` | — | `business-analyst`, `general-purpose` |
+| `ip-contracts-reviewer` | `compliance-auditor` | `pure regulatory audit → legal-compliance-checker` | `general-purpose` |
+| `culture-team-dd` | `feedback-synthesizer` | — | `general-purpose` |
+| `investment-thesis-author` | `general-purpose` | — | (terminal — no fallback chain needed; orchestrator always runs inline as final synthesizer) |
+
+**Inline-only:** All six roles should generally run **inline** (not dispatched as subagents) because each one's findings feed into `investment-thesis-author`'s synthesis — fragmenting them across subagent contexts risks the synthesizer missing cross-axis correlations (e.g. a financial red flag that explains a customer-health pattern). Dispatch only with explicit `--isolate` for compliance-separation reasons.
+
 ## Stack-detection rule
 
 The orchestrator reads `AGENTS.md > ## Stack` (or, missing that, infers from package manifests: `package.json`, `pyproject.toml`, `go.mod`, `Cargo.toml`, `Gemfile`, `composer.json`, `*.csproj`). Detection happens **once** at run start; the resolved stack vector is recorded in the run metadata so subsequent role dispatches use it deterministically.
@@ -74,6 +89,8 @@ These roles **must not** be dispatched as subagents (see [subagent-dispatch.md](
 - `backend-engineer`, `frontend-engineer` — edit + verify must stay coherent in the main thread
 - `release-manager`, `release-docs` — final go/no-go decision needs full blackboard
 - `stakeholder-communicator` — depends on release decision context
+- `investment-thesis-author` — final synthesizer for `audit-dd`; must read all prior DD blackboard
+- All other `audit-dd` roles — see Audit-DD section above; cross-axis correlations need shared context
 
 Their `preferred_subagent_types` is still set (for the rare override case: e.g. user explicitly requests `--isolate` on an architect role for compliance separation). The default is inline.
 

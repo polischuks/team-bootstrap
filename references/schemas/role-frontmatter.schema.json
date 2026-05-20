@@ -23,7 +23,7 @@
     "compatible_pipelines": {
       "type": "array",
       "items": {
-        "enum": ["mvp", "full", "single-thread", "incident", "audit"]
+        "enum": ["mvp", "full", "single-thread", "incident", "audit", "audit-dd"]
       },
       "minItems": 1,
       "uniqueItems": true,
