@@ -2,6 +2,128 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-05-20
+
+### Added
+
+**Senior-grade skill integration across all 29 previously skill-less roles + 2026 best-practice rules.** Pre-v1.6, only 13 of 42 roles had skills integrated (the v1.2.1 audit-dd team, v1.3 design roles, v1.4 marketing roles, v1.5 post-release roles). v1.6 backfills the remaining 29 roles with senior-grade skill integration patterns.
+
+**Roles updated to v1.1.0 with skill integration + senior-grade rules:**
+
+*Implementation (3):*
+- `backend-engineer` — TDD + source-driven + incremental + security-as-code patterns
+- `frontend-engineer` — production UI + browser-testing + performance budget enforcement
+- `devops-platform` — CI-as-code + deploy-checklist + security-hardening + observability-first
+
+*Architecture (3):*
+- `cto-architect` — ADR-grade decisions + stable interface contracts + convergent design
+- `solution-architect` — interface boundaries + ADRs + integration-pattern decisions
+- `cto-tech-lead` — multi-axis quality framework + adversarial verification + ADR-grade standards
+
+*Strategic & Discovery (5):*
+- `discovery-research` — cited research + competitive intelligence + AI-visibility baseline
+- `product-manager` — convergent prioritization + ICP precision + AI-displacement awareness
+- `product-ba` — spec-driven requirements + edge-case discipline + ADR records
+- `business-analyst` — spec-grade requirements + research synthesis + NFRs first-class
+- `delivery-manager` — task decomposition + incremental delivery + parallelism documented
+
+*Review & Quality (8):*
+- `test-designer` — TDD discipline + adversarial coverage + property-based tests
+- `qa-test-engineer` — real-browser verification + root-cause debugging + multi-tenant isolation tests
+- `accessibility-reviewer` — UI-engineering patterns + real-browser a11y tree + WCAG 2.2 awareness
+- `performance-reviewer` — profile-first + CWV budget enforcement + LLM cost budgets
+- `security-reviewer` — security-hardening + LLM-specific threats + multi-tenant as security boundary
+- `data-schema-reviewer` — migration safety + multi-tenancy isolation + audit-log immutability
+- `overengineering-reviewer` — simplification patterns + YAGNI + AI-aesthetic detection
+- `code-reviewer` — multi-axis review + AI-generated code awareness + test correctness verification
+
+*Release & Communication (4):*
+- `release-manager` — shipping checklist + staged rollout + observability pre-verification
+- `release-docs` — runbook discipline + ADR-grade configuration documentation
+- `stakeholder-communicator` — humanized customer comms + outcome-led framing
+- `documentation-agent` — ADR-grade docs + humanized end-user content
+
+*Optional / Specialty (6):*
+- `ux-researcher` — research synthesis + competitive UX + persona-grounded friction
+- `whimsy-injector` — production UI + humanized whimsy copy + brand-consistent voice
+- `ai-engineer` — context engineering + LLM TDD + AI-visibility measurement + multi-provider architecture
+- `chaos-engineer` — experiment-as-code + ADR-grade hypothesis records + LLM failure modes
+- `legal-compliance-checker` — cited 2026-current research + structured policy extraction + EU AI Act
+- `incident-responder` — systematic root-cause + blameless postmortems + humanized status updates
+
+### Skill mappings — all locally installed
+
+All skills referenced by new role integrations are present in the canonical local installs (`~/.claude/skills/<name>/SKILL.md`). No new skills to install — v1.6 leverages the existing 47-skill local set fully.
+
+**`skills-manifest.json` v1.4.0** — `full` pipeline section now declares **5 required + 12 recommended + 25 optional skills** with `used_by` lists covering all 42 roles. `bin/check-skills.sh full` resolves all 42 in reference setup.
+
+**Highest-coverage skills** (used across many roles):
+- `documentation-and-adrs` — **14 roles** (canonical documentation pattern)
+- `competitor-analysis` — 9 roles
+- `tavily-research` — 9 roles
+- `copywriter` — 7 roles
+- `idea-refine` — 8 roles
+- `research-synthesis` — 6 roles
+- `data-storyteller` — 5 roles
+- `test-driven-development` — 5 roles
+- `code-review-and-quality` — 5 roles
+- `spec-driven-development` — 5 roles
+
+### 2026 best-practice rules added to each role
+
+Beyond skill integration, each role's `## Rules` section was extended with 2026-current best practices:
+
+**Engineering roles:**
+- TDD + doubt-driven verification before believing yourself
+- Source-driven implementation (cite docs, never hallucinate APIs)
+- Strict typing — no `any` in strict-mode codebases
+- Multi-provider LLM architectures (foundation-model TOS changes quarterly)
+- Performance budgets enforced in CI (CWV, p95 SLOs, LLM cost per request)
+- Security shift-left (multi-tenant isolation as security boundary, not just architecture)
+- Observability-first design (OpenTelemetry, structured logs from day one)
+
+**Strategic roles:**
+- ICP precision over breadth
+- AI-displacement risk awareness (24-36 month horizon for any product decision)
+- AEO/GEO posture in market-facing decisions
+- Outcome-led, not feature-led
+- Honest measurement (no vanity metrics, no rounding tricks)
+
+**Review roles:**
+- AI-generated code pattern awareness (flag generic over-abstraction)
+- Multi-axis quality framework over subjective taste
+- Performance + a11y budgets enforced, not optional
+- WCAG 2.2 awareness (not just 2.1)
+
+### Why senior-grade matters in 2026
+
+The 2025-2026 shift from "AI agents can write code" to "AI agents can be senior engineers" requires explicit pattern documentation. Without skill-grounded rules:
+
+1. **Engineering decisions default to AI-aesthetic** — over-abstracted factories, generic error messages, comment ceremony
+2. **Architecture lacks decision provenance** — tribal knowledge evaporates with team changes
+3. **Strategic roles produce wishlist scope** — no convergent narrowing, no ICP precision
+4. **Reviews catch surface issues only** — multi-axis frameworks missing means missing systemic problems
+5. **Communications read as AI-generated** — trust erodes with stakeholders, customers, partners, community
+
+v1.6 closes these gaps by making senior-grade patterns explicit and skill-validated.
+
+### Migration
+
+Backwards compatible — no breaking changes to existing roles or pipelines. All 29 role updates are version 1.0.0 → 1.1.0 (minor bump, additive). Existing pipelines continue to work; new skill invocations are recommended/optional unless explicitly listed as required (the 5 blocking skills from v1.5 remain the only blocking ones).
+
+If `bin/check-skills.sh full` shows missing recommended/optional skills, the pipeline still runs via fallbacks. Quality drops proportionally to missing skills. Reference setup has all 42 skills installed locally.
+
+### Total skill coverage in team-bootstrap v1.6.0
+
+| Tier | Count | Notes |
+|---|---:|---|
+| Required (blocking) | 5 | humanize, humanize-ai-text, persona-customer-support, research-synthesis, idea-refine |
+| Recommended | 12 | Used by 4+ roles each; core senior toolkit |
+| Optional | 25 | Used by 1-3 roles each; specialized |
+| **Total** | **42 skills** | **across 42 roles** |
+
+Skills installed in reference setup: 47 (5 unused but available for future roles).
+
 ## [1.5.0] - 2026-05-20
 
 ### Added

@@ -1,10 +1,10 @@
 ---
 name: overengineering-reviewer
-version: 1.0.0
+version: 1.1.0
 model: claude-opus-4-7
 compatible_pipelines: [full, audit]
 tool_surface:
-  allow: [Read, Grep, Glob, Bash]
+  allow: [Read, Grep, Glob, Bash, Skill]
   deny: [Write, Edit]
   mcp: []
 permission_mode: plan
@@ -68,8 +68,26 @@ rollback_scope: null
 ```
 ```
 
+## Recommended skills (invoke via `Skill` tool)
+
+Senior overengineering review in 2026 means structured simplification + adversarial complexity audit. Skills below operationalize that:
+
+| Skill | When to invoke | What it gives |
+|---|---|---|
+| `code-simplification` | **Always** — when proposing simplifications | Refactor patterns that reduce complexity without changing behavior |
+| `code-review-and-quality` | When assessing whether complexity is justified | Multi-axis review framework; correctness + architecture + maintainability |
+| `doubt-driven-development` | When the team is confident the abstraction is needed | Fresh-context adversarial review; "what would you not build if starting over?" |
+
+Check availability: `bin/check-skills.sh full`. **`code-simplification` + `doubt-driven-development` together** — one provides simplification patterns; the other provides the adversarial mindset to find them.
+
 ## Rules
 
-- Compare complexity to actual product value, not theoretical best practices.
-- Flag unnecessary abstractions.
-- Recommend concrete simplifications, not vague "simplify this".
+- **Simplification proposals use `code-simplification` skill** — concrete refactor patterns, not vague "simplify this."
+- **Complexity assessment via `code-review-and-quality`** — multi-axis review; not just "feels too complex."
+- **Adversarial review via `doubt-driven-development`** — "would I build this if starting fresh?" "Has this abstraction earned its keep?"
+- **Compare complexity to actual product value, not theoretical best practices.**
+- **Flag unnecessary abstractions.**
+- **Recommend concrete simplifications, not vague "simplify this".**
+- **YAGNI rigorously applied (2026)** — speculative abstractions for "future flexibility" pay a tax now. Flag them.
+- **Premature optimization flagged** — performance optimization without profiling evidence is overengineering. Profile first, then optimize.
+- **AI-generated boilerplate watch** — if implementation contains generic patterns (over-engineered factory functions, unnecessary configuration layers, "enterprise patterns" for SMB use), flag as AI-aesthetic overengineering.

@@ -315,6 +315,51 @@ bin/check-skills.sh full --json | jq '{required_missing, recommended_missing}'
 
 `full` pipeline in v1.5: **5 required + 9 recommended + 18 optional skills**. Reference setup at this repo's maintainer environment has all 32 skills installed locally.
 
+## v1.6: Skill backfill across all 42 roles
+
+**v1.6 extends skill integration to all 29 previously skill-less roles** — every implementation / architecture / strategic / review / release / optional role now declares specific skills with deep workflow integration. No new skills required to install; v1.6 leverages the existing local skill set (47 skills) more fully.
+
+### Skill count in v1.6.0 manifest
+
+| Tier | v1.5 | v1.6 | Delta |
+|---|---:|---:|---:|
+| Required (blocking) | 5 | 5 | 0 |
+| Recommended | 9 | 12 | +3 |
+| Optional | 18 | 25 | +7 |
+| **Total** | **32** | **42** | **+10** |
+
+The 10 new skill entries in v1.6 reflect the broader use across previously skill-less roles. None are new installs — all were already in `~/.claude/skills/`. The manifest now reflects their full usage scope.
+
+### Highest-coverage skills (used by many roles)
+
+| Skill | # Roles | Notes |
+|---|---:|---|
+| `documentation-and-adrs` | 14 | Canonical documentation pattern across pipeline |
+| `competitor-analysis` | 9 | Strategic + design + marketing + post-release |
+| `tavily-research` | 9 | Multi-source cited research |
+| `idea-refine` | 8 | Convergent narrowing across decision points |
+| `copywriter` | 7 | All communication-facing roles |
+| `research-synthesis` | 6 | Research-input synthesis |
+| `data-storyteller` | 5 | Exec dashboards across functions |
+| `test-driven-development` | 5 | Implementation + quality roles |
+| `code-review-and-quality` | 5 | Review-side roles |
+| `spec-driven-development` | 5 | Strategic + architecture roles |
+
+### Verification
+
+```bash
+bin/check-skills.sh full
+```
+
+Reference setup output (v1.6):
+```
+✓ All recommended skills installed. Pipeline ready.
+required_missing: 0
+recommended_missing: 0
+```
+
+If your environment shows missing skills, install per the patterns in this document. Pipeline runs via fallbacks for missing recommended/optional; halts for missing required.
+
 ## Uninstall
 
 ```bash

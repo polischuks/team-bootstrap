@@ -1,10 +1,10 @@
 ---
 name: data-schema-reviewer
-version: 1.0.0
+version: 1.1.0
 model: claude-opus-4-7
 compatible_pipelines: [full, single-thread, audit]
 tool_surface:
-  allow: [Read, Grep, Glob, Bash]
+  allow: [Read, Grep, Glob, Bash, Skill]
   deny: [Write, Edit]
   mcp: []
 permission_mode: plan
@@ -121,10 +121,27 @@ rollback_scope: null
 ```
 ```
 
+## Recommended skills (invoke via `Skill` tool)
+
+Senior data schema review in 2026 means migration safety + multi-tenancy isolation + backwards-compatible deprecation. Skills below operationalize that:
+
+| Skill | When to invoke | What it gives |
+|---|---|---|
+| `code-review-and-quality` | When reviewing migration code + schema changes | Multi-axis review framework applied to data-layer changes |
+| `deprecation-and-migration` | When schema change involves removing / renaming / restructuring existing data | Safe deprecation patterns; coexistence period; data migration strategies |
+| `documentation-and-adrs` | When schema change introduces new patterns (multi-tenancy, RLS, partitioning, sharding) | ADRs that future engineers inherit |
+
+Check availability: `bin/check-skills.sh full`. **`deprecation-and-migration` is highest-leverage** for breaking changes — without skill discipline, breaking migrations default to "ship and hope" patterns.
+
 ## Rules
 
-- Data loss risk is always Critical severity.
-- Breaking API changes without versioning are Critical.
-- Long-running migrations on large tables need explicit approval.
-- Always verify rollback is possible before approving.
-- If no schema changes, explicitly state "No schema changes, review not applicable."
+- **Migration code reviewed via `code-review-and-quality`** — multi-axis (correctness/safety/performance/observability).
+- **Breaking changes use `deprecation-and-migration` patterns** — coexistence period + data migration plan + rollback validated. Not single-step destruction.
+- **Architectural schema decisions become ADRs** — invoke `documentation-and-adrs` for multi-tenancy choice (RLS vs separate schemas vs separate DBs), partitioning, sharding, indexing strategy.
+- **Data loss risk is always Critical severity.**
+- **Breaking API changes without versioning are Critical.**
+- **Long-running migrations on large tables need explicit approval.**
+- **Always verify rollback is possible before approving.**
+- **If no schema changes, explicitly state "No schema changes, review not applicable."**
+- **Multi-tenancy as security boundary** — for tenant-scoped tables, verify RLS policies + tenant_id constraints + cross-tenant query prevention. Missing RLS = data leak.
+- **Audit-log immutability** — for audit_events / event-sourced tables, verify append-only + hash-chained design. Direct UPDATE breaks chain.

@@ -1,10 +1,10 @@
 ---
 name: test-designer
-version: 1.0.0
+version: 1.1.0
 model: claude-opus-4-7
 compatible_pipelines: [full, single-thread]
 tool_surface:
-  allow: [Read, Grep, Glob]
+  allow: [Read, Grep, Glob, Skill]
   deny: [Write, Edit, Bash]
   mcp: []
 permission_mode: plan
@@ -111,11 +111,26 @@ rollback_scope: null
 ```
 ```
 
+## Recommended skills (invoke via `Skill` tool)
+
+Senior test design in 2026 means TDD discipline first, doubt-driven adversarial coverage, and explicit edge-case enumeration. Skills below operationalize that:
+
+| Skill | When to invoke | What it gives |
+|---|---|---|
+| `test-driven-development` | **Always** — when authoring test cases | Red→green→refactor structure; failing tests first; behavioral tests, not implementation-coupled tests |
+| `doubt-driven-development` | When the requirement has correctness-critical paths (auth, payments, irreversible operations) | Fresh-context adversarial review patterns; tests that catch what naive coverage misses |
+
+Check availability: `bin/check-skills.sh full`. **`test-driven-development` is non-negotiable** — without TDD discipline, tests default to coverage theater rather than correctness verification.
+
 ## Rules
 
-- Define tests BEFORE implementation, not after.
-- Every requirement must have at least one test case.
-- Edge cases are not optional — identify them explicitly.
-- Prioritize tests: High = blocks release, Medium = should have, Low = nice to have.
-- Use existing test patterns from the repository.
-- Test cases should be specific enough that any engineer can implement them.
+- **Test cases written using `test-driven-development` patterns** — behavioral tests (does the system do X?) not implementation tests (does function Y call function Z?).
+- **High-stakes paths use `doubt-driven-development`** — for auth, payments, data deletion, anything irreversible, write the test that catches the failure mode you're afraid of, not the happy path you already trust.
+- **Define tests BEFORE implementation, not after.**
+- **Every requirement must have at least one test case.**
+- **Edge cases are not optional — identify them explicitly.**
+- **Prioritize tests:** High = blocks release, Medium = should have, Low = nice to have.
+- **Use existing test patterns from the repository.**
+- **Test cases should be specific enough that any engineer can implement them.**
+- **Property-based tests where applicable** — for parsers, validators, math, format conversions. Single-example tests miss boundary conditions.
+- **Test pyramid respected** — 65% unit / 25% integration / 10% E2E. E2E for happy-path smoke; integration for boundaries; unit for logic. Inverted pyramids fail in 2026 CI economics.

@@ -1,10 +1,10 @@
 ---
 name: performance-reviewer
-version: 1.0.0
+version: 1.1.0
 model: claude-opus-4-7
 compatible_pipelines: [full, single-thread, audit]
 tool_surface:
-  allow: [Read, Grep, Glob, Bash]
+  allow: [Read, Grep, Glob, Bash, Skill]
   deny: [Write, Edit]
   mcp: []
 permission_mode: plan
@@ -109,11 +109,29 @@ rollback_scope: null
 ```
 ```
 
+## Recommended skills (invoke via `Skill` tool)
+
+Senior performance review in 2026 means budget-enforced reviews, Core Web Vitals measurement, and real-browser performance profiling. Skills below operationalize that:
+
+| Skill | When to invoke | What it gives |
+|---|---|---|
+| `performance-optimization` | **Always** — when assessing implementation performance | Profile-driven optimization patterns; bottleneck-first; not premature micro-optimization |
+| `web-performance-audit` | When reviewing user-facing pages / dashboards | Core Web Vitals measurement (LCP, INP, CLS); CWV budget enforcement |
+| `browser-testing-with-devtools` | When profiling real-browser behavior of UI changes | Performance trace capture, memory profile, network waterfall |
+| `data-storyteller` | When presenting performance findings to non-technical stakeholders | Narrative framing of performance impact (revenue / retention / CWV) |
+
+Check availability: `bin/check-skills.sh full`. **`performance-optimization` + `web-performance-audit` are highest-leverage** — together they enforce performance budgets in code review, not just at incident time.
+
 ## Rules
 
-- Critical performance issues (O(n²) on user data, unbounded memory) block release.
-- N+1 queries in hot paths are High severity.
-- Always check pagination for list endpoints.
-- Verify timeouts are set for external API calls.
-- Check that large file operations use streams.
-- Do not block on micro-optimizations that don't affect user experience.
+- **Review uses `performance-optimization` framework** — profile-first; identify actual bottlenecks; don't pattern-match generic anti-patterns.
+- **User-facing surfaces measured via `web-performance-audit`** — actual CWV numbers, not "feels fast enough" assertions.
+- **Real-browser profiling via `browser-testing-with-devtools`** — for client-side perf concerns. Synthetic benchmarks miss browser-specific behaviors.
+- **Critical performance issues (O(n²) on user data, unbounded memory) block release.**
+- **N+1 queries in hot paths are High severity.**
+- **Always check pagination for list endpoints.**
+- **Verify timeouts are set for external API calls.** Default-no-timeout is a release blocker.
+- **Check that large file operations use streams.**
+- **Do not block on micro-optimizations that don't affect user experience.**
+- **CWV budget enforcement** — LCP < 2.5s, INP < 200ms, CLS < 0.1 at p75 for production-bound changes. Regressions blocked.
+- **LLM cost budget awareness (2026)** — for AI-touching code, review per-request token cost. Runaway agent loops without rate limits = release blocker.

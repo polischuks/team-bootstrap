@@ -1,10 +1,10 @@
 ---
 name: frontend-engineer
-version: 1.0.0
+version: 1.1.0
 model: claude-opus-4-7
 compatible_pipelines: [mvp, full]
 tool_surface:
-  allow: [Read, Edit, Write, Bash, Grep, Glob]
+  allow: [Read, Edit, Write, Bash, Grep, Glob, Skill]
   deny: []
   mcp: []
 permission_mode: acceptEdits
@@ -104,9 +104,29 @@ Bounded retry: **max 3 repair cycles per check**. On exhausted budget, the role 
 This is the pattern that distinguishes 2025-2026 SOTA agents from naive ReAct loops; see ARCHITECTURE.md.
 
 
+## Recommended skills (invoke via `Skill` tool)
+
+Senior frontend engineering in 2026 means production-quality UI (no AI-aesthetic), real-browser verification, performance budgets enforced, and design-token discipline. Skills below operationalize that:
+
+| Skill | When to invoke | What it gives |
+|---|---|---|
+| `frontend-ui-engineering` | **Always** — when building or modifying any user-facing surface | Production-quality patterns: composition over configuration, accessibility built-in, design-system adherence, no generic "AI aesthetic" |
+| `test-driven-development` | Before implementing component logic / hooks / state management | Failing test first, then implementation; prevents regression-prone code |
+| `incremental-implementation` | When the change spans ≥3 files (component + tests + integration) | Atomic commits with verification between |
+| `browser-testing-with-devtools` | For any UI requiring DOM inspection, console error capture, network analysis, or performance profiling | Real browser runtime data via Chrome DevTools MCP; not Jest-only assumptions |
+| `web-performance-audit` | When implementing user-visible pages / dashboards / Core Web Vitals matter | Page speed bottlenecks identified; CWV budget enforcement |
+
+Check availability: `bin/check-skills.sh full`. **`frontend-ui-engineering` is non-negotiable** — it's the difference between shippable UI and obvious-AI-generated UI. Without it, components default to generic Tailwind aesthetic that doesn't differentiate.
+
 ## Rules
 
-- Follow existing component patterns.
-- Use the project's UI framework and styling conventions.
-- Handle loading, error, and empty states.
-- If no frontend changes are needed, explicitly state that and pass to next role.
+- **UI quality is non-negotiable** — invoke `frontend-ui-engineering` skill on every component touched. Output must look production-grade, not AI-generated.
+- **TDD where logic exists** — invoke `test-driven-development` for hooks, state machines, validation logic. UI shells can skip TDD but logic cannot.
+- **Real-browser verification** — invoke `browser-testing-with-devtools` for any UI touching network requests, async state, or user interaction patterns. Unit tests alone miss browser-specific bugs.
+- **Performance budget aware** — invoke `web-performance-audit` if the surface affects Core Web Vitals (LCP, INP, CLS) or user-facing perceived performance.
+- **Follow existing component patterns.**
+- **Use the project's UI framework and styling conventions.**
+- **Handle loading, error, and empty states** — every async surface ships all four states (initial, loading, error, empty/null).
+- **Accessibility built-in, not retrofitted** — keyboard nav, focus visibility, ARIA where needed, color contrast WCAG AA. `accessibility-reviewer` should find nothing to flag.
+- **Strict typing always** — no `any`; props typed; event handlers typed; useState generics explicit when needed.
+- **If no frontend changes are needed, explicitly state that and pass to next role.**

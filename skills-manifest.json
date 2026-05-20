@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Skills referenced by team-bootstrap roles. Skills are external to this repo — install separately from your skill marketplace of choice (e.g. /plugin install <name>, or git clone into ~/.claude/skills/). Run bin/check-skills.sh to verify presence before invoking the relevant pipelines.",
   "skill_root": "~/.claude/skills",
   "pipelines": {
@@ -78,202 +78,259 @@
       "required": [
         {
           "name": "humanize",
-          "used_by": ["partnerships-lead", "community-manager"],
-          "purpose": "Bypasses AI-detection signals (GPTZero, Originality.ai, etc.) on outbound content. **Pipeline-blocking** for partnerships-lead (outreach + co-launch comms) and community-manager (every published community post + moderation response). AI-detected content in these contexts destroys trust permanently.",
-          "fallback": "**No fallback** — role returns status:blocked if missing"
+          "used_by": ["partnerships-lead", "community-manager", "stakeholder-communicator", "whimsy-injector"],
+          "purpose": "Bypasses AI-detection signals on outbound public content. **Pipeline-blocking** for partnerships-lead (outreach + co-launch comms) and community-manager (every published community post + moderation). Recommended for stakeholder-communicator + whimsy-injector (graceful fallback).",
+          "fallback": "**No fallback for partnerships-lead + community-manager** — role returns status:blocked. Other roles degrade with manual humanization."
         },
         {
           "name": "humanize-ai-text",
-          "used_by": ["customer-success-manager", "community-manager"],
-          "purpose": "Reduces AI-detection patterns in personal communications. **Pipeline-blocking** for customer-success-manager (renewal / expansion / at-risk sequences) and community-manager (ambassador program copy). Distinct from `humanize`: this skill focuses on natural phrasing + tone adjustment for personal-feeling 1:1 messages, while `humanize` focuses on detector-bypass for public broadcasts.",
-          "fallback": "**No fallback** — role returns status:blocked if missing"
+          "used_by": ["customer-success-manager", "community-manager", "stakeholder-communicator", "documentation-agent", "incident-responder"],
+          "purpose": "Reduces AI-detection patterns in personal communications. **Pipeline-blocking** for CSM (renewal/expansion/at-risk sequences) and community-manager (ambassador program copy). Recommended for stakeholder-communicator (release comms), documentation-agent (end-user docs), incident-responder (customer status updates).",
+          "fallback": "**No fallback for CSM + community-manager** — role returns status:blocked. Other roles degrade with manual humanization."
         },
         {
           "name": "persona-customer-support",
-          "used_by": ["customer-success-manager", "community-manager", "product-marketer", "ux-designer"],
-          "purpose": "Customer-management framework: ticket triage patterns, escalation tiers, response patterns. **Pipeline-blocking** for customer-success-manager (health framework + onboarding escalation triage). Used non-blocking by community-manager (moderation playbook), product-marketer (ICP modeling), ux-designer (operator-interface persona constraints).",
-          "fallback": "**No fallback for customer-success-manager** — manual customer-management framework fails QA. Graceful fallback for other roles (manual persona modeling)."
+          "used_by": ["customer-success-manager", "community-manager", "product-marketer", "ux-designer", "ux-researcher"],
+          "purpose": "Customer-management framework. **Pipeline-blocking** for CSM (health framework + onboarding triage). Used non-blocking by community-manager (moderation), product-marketer (ICP), ux-designer + ux-researcher (persona constraints from real support).",
+          "fallback": "**No fallback for CSM** — fails QA. Graceful fallback for other roles."
         },
         {
           "name": "research-synthesis",
-          "used_by": ["customer-success-manager", "community-manager", "ux-designer"],
-          "purpose": "Synthesize raw research (interview transcripts, NPS, support tickets, community signals) into themes + segment patterns. **Pipeline-blocking** for customer-success-manager (VoC report theme extraction). Used non-blocking by community-manager (community VoC) and ux-designer (research synthesis before flow design).",
-          "fallback": "**No fallback for customer-success-manager** — unstructured summary fails QA on theme density. Graceful fallback for other roles."
+          "used_by": ["customer-success-manager", "community-manager", "ux-designer", "ux-researcher", "business-analyst", "product-manager"],
+          "purpose": "Synthesize raw research into themes + segment patterns. **Pipeline-blocking** for CSM (VoC theme extraction). Recommended for ux-researcher (primary research synthesis), business-analyst (requirements from research), product-manager (prioritization from research signals), community-manager (community VoC), ux-designer (research before flow design).",
+          "fallback": "**No fallback for CSM** — fails QA on theme density. Graceful fallback for other roles."
         },
         {
           "name": "idea-refine",
-          "used_by": ["ux-designer", "ui-designer", "product-marketer", "partnerships-lead"],
-          "purpose": "Divergent → convergent thinking for narrowing options. **Pipeline-blocking** for partnerships-lead (partnership thesis convergence — must show audit trail of N candidates → 3-5 priorities). Non-blocking for design + product-marketer roles.",
-          "fallback": "**No fallback for partnerships-lead** — unstructured prioritization fails QA on convergence rigor. Graceful fallback for other roles (manual brainstorm + critique)."
+          "used_by": ["partnerships-lead", "ux-designer", "ui-designer", "product-marketer", "product-manager", "product-ba", "cto-architect", "solution-architect"],
+          "purpose": "Divergent → convergent narrowing. **Pipeline-blocking** for partnerships-lead (thesis convergence audit trail). Recommended across 7 other roles for greenfield decisions where multiple valid options exist.",
+          "fallback": "**No fallback for partnerships-lead** — fails QA on convergence rigor. Graceful fallback for other roles."
         }
       ],
       "recommended": [
         {
-          "name": "frontend-ui-engineering",
-          "used_by": ["ui-designer"],
-          "purpose": "Production-quality UI patterns — design-system adherence, accessibility, composition rules, anti-AI-aesthetic principles. Highest-leverage skill for ui-designer; without it the reference prototype tends toward generic AI aesthetic.",
-          "fallback": "Manual reference from shadcn/ui + Tailwind docs; significantly less coherent design system output"
-        },
-        {
           "name": "competitor-analysis",
-          "used_by": ["ux-designer", "ui-designer", "product-marketer", "growth-marketer", "customer-success-manager", "partnerships-lead", "community-manager"],
-          "purpose": "SWOT + positioning + differentiation analysis. Used by 7 roles in the full pipeline; install once, used many times. Maps specific UX/UI patterns (design roles), positioning differentials (product-marketer), channel benchmarks (growth-marketer), competitive threats per account (CSM), partnership overlap (partnerships-lead), community gaps (community-manager).",
+          "used_by": ["discovery-research", "product-manager", "ux-designer", "ui-designer", "product-marketer", "growth-marketer", "customer-success-manager", "partnerships-lead", "community-manager"],
+          "purpose": "SWOT + positioning + differentiation analysis. Used by 9 roles across the full pipeline — install once, used many times.",
           "fallback": "WebSearch + manual analysis (acceptable but slower and less structured)"
         },
         {
           "name": "tavily-research",
-          "used_by": ["ux-designer", "product-marketer", "growth-marketer", "customer-success-manager", "partnerships-lead", "community-manager"],
-          "purpose": "Multi-source cited research. Used by 6 roles: established UX patterns for novel interactions (ux-designer), pricing comps + recent funding (product-marketer), channel benchmarks (growth-marketer), per-account industry context for QBRs (CSM), partner ecosystem mapping (partnerships-lead), where ICP gathers (community-manager).",
-          "fallback": "WebFetch + manual triangulation (acceptable but 10× token cost)"
+          "used_by": ["discovery-research", "product-manager", "ux-designer", "product-marketer", "growth-marketer", "customer-success-manager", "partnerships-lead", "community-manager", "legal-compliance-checker"],
+          "purpose": "Multi-source cited research. Used by 9 roles for research with citations. Critical for legal-compliance-checker (2026 regulation changes quarterly).",
+          "fallback": "WebFetch + manual triangulation (10× token cost)"
+        },
+        {
+          "name": "documentation-and-adrs",
+          "used_by": ["cto-architect", "solution-architect", "cto-tech-lead", "devops-platform", "data-schema-reviewer", "ai-engineer", "ui-designer", "product-ba", "business-analyst", "release-docs", "documentation-agent", "chaos-engineer", "legal-compliance-checker", "incident-responder"],
+          "purpose": "ADR-grade decision records + runbook structure + README patterns + changelog conventions. Used by 14 roles — the canonical documentation pattern across the pipeline.",
+          "fallback": "Manual decision-record writing (acceptable but inconsistent structure across team)"
+        },
+        {
+          "name": "test-driven-development",
+          "used_by": ["backend-engineer", "frontend-engineer", "test-designer", "qa-test-engineer", "ai-engineer"],
+          "purpose": "Red→green→refactor discipline. Behavioral tests, not implementation-coupled. Used by 5 implementation + quality roles.",
+          "fallback": "Implementation-first development (regression-prone, fails 2026 quality bar)"
+        },
+        {
+          "name": "code-review-and-quality",
+          "used_by": ["cto-tech-lead", "security-reviewer", "code-reviewer", "overengineering-reviewer", "data-schema-reviewer"],
+          "purpose": "Multi-axis code review framework: correctness, readability, architecture, security, performance. Used by 5 review roles.",
+          "fallback": "Subjective style preference (less rigorous; misses systemic issues)"
         },
         {
           "name": "data-storyteller",
-          "used_by": ["customer-success-manager", "partnerships-lead", "community-manager", "growth-marketer"],
-          "purpose": "Executive-ready narrative reports + charts + cohort analysis. Used by 4 post-release roles: health score viz + cohort retention (CSM), partnership performance dashboard (partnerships-lead), community health dashboard (community-manager), growth metrics narrative (growth-marketer).",
+          "used_by": ["customer-success-manager", "partnerships-lead", "community-manager", "growth-marketer", "performance-reviewer"],
+          "purpose": "Executive-ready narrative reports + cohort analysis + charts. Used by 5 roles producing exec-level dashboards.",
           "fallback": "Raw markdown tables (loses narrative + escalation framing)"
         },
         {
           "name": "copywriter",
-          "used_by": ["product-marketer", "growth-marketer", "customer-success-manager", "partnerships-lead", "community-manager"],
-          "purpose": "Compelling marketing / product / community copy. Used by 5 roles for: messaging hierarchy + launch announcements (product-marketer), landing pages + ads + email (growth-marketer), communication templates (CSM), outreach + announcements (partnerships-lead), ambassador recruitment + community comms (community-manager).",
-          "fallback": "Manual copywriting (acceptable but less converting)"
+          "used_by": ["product-marketer", "growth-marketer", "customer-success-manager", "partnerships-lead", "community-manager", "stakeholder-communicator", "whimsy-injector"],
+          "purpose": "Compelling marketing / product / community copy. Used by 7 communication-facing roles.",
+          "fallback": "Manual copywriting (acceptable, less converting)"
+        },
+        {
+          "name": "spec-driven-development",
+          "used_by": ["cto-architect", "solution-architect", "product-ba", "business-analyst", "product-manager"],
+          "purpose": "Forces specification before development. Used by 5 strategic + architecture roles to prevent scope drift.",
+          "fallback": "Freeform requirements (drifts into wishlist mode)"
+        },
+        {
+          "name": "planning-and-task-breakdown",
+          "used_by": ["solution-architect", "delivery-manager", "product-ba", "business-analyst", "product-manager"],
+          "purpose": "Ordered tasks with acceptance criteria + dependency mapping. Used by 5 planning-side roles.",
+          "fallback": "Wishlist ordering (unestimable scope)"
+        },
+        {
+          "name": "doubt-driven-development",
+          "used_by": ["cto-tech-lead", "test-designer", "overengineering-reviewer", "code-reviewer"],
+          "purpose": "Fresh-context adversarial review patterns. Used by 4 review-side roles for high-stakes decisions.",
+          "fallback": "Confidence-driven review (misses confident-but-wrong implementations)"
+        },
+        {
+          "name": "frontend-ui-engineering",
+          "used_by": ["ui-designer", "frontend-engineer", "accessibility-reviewer", "whimsy-injector"],
+          "purpose": "Production-quality UI patterns + design-system adherence + anti-AI-aesthetic principles. Used by 4 UI-touching roles.",
+          "fallback": "Manual reference (less coherent system; generic AI aesthetic)"
         },
         {
           "name": "brief",
           "used_by": ["product-marketer", "growth-marketer", "partnerships-lead", "community-manager"],
-          "purpose": "Editor-ready content brief structure. Used by 4 roles: content briefs with SEO + AEO structure (product-marketer, growth-marketer), per-partner brief template (partnerships-lead), ambassador handbook structure (community-manager).",
-          "fallback": "Manual brief composition (acceptable but less structured)"
-        },
-        {
-          "name": "social-media-posts",
-          "used_by": ["growth-marketer", "partnerships-lead", "community-manager"],
-          "purpose": "Platform-specific content (LinkedIn / Twitter / Reddit / Facebook / Instagram) with hook + character limits + hashtag strategy. Used by 3 roles: multi-platform community content (growth-marketer), co-launch announcements (partnerships-lead), daily engagement engine (community-manager).",
-          "fallback": "Manual platform-by-platform composition (acceptable, slower, less converting)"
-        },
-        {
-          "name": "research-synthesis",
-          "used_by": ["customer-success-manager", "community-manager", "ux-designer"],
-          "purpose": "Already listed in required (blocking for CSM). Note: graceful-fallback usage for community-manager (VoC) and ux-designer (pre-flow research).",
-          "fallback": "Read transcripts directly, summarize manually"
-        },
-        {
-          "name": "idea-refine",
-          "used_by": ["ux-designer", "ui-designer", "product-marketer"],
-          "purpose": "Already listed in required (blocking for partnerships-lead). Note: graceful-fallback usage for design + product-marketer roles.",
-          "fallback": "Manual brainstorming + critique (more passes needed)"
+          "purpose": "Editor-ready content brief structure. Used by 4 content-producing roles.",
+          "fallback": "Manual brief composition (less structured)"
         }
       ],
       "optional": [
         {
+          "name": "source-driven-development",
+          "used_by": ["backend-engineer"],
+          "purpose": "Grounds implementation decisions in official documentation; prevents hallucinated APIs.",
+          "fallback": "Memory-driven implementation (regression-prone)"
+        },
+        {
+          "name": "incremental-implementation",
+          "used_by": ["backend-engineer", "frontend-engineer", "delivery-manager"],
+          "purpose": "Atomic task structure with verification between steps; prevents big-bang delivery failures.",
+          "fallback": "Big-bang implementation (acceptable for small changes)"
+        },
+        {
           "name": "api-and-interface-design",
-          "used_by": ["ui-designer"],
-          "purpose": "Component prop contract design — composition vs configuration, slot patterns, hard-to-misuse APIs at the component-interface level.",
-          "fallback": "Reference shadcn/ui prop patterns; less rigorous interface design"
+          "used_by": ["backend-engineer", "ui-designer", "cto-architect", "solution-architect", "partnerships-lead"],
+          "purpose": "Stable interfaces hard to misuse; composition-over-configuration; type contracts at boundaries.",
+          "fallback": "Ad-hoc interface design (leaky abstractions)"
         },
         {
-          "name": "image-generation",
-          "used_by": ["ui-designer"],
-          "purpose": "Custom iconography or illustration reference (agent glyphs, empty-state art, brand imagery preview before commissioning).",
-          "fallback": "Source from existing icon libraries (Phosphor, Lucide, Heroicons); commission custom work separately"
+          "name": "security-and-hardening",
+          "used_by": ["backend-engineer", "devops-platform", "security-reviewer"],
+          "purpose": "OWASP-aligned input validation; auth/authz; secrets handling; LLM prompt-injection patterns.",
+          "fallback": "Generic OWASP checklist (less 2026-relevant)"
         },
         {
-          "name": "documentation-and-adrs",
-          "used_by": ["ui-designer"],
-          "purpose": "Design-system ADRs (token naming rationale, motion timing decisions, color palette choices) that survive team changes.",
-          "fallback": "Inline rationale in design tokens file"
+          "name": "debugging-and-error-recovery",
+          "used_by": ["backend-engineer", "qa-test-engineer", "incident-responder"],
+          "purpose": "Systematic root-cause approach; not guess-fix-retry.",
+          "fallback": "Manual debugging (slower, more error-prone)"
         },
         {
-          "name": "tavily-research",
-          "used_by": ["ux-designer"],
-          "purpose": "Cited examples of established UX patterns for novel interactions (agentic UIs, approval queues, training loops).",
-          "fallback": "WebSearch + manual pattern collection"
+          "name": "code-simplification",
+          "used_by": ["backend-engineer", "overengineering-reviewer"],
+          "purpose": "Refactor patterns that reduce complexity without changing behavior.",
+          "fallback": "Manual refactoring (acceptable but less systematic)"
         },
         {
-          "name": "persona-customer-support",
-          "used_by": ["ux-designer", "product-marketer"],
-          "purpose": "Persona constraints + ticket triage flow patterns when designing customer-facing operator interfaces; ICP modeling from real support data for product-marketer.",
-          "fallback": "Manual persona modeling from product brief"
+          "name": "browser-testing-with-devtools",
+          "used_by": ["frontend-engineer", "qa-test-engineer", "accessibility-reviewer", "performance-reviewer"],
+          "purpose": "Real-browser runtime data via Chrome DevTools MCP. DOM inspection, console errors, network, performance profiling.",
+          "fallback": "Jest-only assumptions (misses browser-specific bugs)"
         },
         {
-          "name": "competitor-analysis",
-          "used_by": ["ux-designer", "ui-designer", "product-marketer", "growth-marketer"],
-          "purpose": "SWOT + positioning + differentiation analysis. Core skill for product-marketer (battle cards) and growth-marketer (channel benchmarks).",
-          "fallback": "Manual WebSearch + analysis (more tokens, less structured)",
-          "note": "Same skill referenced by multiple roles; install once, used many times"
+          "name": "web-performance-audit",
+          "used_by": ["frontend-engineer", "performance-reviewer"],
+          "purpose": "Core Web Vitals measurement (LCP, INP, CLS); CWV budget enforcement.",
+          "fallback": "Manual performance auditing (less rigorous)"
         },
         {
-          "name": "copywriter",
-          "used_by": ["product-marketer", "growth-marketer"],
-          "purpose": "Compelling web/marketing/product copy for messaging hierarchy, launch announcements, landing pages, ad creative.",
-          "fallback": "Manual copywriting (acceptable but slower and less converting)"
+          "name": "performance-optimization",
+          "used_by": ["performance-reviewer"],
+          "purpose": "Profile-driven optimization patterns; bottleneck-first; not premature micro-optimization.",
+          "fallback": "Generic optimization patterns (often premature)"
         },
         {
-          "name": "brief",
-          "used_by": ["product-marketer", "growth-marketer"],
-          "purpose": "Editor-ready content brief for blog/landing-page/launch announcement copy with SEO + AEO structure.",
-          "fallback": "Manual brief composition"
+          "name": "ci-cd-and-automation",
+          "used_by": ["devops-platform"],
+          "purpose": "Canonical CI/CD patterns; quality gates; test runners in CI; deployment strategies.",
+          "fallback": "Ad-hoc YAML edits (drift over time)"
+        },
+        {
+          "name": "shipping-and-launch",
+          "used_by": ["devops-platform", "release-manager", "release-docs"],
+          "purpose": "Pre-launch checklist, monitoring setup, staged rollout, rollback triggers, post-deploy validation.",
+          "fallback": "Subjective release readiness (gambling)"
+        },
+        {
+          "name": "deprecation-and-migration",
+          "used_by": ["data-schema-reviewer"],
+          "purpose": "Safe deprecation patterns; coexistence period; data migration strategies.",
+          "fallback": "Single-step destructive migrations (high risk)"
+        },
+        {
+          "name": "git-workflow-and-versioning",
+          "used_by": ["backend-engineer"],
+          "purpose": "Conventional commits, atomic changes, clean history.",
+          "fallback": "Ad-hoc commits (messy history)"
+        },
+        {
+          "name": "context-engineering",
+          "used_by": ["ai-engineer"],
+          "purpose": "Optimization patterns for LLM context management; degradation mitigation; task-switching.",
+          "fallback": "Ad-hoc context handling (degrades unpredictably at scale)"
         },
         {
           "name": "30x-seo-ai-visibility",
-          "used_by": ["growth-marketer"],
-          "purpose": "Empirically measure AI visibility baseline + competitor benchmark across ChatGPT / Claude / Perplexity / Gemini / Google AI Overview. Highest-leverage skill for growth-marketer in 2026 — without it AEO/GEO strategy is speculation.",
-          "fallback": "WebSearch each LLM platform manually (extremely token-expensive, less reliable)",
-          "note": "Same skill used by audit-dd market-analyst"
+          "used_by": ["discovery-research", "ai-engineer", "growth-marketer"],
+          "purpose": "Empirical brand visibility data across ChatGPT/Claude/Perplexity/Gemini/Google AI Overview. Same skill also used by audit-dd market-analyst.",
+          "fallback": "WebSearch each LLM platform manually (extremely token-expensive)"
         },
         {
           "name": "ai-seo",
           "used_by": ["growth-marketer"],
-          "purpose": "AEO / GEO content strategy + LLM citation optimization patterns. Different methodology from classical SEO.",
-          "fallback": "Manual research on AI-search optimization (rapidly evolving, knowledge ages quickly)"
+          "purpose": "AEO/GEO content strategy + LLM citation optimization (different methodology from classical SEO).",
+          "fallback": "Manual research (rapidly evolving knowledge)"
         },
         {
           "name": "seo-aeo-best-practices",
           "used_by": ["growth-marketer"],
-          "purpose": "Schema, structured data, JSON-LD, answer-first content blocks, EEAT — best practices for both Google and AI answer surfaces (2026-current).",
-          "fallback": "Manual research on each pattern (high token cost)"
+          "purpose": "Schema, structured data, JSON-LD, answer-first content blocks, EEAT.",
+          "fallback": "Manual research per pattern (high token cost)"
         },
         {
           "name": "seo-audit",
           "used_by": ["growth-marketer"],
-          "purpose": "Technical SEO baseline audit + issue prioritization before growth investment. Surface CWV, schema, crawl, indexing issues.",
+          "purpose": "Technical SEO baseline audit + issue prioritization.",
           "fallback": "Manual technical SEO audit (slow, error-prone)"
         },
         {
           "name": "seo-geo",
           "used_by": ["growth-marketer"],
-          "purpose": "Generative Engine Optimization — compound SEO + AEO across regions + languages + AI search engines.",
-          "fallback": "Run classical SEO + AEO separately without geographic / multi-engine coordination"
+          "purpose": "Generative Engine Optimization — compound SEO + AEO across regions + engines.",
+          "fallback": "Run classical SEO + AEO separately"
         },
         {
           "name": "find-keywords",
           "used_by": ["growth-marketer"],
-          "purpose": "Prioritized keyword list per content cluster with demand signal + intent mapping.",
-          "fallback": "Manual keyword brainstorm + intuition (often misses opportunities)",
-          "note": "Same skill optionally used by audit-dd market-analyst"
+          "purpose": "Prioritized keyword list with demand + intent mapping. Same skill optionally used by audit-dd market-analyst.",
+          "fallback": "Manual keyword brainstorm + intuition"
         },
         {
           "name": "programmatic-seo",
           "used_by": ["growth-marketer"],
-          "purpose": "Template-driven page generation for scale (location pages, comparison pages, integration pages, [keyword]+[city] pages). When scaling content to 100s/1000s of pages.",
-          "fallback": "Manual page-by-page creation (does not scale)"
+          "purpose": "Template-driven page generation for 100s/1000s of pages.",
+          "fallback": "Manual page-by-page (doesn't scale)"
         },
         {
           "name": "backlink-analyzer",
-          "used_by": ["growth-marketer"],
-          "purpose": "Authority gap analysis vs competitors — informs digital PR + partnership + linkable-asset strategy.",
-          "fallback": "Manual backlink audit via third-party tools (similar quality, more friction)"
+          "used_by": ["growth-marketer", "partnerships-lead"],
+          "purpose": "Authority gap analysis vs competitors. Used by growth-marketer (digital PR strategy) and partnerships-lead (content/SEO partner scoring, conditional).",
+          "fallback": "Manual backlink audit via third-party tools"
         },
         {
           "name": "social-media-posts",
-          "used_by": ["growth-marketer"],
-          "purpose": "Platform-specific content (LinkedIn / Twitter / Reddit / Facebook / Instagram) with hook + character limits + hashtag strategy + image specs per platform.",
+          "used_by": ["growth-marketer", "partnerships-lead", "community-manager"],
+          "purpose": "Platform-specific content (LinkedIn / Twitter / Reddit / Facebook / Instagram) with hooks + character limits + hashtag strategy.",
           "fallback": "Manual platform-by-platform composition"
         },
         {
           "name": "image-generation",
-          "used_by": ["ui-designer", "community-manager"],
-          "purpose": "Reference visuals — custom iconography (ui-designer), ambassador badges + event banners + reaction visuals (community-manager).",
-          "fallback": "Source from existing libraries; commission custom work separately"
+          "used_by": ["ui-designer", "community-manager", "whimsy-injector"],
+          "purpose": "Reference visuals — custom iconography (ui-designer), ambassador badges + event banners + reaction visuals (community-manager), micro-visuals (whimsy-injector).",
+          "fallback": "Source from existing libraries; commission custom separately"
+        },
+        {
+          "name": "web-scraper",
+          "used_by": ["discovery-research", "legal-compliance-checker"],
+          "purpose": "Structured extraction from websites. Used by discovery-research (competitor data) and legal-compliance-checker (platform policy text). Also used by audit-dd roles.",
+          "fallback": "WebFetch + parse manually"
         }
       ]
     }

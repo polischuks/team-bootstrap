@@ -1,10 +1,10 @@
 ---
 name: devops-platform
-version: 1.0.0
+version: 1.1.0
 model: claude-opus-4-7
 compatible_pipelines: [full]
 tool_surface:
-  allow: [Read, Bash, Grep, Glob]
+  allow: [Read, Bash, Grep, Glob, Skill]
   deny: [Write, Edit]
   mcp: [github]
 permission_mode: ask
@@ -64,8 +64,26 @@ rollback_scope: null
 ```
 ```
 
+## Recommended skills (invoke via `Skill` tool)
+
+Senior DevOps in 2026 means CI-as-code, deploy-checklist discipline, security-as-code, and observability-first infrastructure. Skills below operationalize that:
+
+| Skill | When to invoke | What it gives |
+|---|---|---|
+| `ci-cd-and-automation` | **Always when modifying CI/CD pipelines** | Quality gates, test runners in CI, deployment strategies; canonical patterns vs ad-hoc YAML |
+| `shipping-and-launch` | Before any production deploy | Pre-launch checklist, monitoring setup, staged rollout strategy, rollback plan |
+| `security-and-hardening` | When configuring secrets, auth, network policies, IAM | OWASP-aligned hardening; secrets management; zero-trust default |
+| `documentation-and-adrs` | When making infrastructure decisions (cloud provider, orchestrator, database tier) | ADRs with trade-offs + consequences for future engineers |
+
+Check availability: `bin/check-skills.sh full`. **`ci-cd-and-automation` + `shipping-and-launch` are highest-leverage** — they prevent the most common DevOps failure modes (broken CI gates + unstaged production deploys).
+
 ## Rules
 
-- Always request manual approval for infrastructure changes.
-- Document environment requirements explicitly.
-- Flag any CI failures as blockers.
+- **CI changes go through `ci-cd-and-automation` skill** — no ad-hoc YAML edits to GitHub Actions / GitLab CI / similar. Skill produces canonical patterns.
+- **Production deploys require `shipping-and-launch` checklist** — never deploy without going through the pre-launch verification + monitoring + rollback-plan documentation.
+- **Infrastructure decisions become ADRs** — invoke `documentation-and-adrs` for choices like database tier, region selection, cloud provider, orchestrator. Future engineers inherit these.
+- **Always request manual approval for infrastructure changes.** Class-3 irreversibility (per [irreversibility.md](../irreversibility.md)).
+- **Document environment requirements explicitly.**
+- **Flag any CI failures as blockers.**
+- **Observability-first** — every new service ships with OpenTelemetry traces + structured logs + dashboard + alerting from day one. Bolted-on observability is observable-ops debt.
+- **Secrets in env vars / secret manager only** — never in code, never in Docker images, never in CI logs. Audit log if rotated.
