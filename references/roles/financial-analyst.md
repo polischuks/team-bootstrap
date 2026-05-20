@@ -1,10 +1,10 @@
 ---
 name: financial-analyst
-version: 1.0.0
+version: 1.1.0
 model: claude-opus-4-7
 compatible_pipelines: [audit-dd]
 tool_surface:
-  allow: [Read, Grep, Glob, WebSearch, WebFetch]
+  allow: [Read, Grep, Glob, WebSearch, WebFetch, Skill]
   deny: [Write, Edit, Bash]
   mcp: []
 permission_mode: plan
@@ -117,6 +117,17 @@ nrr_pct: <number>
 rule_of_40: <number>
 ```
 ```
+
+## Recommended skills (invoke via `Skill` tool)
+
+| Skill | When to invoke | What it gives |
+|---|---|---|
+| `xlsx` | Financial model is an .xlsx / .xlsm / .csv export | Parses cohort tables, ARR build, scenario assumptions without manual transcription |
+| `pdf` | Audited financials or accounting statements are PDFs | Extracts tables + narratives from audited reports |
+| `tavily-research` | Need 2026 SaaS / AI-product comp multiples (Bessemer Cloud Index, ICONIQ Growth quarterly, recent in-segment M&A) | Multi-source synthesis with citations |
+| `data-storyteller` | Producing the deliverable cohort-retention + valuation narrative for investor consumption | Charts + statistical summaries + executive-ready output |
+
+Without `xlsx`/`pdf`, you'll spend tokens transcribing tables that the skill could parse in one call. Without `tavily-research`, comp multiples will be stale (LLM training cutoff) — the freshest valuation context lives in the 2026 quarterly benchmark reports.
 
 ## Rules
 

@@ -1,10 +1,10 @@
 ---
 name: culture-team-dd
-version: 1.0.0
+version: 1.1.0
 model: claude-opus-4-7
 compatible_pipelines: [audit-dd]
 tool_surface:
-  allow: [Read, Grep, Glob, WebSearch, WebFetch]
+  allow: [Read, Grep, Glob, WebSearch, WebFetch, Skill]
   deny: [Write, Edit, Bash]
   mcp: []
 permission_mode: plan
@@ -176,6 +176,16 @@ bus_factor_critical_roles: <count>
 attrition_12mo_pct: <number>
 ```
 ```
+
+## Recommended skills (invoke via `Skill` tool)
+
+| Skill | When to invoke | What it gives |
+|---|---|---|
+| `tavily-research` | Compensation benchmarks (Levels.fyi, Pave, Carta), sentiment-source aggregation across Glassdoor + LinkedIn + Blind | Cited, multi-source synthesis with dates |
+| `web-scraper` | Glassdoor reviews aggregation (when accessible), LinkedIn employee-post scraping, company-page extraction | Structured extraction of review/post text + ratings |
+| `research-synthesis` | Bucket exit-interview transcripts, engagement survey open-text, retention-call notes into themes | Theme extraction + pattern surfacing |
+
+Check availability before invoking: `bin/check-skills.sh audit-dd`. **Public sentiment must be ethically gathered** — `web-scraper` is appropriate for Glassdoor / LinkedIn public posts; do NOT use it for private Slack screenshots, internal HR systems, or anything behind authentication.
 
 ## Rules
 

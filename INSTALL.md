@@ -74,6 +74,64 @@ cp -r ~/.claude/skills/team-bootstrap/evals ./evals
 
 See [evals/README.md](evals/README.md) for format.
 
+## Optional: Audit-DD pipeline — install referenced skills
+
+The `audit-dd` pipeline (commercial due diligence — pre-fundraise, M&A, board prep) is **functional without any extra skills** — every role declares fallbacks using `WebSearch` / `WebFetch`. But six skills materially improve output quality and reduce token cost. They are listed as `recommended` (not required) in [`skills-manifest.json`](skills-manifest.json).
+
+### Verify what's already installed
+
+```bash
+bin/check-skills.sh audit-dd
+```
+
+Output legend:
+- `✓ installed` — skill found in `~/.claude/skills/<name>/SKILL.md`
+- `⚠ missing [recommended]` — pipeline still runs via fallback, but quality drops
+- `○ missing [optional]` — only matters for specific input formats (.xlsx / .pdf / .docx)
+
+### Install the recommended skills
+
+team-bootstrap **does not auto-fetch** skills (different users source from different marketplaces, license variation, no canonical registry). Install each from your preferred source:
+
+```bash
+# 1. Via Claude Code's plugin manager (if your marketplace is registered):
+/plugin marketplace add <marketplace-url>
+/plugin install <skill-name>
+
+# 2. Manual git clone (skills must end up at ~/.claude/skills/<name>/SKILL.md):
+git clone https://github.com/<owner>/<repo> ~/.claude/skills/<skill-name>
+
+# 3. Copy from another machine that has it:
+scp -r other-machine:~/.claude/skills/<skill-name> ~/.claude/skills/
+```
+
+### Skill catalog for audit-dd
+
+| Skill | Role(s) | Purpose | Fallback if missing |
+|---|---|---|---|
+| `tavily-research` | financial / market / ip / culture | Multi-source cited research — 2026 comps, patent landscape, Glassdoor / Levels.fyi, foundation-model TOS | `WebSearch` + `WebFetch` (more tokens, manual triangulation) |
+| `competitor-analysis` | market | SWOT, positioning, differentiation | `WebSearch` + manual analysis |
+| `30x-seo-ai-visibility` | market | Empirically measures brand visibility across ChatGPT / Claude / Perplexity / Gemini / Google AI Overview | `WebSearch` each LLM platform manually (very token-expensive) |
+| `data-storyteller` | financial / customer-health / thesis | Narrative reports + charts + statistical summaries → executive output | Raw markdown tables |
+| `research-synthesis` | customer-health / culture | Bucket interview transcripts, NPS, exit surveys into themes | Read + summarize manually |
+| `web-scraper` | market / culture / ip | Structured extraction from competitor pricing, Glassdoor, OSS license pages | `WebFetch` + parse manually |
+| `find-keywords` *(optional)* | market | Search-volume signal for segment | skip — most DD doesn't need it |
+| `anthropic-skills:xlsx` *(optional)* | financial / customer-health | Parse .xlsx / .csv financial models, cohort tables | Convert to CSV first |
+| `anthropic-skills:pdf` *(optional)* | financial / ip / thesis | Parse audited financials, contract PDFs; produce memo PDF | OCR + manual paste |
+| `anthropic-skills:docx` *(optional)* | ip / thesis | Parse Word contracts; produce memo .docx | Convert to markdown |
+
+The `anthropic-skills:*` namespace is Anthropic's bundled skill pack — available via Claude Code's built-in plugin sources.
+
+### CI integration
+
+```bash
+# Exit codes:
+#   0 = all recommended installed
+#   1 = required missing (audit-dd has none today)
+#   2 = recommended missing (pipeline runs with fallbacks)
+bin/check-skills.sh audit-dd --json | jq '.recommended_missing'
+```
+
 ## Uninstall
 
 ```bash

@@ -1,10 +1,10 @@
 ---
 name: ip-contracts-reviewer
-version: 1.0.0
+version: 1.1.0
 model: claude-opus-4-7
 compatible_pipelines: [audit-dd]
 tool_surface:
-  allow: [Read, Grep, Glob, WebSearch, WebFetch]
+  allow: [Read, Grep, Glob, WebSearch, WebFetch, Skill]
   deny: [Write, Edit, Bash]
   mcp: []
 permission_mode: plan
@@ -160,6 +160,17 @@ agpl_in_server: <true|false>
 critical_contract_clauses: <count>
 ```
 ```
+
+## Recommended skills (invoke via `Skill` tool)
+
+| Skill | When to invoke | What it gives |
+|---|---|---|
+| `tavily-research` | Foundation-model TOS verification (terms change quarterly), patent landscape research, USPTO / EPO searches | Cited, dated snapshots of fast-moving terms — critical because LLM training cutoff stales TOS knowledge |
+| `web-scraper` | OSS license aggregation from package registries (npm, PyPI, crates.io, Go modules) and per-dep license pages | Structured extraction at scale — manual review of 100+ deps is impractical |
+| `anthropic-skills:pdf` | Audit reports for contracts in PDF (MSA, DPA, customer agreements) | Direct parsing of contracts without OCR/transcription |
+| `anthropic-skills:docx` | Word contract templates and redlines | Direct parsing without conversion |
+
+Check availability before invoking: `bin/check-skills.sh audit-dd`. **`tavily-research` is the highest-value here** — foundation-model TOS (OpenAI, Anthropic, Google) genuinely changes quarterly and the LLM's training-cutoff knowledge is unreliable for compliance findings.
 
 ## Rules
 

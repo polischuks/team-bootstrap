@@ -1,10 +1,10 @@
 ---
 name: investment-thesis-author
-version: 1.0.0
+version: 1.1.0
 model: claude-opus-4-7
 compatible_pipelines: [audit-dd]
 tool_surface:
-  allow: [Read, Grep, Glob, WebSearch, WebFetch]
+  allow: [Read, Grep, Glob, WebSearch, WebFetch, Skill]
   deny: [Write, Edit, Bash]
   mcp: []
 permission_mode: plan
@@ -194,6 +194,17 @@ top_risk_severity: <critical|high|medium|low>
 probability_weighted_moic: <number>
 ```
 ```
+
+## Recommended skills (invoke via `Skill` tool)
+
+| Skill | When to invoke | What it gives |
+|---|---|---|
+| `data-storyteller` | Always — terminal synthesizer producing executive-ready output is exactly this skill's mission | Charts (scenario triangulation, risk ranking, comp table) + narrative prose + memo structure |
+| `tavily-research` | Last-call fact-check on comp set + recent in-segment rounds before finalizing the memo | Fresh citations — investor memos with stale comp data lose credibility instantly |
+| `anthropic-skills:docx` | Producing the memo as a Word deliverable for the data room | Direct .docx generation with formatting / TOC / page numbers |
+| `anthropic-skills:pdf` | Producing the memo as PDF for board packs | Direct PDF generation |
+
+Check availability before invoking: `bin/check-skills.sh audit-dd`. **`data-storyteller` is the highest-leverage skill** for this role — without it, the deep-dive sections become bullet-point soup instead of investor-grade prose.
 
 ## Rules
 

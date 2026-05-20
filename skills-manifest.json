@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "1.0.0",
+  "description": "Skills referenced by team-bootstrap roles. Skills are external to this repo — install separately from your skill marketplace of choice (e.g. /plugin install <name>, or git clone into ~/.claude/skills/). Run bin/check-skills.sh to verify presence before invoking the relevant pipelines.",
+  "skill_root": "~/.claude/skills",
+  "pipelines": {
+    "audit-dd": {
+      "required": [],
+      "recommended": [
+        {
+          "name": "tavily-research",
+          "used_by": ["financial-analyst", "market-analyst", "ip-contracts-reviewer", "culture-team-dd"],
+          "purpose": "Multi-source cited research — 2026 SaaS comps, patent landscape, Glassdoor / Levels.fyi data, foundation-model TOS verification",
+          "fallback": "WebSearch + WebFetch (manual triangulation, more tokens)"
+        },
+        {
+          "name": "competitor-analysis",
+          "used_by": ["market-analyst"],
+          "purpose": "SWOT, positioning, differentiation across direct + adjacent competitors. Core skill for market-analyst.",
+          "fallback": "WebSearch + manual analysis (significantly more tokens and less structured)"
+        },
+        {
+          "name": "30x-seo-ai-visibility",
+          "used_by": ["market-analyst"],
+          "purpose": "Empirically measures brand visibility across ChatGPT / Claude / Perplexity / Gemini / Google AI Overview. Answers 'can LLMs reach our JTBD?' directly instead of by speculation.",
+          "fallback": "WebSearch each LLM platform manually (extremely token-expensive, less reliable)"
+        },
+        {
+          "name": "data-storyteller",
+          "used_by": ["financial-analyst", "customer-health-analyst", "investment-thesis-author"],
+          "purpose": "Narrative reports with charts, audits, comparisons, statistical summaries. Turns cohort tables into executive-ready output.",
+          "fallback": "Raw tables in markdown (readable but not investor-punchy)"
+        },
+        {
+          "name": "research-synthesis",
+          "used_by": ["customer-health-analyst", "culture-team-dd"],
+          "purpose": "Synthesize interview transcripts, support tickets, NPS open-text, exit surveys into themes + segment patterns + prioritized insights.",
+          "fallback": "Read transcripts directly, summarize manually"
+        },
+        {
+          "name": "web-scraper",
+          "used_by": ["market-analyst", "culture-team-dd", "ip-contracts-reviewer"],
+          "purpose": "Structured extraction from competitor pricing pages, Glassdoor reviews, OSS license pages",
+          "fallback": "WebFetch + parse manually"
+        }
+      ],
+      "optional": [
+        {
+          "name": "find-keywords",
+          "used_by": ["market-analyst"],
+          "purpose": "Demand-side validation — search-volume signal for the segment",
+          "fallback": "skip — most DD doesn't need keyword landscape"
+        },
+        {
+          "name": "anthropic-skills:xlsx",
+          "used_by": ["financial-analyst", "customer-health-analyst"],
+          "purpose": "Parse .xlsx / .xlsm / .csv exports of financial models, cohort tables, retention data",
+          "fallback": "Convert spreadsheets to CSV first, parse with Read+Grep (manual, error-prone for formulas)",
+          "note": "Bundled with Anthropic skill pack; available as `anthropic-skills:xlsx`"
+        },
+        {
+          "name": "anthropic-skills:pdf",
+          "used_by": ["financial-analyst", "ip-contracts-reviewer", "investment-thesis-author"],
+          "purpose": "Parse audited financials (PDF), contract PDFs (MSAs, DPAs), produce memo PDF deliverables",
+          "fallback": "OCR + manual paste (very token-expensive, lossy)",
+          "note": "Bundled with Anthropic skill pack"
+        },
+        {
+          "name": "anthropic-skills:docx",
+          "used_by": ["ip-contracts-reviewer", "investment-thesis-author"],
+          "purpose": "Parse Word contract templates; produce memo as .docx deliverable",
+          "fallback": "Convert to markdown first",
+          "note": "Bundled with Anthropic skill pack"
+        }
+      ]
+    }
+  }
+}

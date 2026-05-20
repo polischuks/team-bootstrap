@@ -1,10 +1,10 @@
 ---
 name: customer-health-analyst
-version: 1.0.0
+version: 1.1.0
 model: claude-opus-4-7
 compatible_pipelines: [audit-dd]
 tool_surface:
-  allow: [Read, Grep, Glob, WebSearch, WebFetch]
+  allow: [Read, Grep, Glob, WebSearch, WebFetch, Skill]
   deny: [Write, Edit, Bash]
   mcp: []
 permission_mode: plan
@@ -140,6 +140,16 @@ grr_pct: <number>
 top_customer_share_pct: <number>
 ```
 ```
+
+## Recommended skills (invoke via `Skill` tool)
+
+| Skill | When to invoke | What it gives |
+|---|---|---|
+| `research-synthesis` | Customer interview transcripts, support tickets, NPS open-text responses, exit survey data | Bucketed themes + segment patterns + prioritized insights |
+| `anthropic-skills:xlsx` | Subscription / order / cohort data exported as .xlsx / .csv | Parses retention tables, ACV bands, concentration data |
+| `data-storyteller` | Producing the cohort retention curves + concentration narrative | Charts (retention curves, cohort heatmaps) + executive summary |
+
+Check availability before invoking: `bin/check-skills.sh audit-dd`. Without `research-synthesis` the churn root-cause taxonomy will be impressionistic; without `data-storyteller` cohort visualizations stay as raw tables.
 
 ## Rules
 

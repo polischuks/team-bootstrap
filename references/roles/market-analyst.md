@@ -1,10 +1,10 @@
 ---
 name: market-analyst
-version: 1.0.0
+version: 1.1.0
 model: claude-opus-4-7
 compatible_pipelines: [audit-dd]
 tool_surface:
-  allow: [Read, Grep, Glob, WebSearch, WebFetch]
+  allow: [Read, Grep, Glob, WebSearch, WebFetch, Skill]
   deny: [Write, Edit, Bash]
   mcp: []
 permission_mode: plan
@@ -122,6 +122,19 @@ moat_composite_score: <1-5>
 ai_displacement_horizon_months: <integer>
 ```
 ```
+
+## Recommended skills (invoke via `Skill` tool)
+
+| Skill | When to invoke | What it gives |
+|---|---|---|
+| `competitor-analysis` | Always — this is the core skill for this role | SWOT, positioning, differentiation across direct + adjacent competitors |
+| `30x-seo-ai-visibility` | Assessing AI-search displacement risk (the most critical 2026 axis) | **Actually measures** brand visibility across ChatGPT / Claude / Perplexity / Gemini / Google AI Overview — answers "can LLMs reach our JTBD?" empirically, not by speculation |
+| `tavily-research` | TAM/SAM analyst reports, recent funding rounds in segment, public market data | Multi-source synthesis with citations |
+| `web-scraper` | Competitor pricing pages, marketing site structure, feature matrices | Structured extraction without manual reading |
+| `find-keywords` | Category positioning, search-demand validation, keyword landscape | Demand-side signal for the segment |
+| `data-storyteller` | Producing the moat-scoring + scenario narrative | Charts + scenario tables + executive-ready output |
+
+**Critical:** Without `30x-seo-ai-visibility`, the AI-displacement assessment becomes guesswork. The skill exists specifically to answer "is this category absorbed by LLMs already?" — invoke it instead of reasoning from first principles.
 
 ## Rules
 
