@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Skills referenced by team-bootstrap roles. Skills are external to this repo — install separately from your skill marketplace of choice (e.g. /plugin install <name>, or git clone into ~/.claude/skills/). Run bin/check-skills.sh to verify presence before invoking the relevant pipelines.",
   "skill_root": "~/.claude/skills",
   "pipelines": {
@@ -129,9 +129,91 @@
         },
         {
           "name": "persona-customer-support",
-          "used_by": ["ux-designer"],
-          "purpose": "Persona constraints + ticket triage flow patterns when designing customer-facing operator interfaces.",
+          "used_by": ["ux-designer", "product-marketer"],
+          "purpose": "Persona constraints + ticket triage flow patterns when designing customer-facing operator interfaces; ICP modeling from real support data for product-marketer.",
           "fallback": "Manual persona modeling from product brief"
+        },
+        {
+          "name": "competitor-analysis",
+          "used_by": ["ux-designer", "ui-designer", "product-marketer", "growth-marketer"],
+          "purpose": "SWOT + positioning + differentiation analysis. Core skill for product-marketer (battle cards) and growth-marketer (channel benchmarks).",
+          "fallback": "Manual WebSearch + analysis (more tokens, less structured)",
+          "note": "Same skill referenced by multiple roles; install once, used many times"
+        },
+        {
+          "name": "copywriter",
+          "used_by": ["product-marketer", "growth-marketer"],
+          "purpose": "Compelling web/marketing/product copy for messaging hierarchy, launch announcements, landing pages, ad creative.",
+          "fallback": "Manual copywriting (acceptable but slower and less converting)"
+        },
+        {
+          "name": "brief",
+          "used_by": ["product-marketer", "growth-marketer"],
+          "purpose": "Editor-ready content brief for blog/landing-page/launch announcement copy with SEO + AEO structure.",
+          "fallback": "Manual brief composition"
+        },
+        {
+          "name": "30x-seo-ai-visibility",
+          "used_by": ["growth-marketer"],
+          "purpose": "Empirically measure AI visibility baseline + competitor benchmark across ChatGPT / Claude / Perplexity / Gemini / Google AI Overview. Highest-leverage skill for growth-marketer in 2026 — without it AEO/GEO strategy is speculation.",
+          "fallback": "WebSearch each LLM platform manually (extremely token-expensive, less reliable)",
+          "note": "Same skill used by audit-dd market-analyst"
+        },
+        {
+          "name": "ai-seo",
+          "used_by": ["growth-marketer"],
+          "purpose": "AEO / GEO content strategy + LLM citation optimization patterns. Different methodology from classical SEO.",
+          "fallback": "Manual research on AI-search optimization (rapidly evolving, knowledge ages quickly)"
+        },
+        {
+          "name": "seo-aeo-best-practices",
+          "used_by": ["growth-marketer"],
+          "purpose": "Schema, structured data, JSON-LD, answer-first content blocks, EEAT — best practices for both Google and AI answer surfaces (2026-current).",
+          "fallback": "Manual research on each pattern (high token cost)"
+        },
+        {
+          "name": "seo-audit",
+          "used_by": ["growth-marketer"],
+          "purpose": "Technical SEO baseline audit + issue prioritization before growth investment. Surface CWV, schema, crawl, indexing issues.",
+          "fallback": "Manual technical SEO audit (slow, error-prone)"
+        },
+        {
+          "name": "seo-geo",
+          "used_by": ["growth-marketer"],
+          "purpose": "Generative Engine Optimization — compound SEO + AEO across regions + languages + AI search engines.",
+          "fallback": "Run classical SEO + AEO separately without geographic / multi-engine coordination"
+        },
+        {
+          "name": "find-keywords",
+          "used_by": ["growth-marketer"],
+          "purpose": "Prioritized keyword list per content cluster with demand signal + intent mapping.",
+          "fallback": "Manual keyword brainstorm + intuition (often misses opportunities)",
+          "note": "Same skill optionally used by audit-dd market-analyst"
+        },
+        {
+          "name": "programmatic-seo",
+          "used_by": ["growth-marketer"],
+          "purpose": "Template-driven page generation for scale (location pages, comparison pages, integration pages, [keyword]+[city] pages). When scaling content to 100s/1000s of pages.",
+          "fallback": "Manual page-by-page creation (does not scale)"
+        },
+        {
+          "name": "backlink-analyzer",
+          "used_by": ["growth-marketer"],
+          "purpose": "Authority gap analysis vs competitors — informs digital PR + partnership + linkable-asset strategy.",
+          "fallback": "Manual backlink audit via third-party tools (similar quality, more friction)"
+        },
+        {
+          "name": "social-media-posts",
+          "used_by": ["growth-marketer"],
+          "purpose": "Platform-specific content (LinkedIn / Twitter / Reddit / Facebook / Instagram) with hook + character limits + hashtag strategy + image specs per platform.",
+          "fallback": "Manual platform-by-platform composition"
+        },
+        {
+          "name": "data-storyteller",
+          "used_by": ["growth-marketer"],
+          "purpose": "Charts + audits + cohort analysis turned into executive-ready growth metrics narrative.",
+          "fallback": "Raw tables in markdown (readable but not narrative)",
+          "note": "Same skill used by audit-dd financial-analyst / customer-health-analyst / investment-thesis-author"
         }
       ]
     }

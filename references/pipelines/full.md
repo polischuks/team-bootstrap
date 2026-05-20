@@ -28,12 +28,14 @@ Run roles in this order:
 Inserted into the pipeline at the position noted in [role-matrix.md](../role-matrix.md):
 
 - `ux-researcher` — inserted after `discovery-research` (before `product-manager`) when new user-facing flow lacks prior research
-- `ux-designer` — inserted after `ux-researcher` (or `product-manager` if research skipped), before `ui-designer` — when novel interaction patterns or UX = core moat
+- `product-marketer` — inserted after `product-manager` (before `business-analyst`) when new product / new ICP / repositioning / pricing change / new GTM motion. Positioning shapes downstream requirements.
+- `ux-designer` — inserted after `product-marketer` / `business-analyst`, before `ui-designer` — when novel interaction patterns or UX = core moat
 - `ui-designer` — inserted after `ux-designer` (or `product-manager` if design skipped), before `frontend-engineer` — when new product visual identity or design-system-from-scratch
 - `whimsy-injector` — inserted after `frontend-engineer` (before `accessibility-reviewer`)
 - `ai-engineer` — inserted after `solution-architect` (before implementation) when spec mentions LLM/RAG/agents
 - `chaos-engineer` — inserted after `qa-test-engineer` (before `release-manager`) for new hot-path deps / SLO changes
 - `legal-compliance-checker` — inserted after `security-reviewer` (before `release-manager`) for PII/PHI/payments
+- `growth-marketer` — inserted after `release-manager` (before `stakeholder-communicator`) when launch has reach goals, growth plateau, or AI search posture work
 - `incident-responder` — separate `incident` pipeline when production issues occur
 
 Use the same handoff rule as the MVP pipeline: no silent skips, explicit `next_role`, stop on `blocked` or `needs_input`.
@@ -46,6 +48,8 @@ discovery-research
    [ux-researcher?]            ← optional, when no prior research
        ↓
 product-manager
+       ↓
+   [product-marketer?]         ← optional, when new ICP / launch / repositioning
        ↓
 business-analyst
        ↓
@@ -89,6 +93,8 @@ backend-engineer → frontend-engineer
                          ↓
                   release-manager
                          ↓
+              [growth-marketer?]     ← optional, when reach goals / growth plateau / AEO posture
+                         ↓
              stakeholder-communicator
                          ↓
                documentation-agent
@@ -111,3 +117,24 @@ Both roles produce artifacts that the next role inherits:
 If only one role runs:
 - `ux-designer` without `ui-designer` → `frontend-engineer` makes visual decisions (acceptable if existing design system covers it)
 - `ui-designer` without `ux-designer` → `ui-designer` infers UX from product brief (acceptable for simple feature additions to existing IA)
+
+## Marketing stages — when to include
+
+The two marketing roles (`product-marketer` + `growth-marketer`) are **opt-in** for the full pipeline. Triggers:
+
+- **Greenfield product launch with reach goals** — both roles strongly recommended; positioning informs scope; growth strategy maps launch to compounding motion
+- **New feature in different ICP** — `product-marketer` recommended (repositioning); `growth-marketer` if channel strategy changes
+- **Pricing change > 20%** — `product-marketer` required (pricing strategy + competitive battle cards)
+- **Repositioning (pivot)** — both roles required; old positioning needs explicit retirement, new positioning needs full GTM plan
+- **Existing product growth plateau** — `growth-marketer` required (diagnose channel exhaustion, surface new growth loops)
+- **AI search / GEO category shift** — `growth-marketer` required (AEO posture + content engine repositioning)
+- **Internal tool / private beta / dev-only feature** — neither role (no market motion)
+- **Patch / bug fix / incremental improvement to existing product** — neither role (use `stakeholder-communicator` for release notes)
+
+Both roles produce strategic artifacts that downstream roles inherit:
+- `product-marketer` → ICP + positioning + pricing tiers + launch sequencing + battle cards + sales enablement → consumed by `business-analyst` (shapes requirements), `release-manager` (informs launch staging), `frontend-engineer` (landing page copy + pricing UI)
+- `growth-marketer` → channel mix + content engine + AI search posture + growth loops + 30/60/90 plan → consumed by `stakeholder-communicator` (brand narrative + channel positioning), `documentation-agent` (content roadmap), future iterations
+
+If only one role runs:
+- `product-marketer` without `growth-marketer` → launch happens but compounding growth motion is improvised post-release
+- `growth-marketer` without `product-marketer` → channel + content strategy built on assumed positioning (acceptable if existing ICP + messaging are validated)

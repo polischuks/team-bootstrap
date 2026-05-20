@@ -72,6 +72,8 @@ Use this for production releases with full quality gates.
 | `ux-researcher` | Surface user segments, friction, mental models. | New user-facing flow without prior research | `discovery-research` (before product-manager) |
 | `ux-designer` | Translate research into IA, flows, wireframes, interaction patterns, mental-model mapping, UX writing. | New user-facing product/feature; novel interaction patterns; UX = core moat | `ux-researcher` or `product-manager` (before ui-designer) |
 | `ui-designer` | Translate UX architecture into design tokens, component library, reference prototype. | New product visual identity; design-system from scratch; visual polish = differentiation | `ux-designer` (before frontend-engineer) |
+| `product-marketer` | Define ICP, positioning, pricing, launch sequencing, sales enablement, competitive battle cards. | New product / new feature in different ICP / repositioning / pricing change / new GTM motion | `product-manager` (before business-analyst) |
+| `growth-marketer` | Channel strategy, content engine, brand-as-moat, AI search posture, growth loops, 30/60/90 plan. | New launch with reach goals; stalled growth; AI search shift; brand-as-moat play | `release-manager` (before stakeholder-communicator) |
 | `whimsy-injector` | Add delightful micro-interactions, copy, animations. | New user-facing UI surface | `frontend-engineer` (before accessibility-reviewer) |
 | `chaos-engineer` | Design (and optionally run) failure experiments. | New external dep in hot path; SLO change | `qa-test-engineer` (before release-manager) |
 | `legal-compliance-checker` | Flag GDPR/CCPA/HIPAA/PCI/COPPA/platform-policy obligations. | PII/PHI/payments/new region/new processor | `security-reviewer` (before release-manager) |
@@ -103,6 +105,8 @@ Use this for **commercial / financial / strategic** due diligence — pre-fundra
 - **With ux-researcher:** New audience or redesigned flow without prior research.
 - **With ux-designer:** New user-facing product/feature with novel flows; UX architecture decisions can't be left to frontend-engineer's discretion.
 - **With ui-designer:** New product visual identity; need design tokens + reference prototype before frontend implementation.
+- **With product-marketer:** New product launch / new ICP / repositioning / pricing change. Positioning must shape the rest of the pipeline, not arrive post-release.
+- **With growth-marketer:** Launches with reach goals beyond internal release; growth plateaus; AI search shifts; brand-as-moat play. Translates ship into compounding growth motion.
 - **With whimsy-injector:** New user-facing surface where delight matters.
 - **With chaos-engineer:** New hot-path dependency or tightened SLO.
 - **With legal-compliance-checker:** PII/PHI/payments, new region, new processor, or platform-policy surface.

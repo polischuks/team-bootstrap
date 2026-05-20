@@ -2,6 +2,50 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-05-20
+
+### Added
+
+Dedicated GTM + ongoing growth stages for the `full` and `single-thread` pipelines. Closes a gap from v1.0–v1.3 where the pipeline shipped products but had no role responsible for positioning, ICP selection, pricing strategy, launch sequencing, channel strategy, content engine, or AI search posture. Existing `stakeholder-communicator` produced release notes one-shot; nothing built the ongoing growth motion.
+
+- **`product-marketer` role** ([references/roles/product-marketer.md](references/roles/product-marketer.md)) — Canonical Product Marketing Manager (PMM) function. Owns ICP definition, positioning statement, category framing, messaging hierarchy, pricing strategy, launch sequencing (alpha/beta/GA), sales enablement (discovery questions + objection handling + ROI calculator inputs), competitive battle cards. Position: after `product-manager`, before `business-analyst` — positioning shapes downstream requirements rather than arriving post-release. Inline-only by default.
+
+- **`growth-marketer` role** ([references/roles/growth-marketer.md](references/roles/growth-marketer.md)) — Strategic growth function (CMO-equivalent, named for work not title). Owns channel strategy (mix + CAC + ramp + kill criteria), content engine (cadence + topic clusters + SEO/AEO posture), brand-as-moat (category-defining terminology, recognized-metric play, community positioning), growth loops (with k-factor / payback), attribution model, AI search posture per platform (ChatGPT / Perplexity / Claude / Gemini / Google AI Overview), growth experiments backlog (ICE-ranked), 30/60/90 day plan. Position: after `release-manager`, before `stakeholder-communicator` — translates ship event into compounding growth motion. Inline-only by default.
+
+- **Skill ecosystem integration for both roles** — `Skill` in `tool_surface.allow`; `## Recommended skills` section per role; all referenced skills present in canonical local installs (`~/.claude/skills/<name>/SKILL.md`):
+  - `product-marketer` core: `competitor-analysis` (non-negotiable for positioning), `copywriter`, `brief`, `tavily-research`, `idea-refine`, `persona-customer-support`
+  - `growth-marketer` core: `30x-seo-ai-visibility` (highest leverage in 2026), `ai-seo`, `seo-aeo-best-practices`, `seo-audit`, `seo-geo`, `find-keywords`, `programmatic-seo`, `backlink-analyzer`, `competitor-analysis`, `tavily-research`, `social-media-posts`, `copywriter`, `brief`, `data-storyteller`, `idea-refine`
+
+- **`skills-manifest.json`** v1.2.0 — extends `full` pipeline section with 14 additional marketing-specific optional skills. Total `full` pipeline now: 4 recommended + 18 optional skills. `bin/check-skills.sh full` resolves all 22 against local installs.
+
+- **`pipelines/full.md`** updated — `product-marketer` inserted after `product-manager` (before `business-analyst`); `growth-marketer` inserted after `release-manager` (before `stakeholder-communicator`); updated role flow diagram + new "Marketing stages — when to include" decision matrix (greenfield launch / pricing change / repositioning / growth plateau / AEO shift / internal tool / patch).
+
+- **`subagent-mapping.md`** updated — new "Marketing roles (v1.4)" section with primary + fallback subagent types; both roles added to inline-only list.
+
+- **`role-matrix.md`** updated — both roles in Optional Roles table with triggers + "Inserts after" position; new selection-rule entries (with product-marketer / with growth-marketer).
+
+- **`role-output.schema.json`** updated — `product-marketer` + `growth-marketer` added to root `oneOf`; new per-role definitions with role-specific required fields (`positioning_confidence`, `pricing_confidence`, `primary_channel_thesis`, `ai_search_priority`).
+
+- **`INSTALL.md`** updated with new "Full pipeline — install referenced skills for marketing roles" section. Per-skill table + install priority by product type (greenfield launch / pricing change / growth plateau / content scaling / internal tool / patch).
+
+### Why dedicated marketing stages
+
+The pipeline previously assumed products would just "ship" — `release-manager` made go/no-go, `stakeholder-communicator` wrote business-language release notes, done. But the gap between "shipping" and "growing" is where most products die — `product-marketer` answers "who buys this and what do we say" before development, and `growth-marketer` answers "how does this compound week-over-week" after launch. Without these roles, GTM decisions are made by founders at runtime under pressure, which is the wrong cognitive context (focus on shipping, not market motion).
+
+For products entering markets where AI search visibility (AEO / GEO) is now the primary growth surface — every consumer / prosumer / B2B product launching in 2026 — `growth-marketer` is the role that owns the AI search posture explicitly. Without it, AEO/GEO defaults to "we'll figure it out post-launch," which is too late.
+
+### Total role count
+
+team-bootstrap v1.4.0 now ships **38 roles** total (up from 36 in v1.3): 14 implementation roles + 8 review roles + 6 audit-DD roles + 4 strategic roles (discovery / product-manager / product-ba / business-analyst) + 2 design roles + 2 marketing roles + 2 release roles + others.
+
+### Migration
+
+Backwards compatible — no breaking changes to existing roles or pipelines. Existing `mvp` / `full` / `single-thread` / `audit` / `audit-dd` runs continue unchanged when marketing roles are not opted in. Opt into marketing stages by inserting `product-marketer` and/or `growth-marketer` in the pipeline per the [pipelines/full.md](references/pipelines/full.md) "Marketing stages — when to include" decision matrix.
+
+### Inline-only rationale
+
+Both `product-marketer` and `growth-marketer` run inline by default — their strategic artifacts (positioning / pricing / channel mix / content cadence / launch sequencing) are inherited by downstream release + communication roles. Fragmenting them across subagent contexts risks `release-manager` missing the launch sequencing or `stakeholder-communicator` missing the brand narrative. Dispatch only with explicit `--isolate` when running a marketing-only audit with no release decision downstream.
+
 ## [1.3.0] - 2026-05-20
 
 ### Added

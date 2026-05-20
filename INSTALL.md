@@ -173,6 +173,50 @@ The full pipeline's design stages are **opt-in** (see [pipelines/full.md](refere
 bin/check-skills.sh full --json | jq '.recommended_missing'
 ```
 
+## Optional: Full pipeline — install referenced skills for marketing roles
+
+The `full` pipeline also gains `product-marketer` (GTM, positioning, launches, sales enablement) and `growth-marketer` (channels, content, brand-as-moat, AI search posture) as opt-in stages — added in v1.4.0. Both roles **gracefully degrade** without their skills (output drops in quality but role still runs); the strategy artifacts and content engine are materially weaker without the SEO/AEO toolchain.
+
+### Skill catalog for product-marketer + growth-marketer (full pipeline)
+
+| Skill | Role(s) | Purpose | Fallback if missing |
+|---|---|---|---|
+| `competitor-analysis` | product-marketer / growth-marketer | SWOT + positioning differentials + channel benchmarks | Manual WebSearch + analysis (more tokens) |
+| `copywriter` | product-marketer / growth-marketer | Compelling marketing/product copy — landing pages, ads, email, launch announcements | Manual copywriting (acceptable, less converting) |
+| `brief` | product-marketer / growth-marketer | Editor-ready content brief with SEO + AEO structure | Manual brief composition |
+| `30x-seo-ai-visibility` | growth-marketer | Empirical AI visibility measurement across ChatGPT/Claude/Perplexity/Gemini/Google AI Overview — **highest leverage for growth-marketer in 2026** | WebSearch each LLM platform manually (very token-expensive) |
+| `ai-seo` | growth-marketer | AEO / GEO content strategy + LLM citation optimization patterns | Manual research (rapidly evolving knowledge) |
+| `seo-aeo-best-practices` | growth-marketer | Schema, structured data, JSON-LD, answer-first content blocks | Manual research per pattern |
+| `seo-audit` | growth-marketer | Technical SEO baseline audit + issue prioritization | Manual technical SEO audit |
+| `seo-geo` | growth-marketer | Generative Engine Optimization across regions + engines | Run classical SEO + AEO separately |
+| `find-keywords` | growth-marketer | Prioritized keyword list with demand + intent mapping | Manual keyword brainstorm |
+| `programmatic-seo` | growth-marketer | Template-driven page generation for 100s/1000s of pages | Manual page-by-page creation (doesn't scale) |
+| `backlink-analyzer` | growth-marketer | Authority gap analysis vs competitors | Manual backlink audit |
+| `social-media-posts` | growth-marketer | Platform-specific content (LinkedIn / Twitter / Reddit / Facebook / Instagram) | Manual platform-by-platform |
+| `data-storyteller` | growth-marketer | Growth metrics narrative (charts + cohort analysis) | Raw markdown tables |
+| `tavily-research` *(see audit-dd table)* | product-marketer | Cited multi-source research on pricing comps + competitive moves | WebSearch + manual triangulation |
+| `idea-refine` *(see design table)* | product-marketer | Divergent → convergent positioning narrowing | Manual brainstorm + critique |
+| `persona-customer-support` *(see design table)* | product-marketer | ICP modeling from real support patterns | Manual persona modeling |
+
+### When to actually install these
+
+The full pipeline's marketing stages are **opt-in** (see [pipelines/full.md](references/pipelines/full.md) — "Marketing stages — when to include"). Skill install priority by product type:
+
+- **Greenfield product launch with reach goals** — install entire growth-marketer SEO/AEO toolchain (`30x-seo-ai-visibility`, `ai-seo`, `seo-aeo-best-practices`, `find-keywords`, `competitor-analysis`) + product-marketer core (`competitor-analysis`, `copywriter`, `brief`)
+- **Pricing change or repositioning** — install product-marketer core only (`competitor-analysis`, `tavily-research`, `idea-refine`, `copywriter`)
+- **Growth plateau / AEO posture work** — install growth-marketer toolchain (`30x-seo-ai-visibility`, `ai-seo`, `seo-audit`, `backlink-analyzer`, `data-storyteller`)
+- **Content scaling project** — add `programmatic-seo` + `brief` + `find-keywords`
+- **Internal tool / private beta / dev-only feature** — skip both marketing roles; no skills needed
+- **Patch / bug fix release** — skip both; use `stakeholder-communicator` for release notes only
+
+### CI integration
+
+```bash
+bin/check-skills.sh full --json | jq '.recommended_missing, .optional_missing'
+```
+
+`full` now references 4 recommended + 18 optional skills total (design + marketing). Pipeline is functional with just the 4 recommended; quality compounds as optional skills land.
+
 ## Uninstall
 
 ```bash

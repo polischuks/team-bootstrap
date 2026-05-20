@@ -31,6 +31,8 @@
     { "$ref": "#/$defs/ux-researcher" },
     { "$ref": "#/$defs/ux-designer" },
     { "$ref": "#/$defs/ui-designer" },
+    { "$ref": "#/$defs/product-marketer" },
+    { "$ref": "#/$defs/growth-marketer" },
     { "$ref": "#/$defs/whimsy-injector" },
     { "$ref": "#/$defs/chaos-engineer" },
     { "$ref": "#/$defs/legal-compliance-checker" },
@@ -374,6 +376,32 @@
       "allOf": [
         { "$ref": "#/$defs/base" },
         { "properties": { "role": { "const": "ui-designer" } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "product-marketer": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "role": { "const": "product-marketer" },
+            "positioning_confidence": { "enum": ["high", "medium", "low"] },
+            "pricing_confidence": { "enum": ["high", "medium", "low"] }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "growth-marketer": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "role": { "const": "growth-marketer" },
+            "primary_channel_thesis": { "type": "string", "minLength": 1 },
+            "ai_search_priority": { "enum": ["high", "medium", "low"] }
+          }
+        }
       ],
       "unevaluatedProperties": false
     },

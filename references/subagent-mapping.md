@@ -67,6 +67,15 @@ The harness — not the LLM — enforces `tool_surface` and `permission_mode` fr
 
 **Inline-only by default:** Both design roles produce artifacts that downstream roles inherit (component inventory, design tokens, reference prototype). Fragmenting them across subagent contexts risks `frontend-engineer` missing the design-token-to-implementation handoff or the UX writing guidelines. Dispatch only with explicit `--isolate` when running an audit-only design review with no implementation downstream.
 
+## Marketing roles (v1.4 — dedicated GTM + growth stages)
+
+| Role | Primary | Stack overrides | Fallbacks |
+| --- | --- | --- | --- |
+| `product-marketer` | `content-creator` | `pricing-heavy → business-analyst`; `enterprise-sales → support-responder` | `business-analyst`, `trend-researcher`, `general-purpose` |
+| `growth-marketer` | `content-creator` | `SEO/AEO-heavy → trend-researcher`; `community-driven → support-responder` | `trend-researcher`, `business-analyst`, `general-purpose` |
+
+**Inline-only by default:** Both marketing roles produce strategic artifacts that downstream roles inherit (positioning, pricing tiers, channel mix, content cadence, launch sequencing). Fragmenting them across subagent contexts risks `release-manager` missing the launch sequencing or `stakeholder-communicator` missing the brand narrative. Dispatch only with explicit `--isolate` when running a marketing-only audit with no release decision downstream.
+
 ## Audit-DD roles (v1.2 — commercial / financial DD)
 
 These six roles are exclusive to the `audit-dd` pipeline. None have a perfect-fit specialist subagent (DD is a generalist task crossing finance, market research, legal, and HR domains), so most route through `general-purpose` with at least one narrower fallback for partial coverage.
@@ -101,6 +110,7 @@ These roles **must not** be dispatched as subagents (see [subagent-dispatch.md](
 - `investment-thesis-author` — final synthesizer for `audit-dd`; must read all prior DD blackboard
 - All other `audit-dd` roles — see Audit-DD section above; cross-axis correlations need shared context
 - `ux-designer`, `ui-designer` — see Design roles section above; design artifacts (IA / tokens / prototype) inherited by downstream roles
+- `product-marketer`, `growth-marketer` — see Marketing roles section above; positioning / pricing / channel decisions inherited by downstream release + communication roles
 
 Their `preferred_subagent_types` is still set (for the rare override case: e.g. user explicitly requests `--isolate` on an architect role for compliance separation). The default is inline.
 
