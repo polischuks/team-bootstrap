@@ -217,6 +217,104 @@ bin/check-skills.sh full --json | jq '.recommended_missing, .optional_missing'
 
 `full` now references 4 recommended + 18 optional skills total (design + marketing). Pipeline is functional with just the 4 recommended; quality compounds as optional skills land.
 
+## Required: Full pipeline — install skills for v1.5 post-release roles
+
+**v1.5 adds three new post-release roles** with **skill-blocking constraints** unlike any prior role: `customer-success-manager`, `partnerships-lead`, `community-manager`. The pipeline returns `status: blocked` if any blocking skill is missing — these roles cannot fall back to AI-detectable output because that destroys trust permanently in customer / partner / community contexts.
+
+### Blocking skills (pipeline halts if missing)
+
+| Skill | Required by role(s) | Why blocking | Install priority |
+|---|---|---|---|
+| `humanize` | partnerships-lead (outreach + co-launch comms), community-manager (every published post + moderation response) | AI-detected content in partner / community contexts has < 1% reply rate; communities reject AI-flagged posts within hours | **P0 — install first** |
+| `humanize-ai-text` | customer-success-manager (renewal / expansion / at-risk sequences), community-manager (ambassador program copy) | Customer comms detected as AI-generated erode trust; ambassadors ghost transactional-feeling programs | **P0 — install first** |
+| `persona-customer-support` | customer-success-manager (health framework + onboarding escalation triage) | Manual customer-management framework fails QA on triage rigor | **P0 — install first** |
+| `research-synthesis` | customer-success-manager (VoC theme extraction) | Unstructured summary fails QA on theme density + segment correlation | **P0 — install first** |
+| `idea-refine` | partnerships-lead (partnership thesis convergence) | Unstructured prioritization fails QA on convergence rigor; thesis without audit-trail = wishful thinking | **P0 — install first** |
+
+These 5 skills are **required** in the v1.5 manifest (not just recommended). `bin/check-skills.sh full` will exit 1 if any is missing.
+
+### Recommended skills (graceful fallback, but quality drops)
+
+Reusing skills from v1.3 + v1.4 manifests (no new install needed if already present):
+
+| Skill | Used by v1.5 roles | Fallback if missing |
+|---|---|---|
+| `tavily-research` | CSM (QBR industry context), partnerships-lead (partner landscape), community-manager (channel inventory) | WebFetch + manual research (10× token cost) |
+| `competitor-analysis` | CSM (at-risk competitive threats), partnerships-lead (partner overlap), community-manager (community gap analysis) | Manual SWOT (less systematic) |
+| `data-storyteller` | CSM (health dashboard), partnerships-lead (performance dashboard), community-manager (health dashboard) | Markdown tables (loses narrative + escalation framing) |
+| `copywriter` | CSM (comm templates), partnerships-lead (outreach), community-manager (ambassador recruitment) | Manual copywriting (less converting) |
+| `brief` | partnerships-lead (per-partner brief), community-manager (ambassador handbook) | Manual brief composition (less structured) |
+| `social-media-posts` | partnerships-lead (co-launch), community-manager (daily engagement) | Manual platform-by-platform (slower, less converting) |
+| `image-generation` | community-manager (ambassador badges + event banners + visuals) | Source from existing libraries; commission separately |
+| `api-and-interface-design` | partnerships-lead (integration partner vetting — conditional) | Manual technical review (less rigorous) |
+| `backlink-analyzer` | partnerships-lead (content/SEO partner scoring — conditional) | Manual third-party tool review (more friction) |
+
+### Verify v1.5 skill availability
+
+```bash
+bin/check-skills.sh full
+```
+
+Output legend (v1.5 introduces `[required]` tier):
+- `✓ [required]` — pipeline-blocking skill installed
+- `✗ [required]` missing — pipeline halts on first role invocation needing this skill
+- `✓ [recommended]` — quality skill installed
+- `⚠ [recommended]` missing — pipeline runs via fallback with quality drop
+- `✓ [optional]` — nice-to-have installed
+- `○ [optional]` missing — fallback acceptable for specific use cases
+
+### Install all v1.5 required skills (P0)
+
+Standard install paths (skills land at `~/.claude/skills/<name>/SKILL.md`):
+
+```bash
+# Via Claude Code's plugin manager (if your marketplace is registered):
+/plugin install humanize
+/plugin install humanize-ai-text
+/plugin install persona-customer-support
+/plugin install research-synthesis
+/plugin install idea-refine
+
+# Or via manual git clone:
+git clone https://github.com/<owner>/<repo> ~/.claude/skills/humanize
+# ... etc per skill
+
+# Or copy from another machine that has them:
+scp -r other-machine:~/.claude/skills/{humanize,humanize-ai-text,persona-customer-support,research-synthesis,idea-refine} ~/.claude/skills/
+```
+
+After install, verify all 5 are blocking-tier resolved:
+
+```bash
+bin/check-skills.sh full --json | jq '.skills[] | select(.tier == "required") | .status'
+# Expected: all "installed"
+```
+
+### When to skip v1.5 roles entirely (skip install of v1.5 blocking skills)
+
+If you never run any of the three v1.5 post-release roles, you don't need their blocking skills. Match your install scope to your usage:
+
+| Product context | CSM? | Partnerships? | Community? | Required v1.5 skills |
+|---|:-:|:-:|:-:|---|
+| SaaS / subscription with retention focus | ✓ | optional | optional | persona-customer-support, research-synthesis, humanize-ai-text |
+| Developer tools / platform (community-driven) | optional | ✓ | ✓ | humanize, humanize-ai-text, idea-refine |
+| B2B with ecosystem-first GTM | optional | ✓ | optional | humanize, idea-refine |
+| Consumer product (broad community appeal) | optional | optional | ✓ | humanize, humanize-ai-text |
+| Internal tool / private beta | — | — | — | none — skip all v1.5 |
+| Patch / bug fix release | — | — | — | none — skip all v1.5 |
+
+### CI integration (v1.5)
+
+```bash
+# Strict: fail CI if required skills missing
+bin/check-skills.sh full --json | jq -e '.required_missing == 0'
+
+# Soft: warn but proceed
+bin/check-skills.sh full --json | jq '{required_missing, recommended_missing}'
+```
+
+`full` pipeline in v1.5: **5 required + 9 recommended + 18 optional skills**. Reference setup at this repo's maintainer environment has all 32 skills installed locally.
+
 ## Uninstall
 
 ```bash

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Skills referenced by team-bootstrap roles. Skills are external to this repo — install separately from your skill marketplace of choice (e.g. /plugin install <name>, or git clone into ~/.claude/skills/). Run bin/check-skills.sh to verify presence before invoking the relevant pipelines.",
   "skill_root": "~/.claude/skills",
   "pipelines": {
@@ -75,7 +75,38 @@
       ]
     },
     "full": {
-      "required": [],
+      "required": [
+        {
+          "name": "humanize",
+          "used_by": ["partnerships-lead", "community-manager"],
+          "purpose": "Bypasses AI-detection signals (GPTZero, Originality.ai, etc.) on outbound content. **Pipeline-blocking** for partnerships-lead (outreach + co-launch comms) and community-manager (every published community post + moderation response). AI-detected content in these contexts destroys trust permanently.",
+          "fallback": "**No fallback** — role returns status:blocked if missing"
+        },
+        {
+          "name": "humanize-ai-text",
+          "used_by": ["customer-success-manager", "community-manager"],
+          "purpose": "Reduces AI-detection patterns in personal communications. **Pipeline-blocking** for customer-success-manager (renewal / expansion / at-risk sequences) and community-manager (ambassador program copy). Distinct from `humanize`: this skill focuses on natural phrasing + tone adjustment for personal-feeling 1:1 messages, while `humanize` focuses on detector-bypass for public broadcasts.",
+          "fallback": "**No fallback** — role returns status:blocked if missing"
+        },
+        {
+          "name": "persona-customer-support",
+          "used_by": ["customer-success-manager", "community-manager", "product-marketer", "ux-designer"],
+          "purpose": "Customer-management framework: ticket triage patterns, escalation tiers, response patterns. **Pipeline-blocking** for customer-success-manager (health framework + onboarding escalation triage). Used non-blocking by community-manager (moderation playbook), product-marketer (ICP modeling), ux-designer (operator-interface persona constraints).",
+          "fallback": "**No fallback for customer-success-manager** — manual customer-management framework fails QA. Graceful fallback for other roles (manual persona modeling)."
+        },
+        {
+          "name": "research-synthesis",
+          "used_by": ["customer-success-manager", "community-manager", "ux-designer"],
+          "purpose": "Synthesize raw research (interview transcripts, NPS, support tickets, community signals) into themes + segment patterns. **Pipeline-blocking** for customer-success-manager (VoC report theme extraction). Used non-blocking by community-manager (community VoC) and ux-designer (research synthesis before flow design).",
+          "fallback": "**No fallback for customer-success-manager** — unstructured summary fails QA on theme density. Graceful fallback for other roles."
+        },
+        {
+          "name": "idea-refine",
+          "used_by": ["ux-designer", "ui-designer", "product-marketer", "partnerships-lead"],
+          "purpose": "Divergent → convergent thinking for narrowing options. **Pipeline-blocking** for partnerships-lead (partnership thesis convergence — must show audit trail of N candidates → 3-5 priorities). Non-blocking for design + product-marketer roles.",
+          "fallback": "**No fallback for partnerships-lead** — unstructured prioritization fails QA on convergence rigor. Graceful fallback for other roles (manual brainstorm + critique)."
+        }
+      ],
       "recommended": [
         {
           "name": "frontend-ui-engineering",
@@ -84,22 +115,52 @@
           "fallback": "Manual reference from shadcn/ui + Tailwind docs; significantly less coherent design system output"
         },
         {
+          "name": "competitor-analysis",
+          "used_by": ["ux-designer", "ui-designer", "product-marketer", "growth-marketer", "customer-success-manager", "partnerships-lead", "community-manager"],
+          "purpose": "SWOT + positioning + differentiation analysis. Used by 7 roles in the full pipeline; install once, used many times. Maps specific UX/UI patterns (design roles), positioning differentials (product-marketer), channel benchmarks (growth-marketer), competitive threats per account (CSM), partnership overlap (partnerships-lead), community gaps (community-manager).",
+          "fallback": "WebSearch + manual analysis (acceptable but slower and less structured)"
+        },
+        {
+          "name": "tavily-research",
+          "used_by": ["ux-designer", "product-marketer", "growth-marketer", "customer-success-manager", "partnerships-lead", "community-manager"],
+          "purpose": "Multi-source cited research. Used by 6 roles: established UX patterns for novel interactions (ux-designer), pricing comps + recent funding (product-marketer), channel benchmarks (growth-marketer), per-account industry context for QBRs (CSM), partner ecosystem mapping (partnerships-lead), where ICP gathers (community-manager).",
+          "fallback": "WebFetch + manual triangulation (acceptable but 10× token cost)"
+        },
+        {
+          "name": "data-storyteller",
+          "used_by": ["customer-success-manager", "partnerships-lead", "community-manager", "growth-marketer"],
+          "purpose": "Executive-ready narrative reports + charts + cohort analysis. Used by 4 post-release roles: health score viz + cohort retention (CSM), partnership performance dashboard (partnerships-lead), community health dashboard (community-manager), growth metrics narrative (growth-marketer).",
+          "fallback": "Raw markdown tables (loses narrative + escalation framing)"
+        },
+        {
+          "name": "copywriter",
+          "used_by": ["product-marketer", "growth-marketer", "customer-success-manager", "partnerships-lead", "community-manager"],
+          "purpose": "Compelling marketing / product / community copy. Used by 5 roles for: messaging hierarchy + launch announcements (product-marketer), landing pages + ads + email (growth-marketer), communication templates (CSM), outreach + announcements (partnerships-lead), ambassador recruitment + community comms (community-manager).",
+          "fallback": "Manual copywriting (acceptable but less converting)"
+        },
+        {
+          "name": "brief",
+          "used_by": ["product-marketer", "growth-marketer", "partnerships-lead", "community-manager"],
+          "purpose": "Editor-ready content brief structure. Used by 4 roles: content briefs with SEO + AEO structure (product-marketer, growth-marketer), per-partner brief template (partnerships-lead), ambassador handbook structure (community-manager).",
+          "fallback": "Manual brief composition (acceptable but less structured)"
+        },
+        {
+          "name": "social-media-posts",
+          "used_by": ["growth-marketer", "partnerships-lead", "community-manager"],
+          "purpose": "Platform-specific content (LinkedIn / Twitter / Reddit / Facebook / Instagram) with hook + character limits + hashtag strategy. Used by 3 roles: multi-platform community content (growth-marketer), co-launch announcements (partnerships-lead), daily engagement engine (community-manager).",
+          "fallback": "Manual platform-by-platform composition (acceptable, slower, less converting)"
+        },
+        {
           "name": "research-synthesis",
-          "used_by": ["ux-designer"],
-          "purpose": "Synthesize raw user research (transcripts, NPS, support tickets) into themes + segment patterns before flow design. Same skill used by audit-dd's customer-health-analyst.",
+          "used_by": ["customer-success-manager", "community-manager", "ux-designer"],
+          "purpose": "Already listed in required (blocking for CSM). Note: graceful-fallback usage for community-manager (VoC) and ux-designer (pre-flow research).",
           "fallback": "Read transcripts directly, summarize manually"
         },
         {
           "name": "idea-refine",
-          "used_by": ["ux-designer", "ui-designer"],
-          "purpose": "Divergent → convergent thinking for greenfield design space (new product, novel interaction paradigm, no existing visual identity). Without it, designs converge on familiar-but-wrong patterns.",
+          "used_by": ["ux-designer", "ui-designer", "product-marketer"],
+          "purpose": "Already listed in required (blocking for partnerships-lead). Note: graceful-fallback usage for design + product-marketer roles.",
           "fallback": "Manual brainstorming + critique (more passes needed)"
-        },
-        {
-          "name": "competitor-analysis",
-          "used_by": ["ux-designer", "ui-designer"],
-          "purpose": "Map specific UX/UI patterns from named reference products (e.g. 'Linear-like', 'Notion-feel') with rationale for adoption/divergence. Concrete patterns instead of aesthetic vibes.",
-          "fallback": "WebFetch reference products + manual pattern extraction"
         }
       ],
       "optional": [
@@ -209,11 +270,10 @@
           "fallback": "Manual platform-by-platform composition"
         },
         {
-          "name": "data-storyteller",
-          "used_by": ["growth-marketer"],
-          "purpose": "Charts + audits + cohort analysis turned into executive-ready growth metrics narrative.",
-          "fallback": "Raw tables in markdown (readable but not narrative)",
-          "note": "Same skill used by audit-dd financial-analyst / customer-health-analyst / investment-thesis-author"
+          "name": "image-generation",
+          "used_by": ["ui-designer", "community-manager"],
+          "purpose": "Reference visuals — custom iconography (ui-designer), ambassador badges + event banners + reaction visuals (community-manager).",
+          "fallback": "Source from existing libraries; commission custom work separately"
         }
       ]
     }

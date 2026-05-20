@@ -76,6 +76,18 @@ The harness — not the LLM — enforces `tool_surface` and `permission_mode` fr
 
 **Inline-only by default:** Both marketing roles produce strategic artifacts that downstream roles inherit (positioning, pricing tiers, channel mix, content cadence, launch sequencing). Fragmenting them across subagent contexts risks `release-manager` missing the launch sequencing or `stakeholder-communicator` missing the brand narrative. Dispatch only with explicit `--isolate` when running a marketing-only audit with no release decision downstream.
 
+## Customer / Partnership / Community roles (v1.5 — post-release retention + ecosystem + community)
+
+| Role | Primary | Stack overrides | Fallbacks |
+| --- | --- | --- | --- |
+| `customer-success-manager` | `feedback-synthesizer` | `enterprise-tier-heavy → support-responder` | `support-responder`, `business-analyst`, `general-purpose` |
+| `partnerships-lead` | `business-analyst` | `integration-heavy → backend-architect` (for technical vetting); `content-partner-heavy → trend-researcher` | `trend-researcher`, `content-creator`, `general-purpose` |
+| `community-manager` | `content-creator` | `support-heavy → support-responder`; `developer-community → frontend-developer` | `support-responder`, `feedback-synthesizer`, `general-purpose` |
+
+**Inline-only by default:** All three roles produce strategic artifacts (retention model, partnership thesis, community channel strategy) that downstream roles inherit. Importantly, all three are **skill-dependent by design** — their outputs require specific local skill invocations at named workflow steps; the harness validates skill availability before role dispatch. Dispatch as subagent only with explicit `--isolate` when running a strategy-only review with no downstream consumer.
+
+**Skill-blocking constraint:** These three roles have strictly required skills (`humanize` / `humanize-ai-text` / `persona-customer-support` / `research-synthesis` / `idea-refine`) that cause `status: blocked` if missing. Unlike other roles where skills degrade gracefully, communications-facing roles cannot fall back to AI-detectable output without destroying trust permanently.
+
 ## Audit-DD roles (v1.2 — commercial / financial DD)
 
 These six roles are exclusive to the `audit-dd` pipeline. None have a perfect-fit specialist subagent (DD is a generalist task crossing finance, market research, legal, and HR domains), so most route through `general-purpose` with at least one narrower fallback for partial coverage.
@@ -111,6 +123,7 @@ These roles **must not** be dispatched as subagents (see [subagent-dispatch.md](
 - All other `audit-dd` roles — see Audit-DD section above; cross-axis correlations need shared context
 - `ux-designer`, `ui-designer` — see Design roles section above; design artifacts (IA / tokens / prototype) inherited by downstream roles
 - `product-marketer`, `growth-marketer` — see Marketing roles section above; positioning / pricing / channel decisions inherited by downstream release + communication roles
+- `customer-success-manager`, `partnerships-lead`, `community-manager` — see v1.5 Customer/Partnership/Community section above; strategic artifacts inherited; communications roles also skill-blocked from AI-detectable fallbacks
 
 Their `preferred_subagent_types` is still set (for the rare override case: e.g. user explicitly requests `--isolate` on an architect role for compliance separation). The default is inline.
 

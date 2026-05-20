@@ -2,6 +2,92 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-05-20
+
+### Added
+
+Three post-release strategic roles closing the **customer + ecosystem + community** gap. Pipeline previously shipped products and translated launches into growth motion, but had no dedicated owner for retention motion, partner ecosystem, or community-led growth. v1.5 introduces all three with a parallel fan-out pattern (CSM + partnerships + community) feeding `growth-marketer` synthesis.
+
+**New roles (all inline-only, opt-in for `full` + `single-thread`, all skill-blocking by design):**
+
+- **`customer-success-manager` role** ([references/roles/customer-success-manager.md](references/roles/customer-success-manager.md)) — Canonical CSM function. Owns customer health framework (weighted dimensions + status definitions), voice-of-customer report, per-account QBR prep template (with industry + competitive context), onboarding playbook (0/7/30/60/90-day milestones + escalation triage), customer communication templates (onboarding / renewal / expansion / at-risk sequences), cohort retention dashboard. Position: after `release-manager`, parallel with partnerships-lead + community-manager. Pipeline-blocking on `persona-customer-support` + `research-synthesis` + `humanize-ai-text`.
+
+- **`partnerships-lead` role** ([references/roles/partnerships-lead.md](references/roles/partnerships-lead.md)) — Ecosystem strategy + partner pipeline execution. Owns partner landscape map (with competitive overlap analysis), partnership thesis (top 3-5 with strategic rationale + expected lift), per-partner brief template, outreach + activation playbook (humanized for AI-detect avoidance), co-launch comms package (multi-platform), partnership performance dashboard. Conditional: technical integration vetting rubric (api-and-interface-design) + content / SEO partner scoring rubric (backlink-analyzer). Position: parallel with CSM + community-manager. Pipeline-blocking on `humanize` + `idea-refine`.
+
+- **`community-manager` role** ([references/roles/community-manager.md](references/roles/community-manager.md)) — Community-led growth motion end-to-end. Owns channel strategy (tiered: Own / Native presence / Listen only), daily engagement engine (cross-platform with humanized copy), moderation playbook (5-tier escalation), voice-of-community report, 3-tier ambassador / advocacy program, community visual assets (badges + banners + reaction visuals), community health dashboard. Position: parallel with CSM + partnerships-lead. Pipeline-blocking on `humanize` + `humanize-ai-text`.
+
+### Skill-blocking constraint (new in v1.5)
+
+Unlike all prior roles where missing skills caused graceful degradation, v1.5 introduces **strictly required skills** that cause `status: blocked` if missing. The harness validates skill availability before role dispatch and refuses to run the role without them.
+
+| Skill | Required by role(s) | Why blocking |
+|---|---|---|
+| `humanize` | partnerships-lead (outreach + co-launch), community-manager (every post + moderation) | AI-detected partner outreach has < 1% reply rate; communities reject AI-flagged posts |
+| `humanize-ai-text` | CSM (renewal/expansion/at-risk sequences), community-manager (ambassador program) | AI-detected customer comms erode trust; ambassadors ghost transactional programs |
+| `persona-customer-support` | CSM (health framework + onboarding escalation) | Manual customer-management framework fails QA on triage rigor |
+| `research-synthesis` | CSM (VoC theme extraction) | Unstructured summary loses theme density + segment correlation |
+| `idea-refine` | partnerships-lead (thesis convergence audit trail) | Unstructured prioritization fails QA on convergence rigor |
+
+All 5 blocking skills present in canonical local installs at `~/.claude/skills/<name>/SKILL.md`. `bin/check-skills.sh full` now reports a `[required]` tier separate from `[recommended]` + `[optional]`.
+
+### Deep skill integration in role workflows
+
+All three v1.5 roles document **per-skill invocation point** within their Output Template — skills aren't listed as references, they're called out at the specific workflow step where they're invoked, producing named artifacts. This pattern is stronger than v1.3 / v1.4 (where skills were recommended without binding to specific output sections).
+
+Example from `customer-success-manager.md`:
+> **Invocation:** Used `Skill: persona-customer-support` to derive escalation triage patterns from existing support behavior + ticket categorization.
+> **Invocation:** Used `Skill: data-storyteller` to design the health score visualization + cohort breakdown.
+
+Each role's `checks:` section includes per-skill invocation verifications (`skill_X_invoked: passed`), making skill usage auditable in the handoff trace.
+
+### Parallel fan-out pattern (post-release coordination)
+
+When 2+ of {CSM, partnerships-lead, community-manager} run, they execute in **parallel** as separate subagent dispatches (if available) or sequentially. Each produces independent strategic artifacts that `growth-marketer` then **synthesizes** into the unified channel + content + AI search posture + growth loops strategy:
+
+```
+release-manager
+       ↓
+  ┌────┼────┐                ← v1.5 parallel fan-out
+  ↓    ↓    ↓
+ CSM  PL   CM
+  └────┼────┘
+       ↓
+growth-marketer (synthesizes)
+       ↓
+stakeholder-communicator
+```
+
+This pattern is documented in `pipelines/full.md` ("Post-release stages — when to include").
+
+### Supporting updates
+
+- **`skills-manifest.json` v1.3.0** — `full` pipeline section now declares 5 required + 9 recommended + 18 optional skills. New `[required]` tier introduces blocking semantics.
+- **`pipelines/full.md`** — rewritten with parallel fan-out diagram + new "Post-release stages — when to include" decision matrix (per-role triggers + skip conditions).
+- **`subagent-mapping.md`** — new "Customer / Partnership / Community roles (v1.5)" section with primary + fallback subagent types; all three roles added to inline-only list with skill-blocking caveat documented.
+- **`role-matrix.md`** — all three roles in Optional Roles table with triggers + skill-blocking flags + parallel-execution position; new selection-rule entries (with CSM / with partnerships / with community).
+- **`role-output.schema.json`** — three roles added to root `oneOf`; per-role definitions with role-specific required fields (`retention_strategy_confidence`, `voc_themes_count`, `at_risk_arr_percent`, `partnership_priorities_count`, `expected_partner_channel_contribution`, `owned_channels_count`, `ambassador_program_tiers`, `expected_community_channel_contribution`).
+- **`INSTALL.md`** — new "Required: Full pipeline — install skills for v1.5 post-release roles" section. Per-skill table + install priority by product context (SaaS-with-retention / developer-tools / ecosystem-first / consumer / internal-tool / patch).
+
+### Total role count
+
+team-bootstrap v1.5.0 now ships **41 roles** total (up from 38 in v1.4): 14 implementation + 8 review + 6 audit-DD + 4 strategic (discovery / product-manager / product-ba / business-analyst) + 2 design + 2 marketing-strategy + **3 customer/partnership/community (NEW)** + 2 release + others.
+
+### Why dedicated post-release strategic roles
+
+Pre-v1.5, the pipeline assumed `release-manager` → `stakeholder-communicator` → `documentation-agent` was sufficient post-release. This worked for shipping, but failed for:
+
+1. **Retention** — without CSM, NRR / GRR / logo retention strategy was implicit. Subscription businesses live or die on retention math.
+2. **Ecosystem** — without partnerships-lead, partner pipeline was opportunistic. Products with distribution ceilings on direct channels can't scale without ecosystem motion.
+3. **Community** — without community-manager, community-led growth defaulted to "we'll figure it out post-launch." For developer tools / prosumer SaaS / AI products, community signal is the primary buyer evaluation channel.
+
+These three roles aren't optional luxuries — they're **deal-defining for products in their respective contexts** (subscription / ecosystem / community). v1.5 closes the gap by making them first-class pipeline citizens with skill-validated execution.
+
+### Migration
+
+Backwards compatible — no breaking changes to existing roles or pipelines. Existing `mvp` / `full` / `single-thread` / `audit` / `audit-dd` runs continue unchanged when v1.5 roles are not opted in.
+
+Opt into v1.5 roles by inserting them in the pipeline per `pipelines/full.md` "Post-release stages — when to include" decision matrix. If any v1.5 role is invoked but its required skills are missing, the role returns `status: blocked` immediately (no work attempted) — install required skills via the paths in `INSTALL.md` and retry.
+
 ## [1.4.0] - 2026-05-20
 
 ### Added

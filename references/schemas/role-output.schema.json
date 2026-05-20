@@ -33,6 +33,9 @@
     { "$ref": "#/$defs/ui-designer" },
     { "$ref": "#/$defs/product-marketer" },
     { "$ref": "#/$defs/growth-marketer" },
+    { "$ref": "#/$defs/customer-success-manager" },
+    { "$ref": "#/$defs/partnerships-lead" },
+    { "$ref": "#/$defs/community-manager" },
     { "$ref": "#/$defs/whimsy-injector" },
     { "$ref": "#/$defs/chaos-engineer" },
     { "$ref": "#/$defs/legal-compliance-checker" },
@@ -400,6 +403,47 @@
             "role": { "const": "growth-marketer" },
             "primary_channel_thesis": { "type": "string", "minLength": 1 },
             "ai_search_priority": { "enum": ["high", "medium", "low"] }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "customer-success-manager": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "role": { "const": "customer-success-manager" },
+            "retention_strategy_confidence": { "enum": ["high", "medium", "low"] },
+            "voc_themes_count": { "type": "integer", "minimum": 0 },
+            "at_risk_arr_percent": { "type": "number", "minimum": 0, "maximum": 100 }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "partnerships-lead": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "role": { "const": "partnerships-lead" },
+            "partnership_priorities_count": { "type": "integer", "minimum": 0 },
+            "expected_partner_channel_contribution": { "type": "number", "minimum": 0, "maximum": 100 }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "community-manager": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "role": { "const": "community-manager" },
+            "owned_channels_count": { "type": "integer", "minimum": 0 },
+            "ambassador_program_tiers": { "type": "integer", "minimum": 0 },
+            "expected_community_channel_contribution": { "type": "number", "minimum": 0, "maximum": 100 }
           }
         }
       ],
