@@ -19,7 +19,7 @@ Every role file starts with:
 ---
 name: backend-engineer
 version: 1.0.0
-model: claude-opus-4-7
+model: claude-sonnet-4-6
 compatible_pipelines: [mvp, full, single-thread]
 tool_surface:
   allow: [Read, Edit, Write, Bash, Grep, Glob]
@@ -63,7 +63,36 @@ A role-file PR must pass:
 - All graders pass (or pass with a documented diff)
 - No regression in token usage > 25% without justification
 
-CI integration is project-specific. Recommended: a GitHub Action that runs `team-bootstrap-evals` on every PR touching `references/roles/*.md`.
+CI integration is project-specific. Recommended: a GitHub Action that runs the version gate below on every PR touching `references/roles/*.md`.
+
+## Version gate (enforced)
+
+A version bump is **not** a free-text edit — it must be earned. The gate has two layers, ordered cheap-to-expensive; a regression at either layer **blocks the bump**.
+
+**Layer 1 — static (runnable today).** Any PR that touches a role file must pass:
+
+```bash
+bin/eval-role.sh <role>      # one role
+bin/eval-role.sh --all       # whole suite, for CI
+```
+
+This validates frontmatter against [schemas/role-frontmatter.schema.json](schemas/role-frontmatter.schema.json) and exits non-zero on drift. It is the minimum bar and runs without a model or network.
+
+**Layer 2 — behavioral replay (where baselines exist).** For a role with a saved baseline, replay its baseline specs against the edited role and compare ([trace-evals.md](trace-evals.md#regression-testing), `/team-bootstrap replay <run_id>`). Treat agent configuration (instructions, tool definitions, guardrails, model pin) as code: a behavior change is reviewed like a code change.
+
+The bump is **blocked** if any of the following regress versus baseline:
+
+| Signal | Block condition |
+|---|---|
+| Static validation | `bin/eval-role.sh` exits non-zero |
+| Grader result | A grader that was `pass` is now `fail` |
+| Final verdict | A release/go-no-go verdict flips against the same evidence |
+| Schema | New handoff schema-validation failures |
+| Token usage | > 25% increase without written justification in the PR |
+
+A blocked bump is a **regression signal, not flakiness** — investigate before merging, never retry-until-green. When a major bump *intentionally* changes outputs, update the baseline in the same PR and say so in the CHANGELOG.
+
+> **Pending ratification:** the Unreleased model-tier change (all roles re-pinned from `claude-opus-4-7` to a per-tier model) is a **minor**-class change per the model-pin rule below. It ships under the skill-level Unreleased entry and is to be ratified per-role through Layer 2 once role baselines are populated; until then it clears Layer 1 (static) only.
 
 ## Compatibility matrix
 
@@ -82,7 +111,7 @@ When ready to cut a skill release:
 1. Bump `version` in [.claude-plugin/plugin.json](../.claude-plugin/plugin.json)
 2. Add an entry to [CHANGELOG.md](../CHANGELOG.md) under a new heading with today's date
 3. Tag the git ref: `v1.x.y`
-4. Run the full eval suite against representative specs (one per pipeline)
+4. Run the version gate: `bin/eval-role.sh --all` (Layer 1) + replay representative specs, one per pipeline (Layer 2)
 5. Ship
 
 Pre-1.0 had implicit versioning via git history; from 1.0 onward the file-level `version` is authoritative.
@@ -98,4 +127,7 @@ Pre-1.0 had implicit versioning via git history; from 1.0 onward the file-level 
 
 - [trace-evals.md](trace-evals.md) — grader catalog and pass criteria
 - [tracing.md](tracing.md) — how traces feed graders
+- [../bin/eval-role.sh](../bin/eval-role.sh) — runnable Layer-1 static gate (and judge-prompt assembly)
+- [evaluator.md](evaluator.md) — the per-handoff evaluator rubric the behavioral layer reuses
+- [model-tiers.md](model-tiers.md) — per-role model pins governed by the model-pin rule
 - [schemas/role-frontmatter.schema.json](schemas/role-frontmatter.schema.json) — frontmatter schema

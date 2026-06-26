@@ -64,6 +64,17 @@ summary), artifact **paths** (never bodies), and nothing else. This stops deep-a
 roles (`security-reviewer`, `discovery-research`, `performance-reviewer`) from dumping large working
 sets into the shared blackboard.
 
+**Trace-replay as an enforced version gate (step E).** [references/versioning.md](references/versioning.md)
+previously described regression evals aspirationally; they are now a concrete, runnable **version
+gate** with two layers: Layer 1 (static) is `bin/eval-role.sh <role>` / `--all`, blocking on
+frontmatter drift and runnable today; Layer 2 (behavioral) replays a role's baseline specs and
+blocks the bump on any grader regression, verdict flip, new schema failure, or >25% unjustified
+token regression. [references/trace-evals.md](references/trace-evals.md) is cross-linked as the
+behavioral half. Agent configuration (instructions, tool defs, guardrails, model pin) is now treated
+as code: a behavior change is reviewed like a code change. Documents the model-tier change (step B)
+as a minor-class pending ratification. Fixed a stale `claude-opus-4-7` example in the versioning
+docs.
+
 ## [1.6.0] - 2026-05-20
 
 ### Added

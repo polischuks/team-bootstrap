@@ -44,16 +44,20 @@ After each run, verify:
 
 ## Regression testing
 
+This is the behavioral (Layer 2) half of the enforced **version gate** in
+[versioning.md](versioning.md#version-gate-enforced); a regression here blocks the role's version
+bump.
+
 When changing role playbooks, orchestrator, or failure policy:
 
 1. Save representative run documents as baselines
-2. Re-run same specs after changes
+2. Re-run same specs after changes (`/team-bootstrap replay <run_id>`)
 3. Compare:
    - Role sequence
    - Handoff transitions
    - Gate results
    - Final verdict
-4. Flag regressions where previously passing runs now fail
+4. Flag regressions where previously passing runs now fail — this blocks the bump
 
 ## Run quality scoring
 
