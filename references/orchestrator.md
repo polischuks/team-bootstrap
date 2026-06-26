@@ -91,6 +91,18 @@ The role:
 - Resolve `next_role: <determined-by-pipeline>` from the active pipeline. Never leave the placeholder in the emitted handoff.
 - Validation failure → bounded retry per [failure-policy.md](failure-policy.md). On exhausted budget → `stop_reason: schema_validation_failed`.
 
+### Step 5.5 — Evaluator gate (independent judge)
+
+For roles in the evaluator's **mandatory** set (or when on-demand evaluation is requested), run the independent evaluator before accepting the handoff ([evaluator.md](evaluator.md)):
+
+- Dispatch the evaluator as a **fresh subagent with a context reset** — pass only the success criteria + the artifact, **never** the generator's narrative or the full blackboard. This is the one sanctioned exception to inline shared-context execution; it counters self-evaluation bias.
+- The evaluator scores per dimension (criteria_coverage / grounding / correctness / safety / quality), one at a time, on a 0–4 scale with concrete-evidence justifications and shuffled dimension order.
+- Verdict handling:
+  - `pass` → record verdict, continue to Step 6.
+  - `revise` / `fail` → one bounded optimizer cycle (re-activate the original role inline with the evaluator's feedback), `max_evaluator_cycles` default `1`; still failing → `blocked`, `stop_reason: evaluator_gate_failed`.
+  - `safety-fail` → hard stop, no retry: `blocked`, `stop_reason: evaluator_gate_failed`, escalate.
+- Record the verdict on the role span (`team_bootstrap.evaluator_verdict`).
+
 ### Step 6 — Append to blackboard, emit span, decide next
 
 - Append the role section + handoff to the run document.
@@ -124,6 +136,7 @@ When the last role completes, close the run-level span, persist the final run do
 - Subagents are dispatched only per [subagent-dispatch.md](subagent-dispatch.md); never to delegate decisions, only for context isolation.
 - Run the input guardrail before fan-out (Step 0.5); never start the pipeline on a spec that failed a safety `reject`.
 - The circuit breaker is always armed: no role may loop indefinitely on no-progress tool calls. Trip → `failed` + escalate, never silently continue.
+- The evaluator (Step 5.5) judges with a context reset and never edits the artifact — it returns feedback; the generator revises. Never let the producing role grade its own work.
 
 ## Minimal Orchestrator Prompt
 
@@ -180,6 +193,7 @@ role: <role-name>
 ## See also
 
 - [guardrails.md](guardrails.md) — layered input/tool/output guardrails
+- [evaluator.md](evaluator.md) — independent evaluator gate (Step 5.5)
 - [shared-blackboard.md](shared-blackboard.md) — how context propagates
 - [subagent-dispatch.md](subagent-dispatch.md) — when to dispatch
 - [subagent-mapping.md](subagent-mapping.md) — role → `subagent_type` slug routing

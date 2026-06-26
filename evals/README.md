@@ -23,7 +23,26 @@ evals/
 
 ## Running evals
 
-team-bootstrap doesn't ship a CLI runner — eval execution is project-specific. Recommended invocation pattern:
+### Per-role eval (`bin/eval-role.sh`)
+
+team-bootstrap ships a runnable per-role eval with two stages (see [../references/evaluator.md](../references/evaluator.md)):
+
+```bash
+bin/eval-role.sh --all                       # static-validate every role's frontmatter (CI gate)
+bin/eval-role.sh <role>                       # static-validate one role
+bin/eval-role.sh <role> --artifact <file>     # static + assemble the LLM-as-judge prompt
+bin/eval-role.sh <role> --artifact <file> --judge   # also invoke the `claude` CLI as judge
+```
+
+Stage 1 (static) is deterministic and fast — it validates frontmatter against
+[../references/schemas/role-frontmatter.schema.json](../references/schemas/role-frontmatter.schema.json)
+and exits non-zero on drift (use `--all` in CI to catch a broken role before it ships). Stage 2
+assembles the evaluator rubric prompt for a produced artifact; it emits the prompt by default and
+only invokes a model when `--judge` is passed and `claude` is on PATH — it never fabricates a score.
+
+### Full-pipeline evals
+
+Pipeline-level eval execution is project-specific. Recommended invocation pattern:
 
 ```bash
 # For each spec, run the role/pipeline, capture the trace, run graders

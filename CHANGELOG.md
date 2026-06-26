@@ -33,6 +33,26 @@ formalizes guardrails as a layered defense instead of ad-hoc rules inside roles:
 The tool-layer guardrail (`tool_surface` + irreversibility action classes) already existed and is
 cross-referenced, not changed.
 
+**Independent evaluator gate + runnable per-role eval (step A).** New
+[references/evaluator.md](references/evaluator.md) adds a GAN-style evaluator that judges a role's
+artifact *before* the handoff is accepted, countering self-evaluation bias:
+
+- **Context-reset judge** — the evaluator runs as a fresh subagent receiving only the success
+  criteria + the artifact, never the generator's narrative or the full blackboard. This is the one
+  sanctioned exception to inline shared-context execution; generators stay inline (Cognition intact),
+  only the judge is isolated. The judge runs on a strong model regardless of the role's own tier.
+- **Mandatory for** `release-manager`, `security-reviewer`, and code/migration-writing roles;
+  on-demand elsewhere; skipped for roles with no verifiable artifact.
+- **Per-dimension rubric** — `criteria_coverage` / `grounding` / `correctness` / `safety` /
+  `quality`, scored one at a time on a 0–4 scale with concrete-evidence justifications and shuffled
+  dimension order to cancel position bias.
+- **Bounded evaluator-optimizer loop** — `pass` accepts; `revise`/`fail` triggers one optimizer
+  cycle (`max_evaluator_cycles` default `1`); `safety-fail` is a hard stop. New stop reason
+  `evaluator_gate_failed`. Wired into orchestrator Step 5.5.
+- **`bin/eval-role.sh`** — runnable eval: deterministic frontmatter validation against the role
+  schema (`--all` for a CI gate) + LLM-as-judge prompt assembly (emits the prompt; invokes `claude`
+  only with `--judge`; never fabricates a score). `evals/` is no longer docs-only.
+
 ## [1.6.0] - 2026-05-20
 
 ### Added

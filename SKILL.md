@@ -43,10 +43,11 @@ See [USAGE.md](USAGE.md) for full semantics.
    - [audit.md](references/pipelines/audit.md) — 15 roles, read-only assessment → backlog
 3. For each role, load its playbook from [references/roles/](references/roles/), enforce the declared `tool_surface` and `permission_mode`, run inline or as subagent per [references/subagent-dispatch.md](references/subagent-dispatch.md). When dispatching, resolve the concrete `subagent_type` from the role's `preferred_subagent_types` frontmatter per [references/subagent-mapping.md](references/subagent-mapping.md) (fallback: `general-purpose`).
 4. After each role, validate the handoff against [references/schemas/role-output.schema.json](references/schemas/role-output.schema.json) and append to the run document ([references/shared-blackboard.md](references/shared-blackboard.md)).
-5. Apply [references/failure-policy.md](references/failure-policy.md) on validation/blocked/needs_input.
-6. Apply [references/irreversibility.md](references/irreversibility.md) to gate destructive actions.
-7. Apply [references/guardrails.md](references/guardrails.md) — input guardrail before fan-out (Step 0.5), output guardrail before writes, circuit breaker per role.
-8. Emit OpenTelemetry GenAI spans per [references/tracing.md](references/tracing.md).
+5. For evaluated roles, run the independent evaluator gate ([references/evaluator.md](references/evaluator.md)) as a context-reset subagent before accepting the handoff.
+6. Apply [references/failure-policy.md](references/failure-policy.md) on validation/blocked/needs_input.
+7. Apply [references/irreversibility.md](references/irreversibility.md) to gate destructive actions.
+8. Apply [references/guardrails.md](references/guardrails.md) — input guardrail before fan-out (Step 0.5), output guardrail before writes, circuit breaker per role.
+9. Emit OpenTelemetry GenAI spans per [references/tracing.md](references/tracing.md).
 
 ## Handoff contract (base)
 

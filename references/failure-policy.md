@@ -74,6 +74,7 @@ Use one of these canonical stop reasons:
 - `policy_gate_failed`
 - `input_guardrail_rejected`
 - `circuit_breaker_tripped`
+- `evaluator_gate_failed`
 
 ## Resume Policy
 
@@ -106,6 +107,7 @@ Approval gates for destructive actions are governed by [irreversibility.md](irre
 ## Cross-references
 
 - [guardrails.md](guardrails.md) — input/tool/output guardrail layers; `input_guardrail_rejected`
+- [evaluator.md](evaluator.md) — independent evaluator gate; `evaluator_gate_failed`, optimizer-cycle bound
 - [irreversibility.md](irreversibility.md) — action class taxonomy
 - [tracing.md](tracing.md) — how stop reasons and approval outcomes are recorded
 - [memory.md](memory.md) — `after-failure` and `after-timeout` resume modes
