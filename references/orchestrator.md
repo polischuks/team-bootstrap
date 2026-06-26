@@ -32,6 +32,16 @@ Run a pipeline entirely inside Claude by:
 - Initialize shared blackboard (run document) with metadata, spec, stack vector, AGENTS.md hash ([shared-blackboard.md](shared-blackboard.md)).
 - Open the run-level OpenTelemetry span ([tracing.md](tracing.md)).
 
+### Step 0.5 — Input guardrail (gate before fan-out)
+
+Run the **input guardrail** once, before the pipeline fans out ([guardrails.md](guardrails.md#input-guardrail-front-of-run)). A single cheap check screens the spec for injection/integrity, scope, and feasibility — it does not attempt the work. Verdict:
+
+- `pass` → proceed to Step 1.
+- `needs_input` → stop, ask only for the named gap.
+- `reject` → stop with `stop_reason: input_guardrail_rejected`; surface the reason.
+
+Safety (`reject` on injection) is hard; scope/feasibility may be overridden by explicit user confirmation. Record the verdict on the run-level span (`team_bootstrap.input_guardrail`).
+
 ### Step 1 — Pick the pipeline
 
 Read the active pipeline:
@@ -70,6 +80,7 @@ The role:
 - Operates within `tool_surface` and `permission_mode` declared in frontmatter.
 - Destructive actions gated by [irreversibility.md](irreversibility.md) — harness, not LLM, enforces.
 - For implementation roles, runs the verification loop (edit → typecheck → lint → unit tests → repair, max 3 cycles).
+- Is bounded by the **circuit breaker**: the orchestrator tracks tool-calls-without-progress for the active role (a call makes *progress* if it creates/edits a file, flips a check to passing, advances the verification loop, or emits the handoff). On `max_tool_calls_without_progress` consecutive no-progress calls (default `12`), halt the role with `status: failed`, `stop_reason: circuit_breaker_tripped`, and escalate ([failure-policy.md](failure-policy.md#circuit-breaker-policy)). This is independent of the schema retry budget (2) and the verification loop cap (3).
 - Produces:
   - Role output (per the role's template body)
   - YAML handoff (per [schemas/role-output.schema.json](schemas/role-output.schema.json))
@@ -111,6 +122,8 @@ When the last role completes, close the run-level span, persist the final run do
 - Role templates declare `next_role: <determined-by-pipeline>` with an inline comment listing per-pipeline targets. The orchestrator MUST resolve this placeholder from the active pipeline before emitting the handoff.
 - Never leave the placeholder string in a final handoff object.
 - Subagents are dispatched only per [subagent-dispatch.md](subagent-dispatch.md); never to delegate decisions, only for context isolation.
+- Run the input guardrail before fan-out (Step 0.5); never start the pipeline on a spec that failed a safety `reject`.
+- The circuit breaker is always armed: no role may loop indefinitely on no-progress tool calls. Trip → `failed` + escalate, never silently continue.
 
 ## Minimal Orchestrator Prompt
 
@@ -166,6 +179,7 @@ role: <role-name>
 
 ## See also
 
+- [guardrails.md](guardrails.md) — layered input/tool/output guardrails
 - [shared-blackboard.md](shared-blackboard.md) — how context propagates
 - [subagent-dispatch.md](subagent-dispatch.md) — when to dispatch
 - [subagent-mapping.md](subagent-mapping.md) — role → `subagent_type` slug routing

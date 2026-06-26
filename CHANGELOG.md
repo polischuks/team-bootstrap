@@ -16,6 +16,23 @@ comms / simple-check work. New [references/model-tiers.md](references/model-tier
 assignment rule and is the source of truth. This cuts run cost on long pipelines without lowering
 quality where reasoning depth changes the outcome.
 
+**Layered guardrails + circuit breaker (step C).** New [references/guardrails.md](references/guardrails.md)
+formalizes guardrails as a layered defense instead of ad-hoc rules inside roles:
+
+- **Input guardrail** — a new orchestrator Step 0.5 that screens the spec for injection/integrity,
+  scope, and feasibility *before* the pipeline fans out, so a doomed or unsafe run is stopped before
+  N roles burn tokens. Verdicts `pass` / `needs_input` / `reject`; safety is hard, scope is advisory.
+  New stop reason `input_guardrail_rejected`.
+- **Output guardrail** — documented secret/PII scan before any `Write`/`Edit`/commit/publish,
+  composing with (not replacing) the irreversibility action-class gate.
+- **Circuit breaker** — orchestrator now tracks tool-calls-without-progress per role and trips at
+  `max_tool_calls_without_progress` (default `12`), independent of the schema retry budget (2) and
+  verification loop (3). New stop reason `circuit_breaker_tripped`; policy in
+  [failure-policy.md](references/failure-policy.md#circuit-breaker-policy).
+
+The tool-layer guardrail (`tool_surface` + irreversibility action classes) already existed and is
+cross-referenced, not changed.
+
 ## [1.6.0] - 2026-05-20
 
 ### Added

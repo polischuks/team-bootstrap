@@ -45,7 +45,8 @@ See [USAGE.md](USAGE.md) for full semantics.
 4. After each role, validate the handoff against [references/schemas/role-output.schema.json](references/schemas/role-output.schema.json) and append to the run document ([references/shared-blackboard.md](references/shared-blackboard.md)).
 5. Apply [references/failure-policy.md](references/failure-policy.md) on validation/blocked/needs_input.
 6. Apply [references/irreversibility.md](references/irreversibility.md) to gate destructive actions.
-7. Emit OpenTelemetry GenAI spans per [references/tracing.md](references/tracing.md).
+7. Apply [references/guardrails.md](references/guardrails.md) — input guardrail before fan-out (Step 0.5), output guardrail before writes, circuit breaker per role.
+8. Emit OpenTelemetry GenAI spans per [references/tracing.md](references/tracing.md).
 
 ## Handoff contract (base)
 
