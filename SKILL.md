@@ -101,7 +101,7 @@ Persistent state & I/O:
 
 Catalogs:
 
-- [role-matrix.md](references/role-matrix.md) — all 24 roles, when to use which
+- [role-matrix.md](references/role-matrix.md) — all 42 roles, when to use which
 - [invocation-examples.md](references/invocation-examples.md) — copy-paste prompts
 - [roles/](references/roles/) — per-role playbooks
 - [pipelines/](references/pipelines/) — pipeline definitions

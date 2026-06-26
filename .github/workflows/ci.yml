@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate roles, links, and manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Static role validation (all 42 roles)
+        run: bin/eval-role.sh --all
+
+      - name: Validate JSON (plugin manifest, schemas, skills manifest)
+        run: |
+          python3 - <<'PY'
+          import json, glob, sys
+          files = (
+              glob.glob('.claude-plugin/*.json')
+              + glob.glob('references/schemas/*.json')
+              + ['skills-manifest.json']
+          )
+          bad = []
+          for f in files:
+              try:
+                  json.load(open(f, encoding='utf-8'))
+                  print(f"  ok  {f}")
+              except Exception as e:
+                  bad.append(f"{f}: {e}")
+          if bad:
+              print("INVALID JSON:\n" + "\n".join(bad)); sys.exit(1)
+          PY
+
+      - name: Internal markdown link integrity
+        run: |
+          python3 - <<'PY'
+          import re, os, glob, sys
+          broken = []
+          for md in glob.glob('**/*.md', recursive=True):
+              base = os.path.dirname(md)
+              text = open(md, encoding='utf-8').read()
+              for m in re.finditer(r'\]\(([^)]+\.md)(#[^)]*)?\)', text):
+                  link = m.group(1)
+                  if link.startswith('http'):
+                      continue
+                  tgt = os.path.normpath(os.path.join(base, link))
+                  if not os.path.exists(tgt):
+                      broken.append(f"{md} -> {link}")
+          if broken:
+              print("BROKEN LINKS:\n" + "\n".join(broken)); sys.exit(1)
+          print(f"  ok  no broken internal links ({len(glob.glob('**/*.md', recursive=True))} files)")
+          PY

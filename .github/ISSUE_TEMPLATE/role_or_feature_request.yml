@@ -1,0 +1,25 @@
+name: Role or feature request
+description: Propose a new role, pipeline, or capability
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / use case
+      description: What workflow is missing or underserved today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed role / pipeline / change
+      description: If a new role, what is its single responsibility and handoff output?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Does an existing role partly cover this? Why isn't it enough?
+    validations:
+      required: false

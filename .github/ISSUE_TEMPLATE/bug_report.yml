@@ -1,0 +1,42 @@
+name: Bug report
+description: A role, pipeline, or handoff behaves incorrectly
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you observe? Include the role/pipeline involved.
+      placeholder: e.g. `audit` pipeline left the `next_role` placeholder unresolved.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The invocation you ran and, if possible, the run document.
+      placeholder: |
+        /team-bootstrap audit "..."
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Value from VERSION or plugin.json
+      placeholder: 1.7.0
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: Claude Code version, OS
+    validations:
+      required: false
