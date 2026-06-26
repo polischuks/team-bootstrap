@@ -2,7 +2,12 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.7.0] - 2026-06-26
+
+SOTA-hardening pass (steps B–E): tiered models, layered guardrails + circuit breaker, an
+independent evaluator gate with a runnable per-role eval, an enforced subagent return budget, and a
+runnable version gate. Also corrects `.claude-plugin/plugin.json` version (was stale at `1.0.0`) to
+track the CHANGELOG line.
 
 ### Added
 
