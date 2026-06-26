@@ -1,7 +1,7 @@
 ---
 name: ui-designer
 version: 1.0.0
-model: claude-opus-4-7
+model: claude-sonnet-4-6
 compatible_pipelines: [full, single-thread]
 tool_surface:
   allow: [Read, Edit, Write, Grep, Glob, WebSearch, WebFetch, Skill]

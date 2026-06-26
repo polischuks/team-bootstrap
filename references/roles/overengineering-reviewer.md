@@ -1,7 +1,7 @@
 ---
 name: overengineering-reviewer
 version: 1.1.0
-model: claude-opus-4-7
+model: claude-haiku-4-5-20251001
 compatible_pipelines: [full, audit]
 tool_surface:
   allow: [Read, Grep, Glob, Bash, Skill]

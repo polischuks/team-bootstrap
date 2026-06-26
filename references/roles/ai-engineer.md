@@ -1,7 +1,7 @@
 ---
 name: ai-engineer
 version: 1.1.0
-model: claude-opus-4-7
+model: claude-opus-4-8
 compatible_pipelines: [full, single-thread, audit]
 tool_surface:
   allow: [Read, Edit, Write, Bash, Grep, Glob, Skill]

@@ -2,6 +2,20 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+**Tiered model strategy across all 42 roles (step B).** The `model:` frontmatter field — previously
+uniform `claude-opus-4-7` on every role — is now differentiated into three tiers and bumped to the
+current generation. Opus (`claude-opus-4-8`, 12 roles) for production-critical / irreversible /
+high-stakes reasoning (architecture, security, legal, money, release go/no-go, incident response,
+schema migrations, AI engineering); Sonnet (`claude-sonnet-4-6`, 24 roles) for implementation,
+reviews, and product/design/research; Haiku (`claude-haiku-4-5-20251001`, 6 roles) for mechanical /
+comms / simple-check work. New [references/model-tiers.md](references/model-tiers.md) documents the
+assignment rule and is the source of truth. This cuts run cost on long pipelines without lowering
+quality where reasoning depth changes the outcome.
+
 ## [1.6.0] - 2026-05-20
 
 ### Added

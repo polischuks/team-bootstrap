@@ -1,7 +1,7 @@
 ---
 name: solution-architect
 version: 1.1.0
-model: claude-opus-4-7
+model: claude-opus-4-8
 compatible_pipelines: [full, audit]
 tool_surface:
   allow: [Read, Grep, Glob, Skill]
