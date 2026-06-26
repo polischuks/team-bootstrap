@@ -53,6 +53,17 @@ artifact *before* the handoff is accepted, countering self-evaluation bias:
   schema (`--all` for a CI gate) + LLM-as-judge prompt assembly (emits the prompt; invokes `claude`
   only with `--judge`; never fabricates a score). `evals/` is no longer docs-only.
 
+### Changed
+
+**Subagent return budget is now enforced (step D).** Previously the condensed summary was an
+*optional* ≤200-token convention; it is now a **hard contract**. `summary` in the role-output schema
+gains `maxLength: 1200` (~200 tokens), so an over-budget summary fails handoff validation. The
+`### Subagent return` contract in [references/subagent-dispatch.md](references/subagent-dispatch.md)
+is rewritten: exactly three things cross back to the main thread — the structured handoff (capped
+summary), artifact **paths** (never bodies), and nothing else. This stops deep-audit / research
+roles (`security-reviewer`, `discovery-research`, `performance-reviewer`) from dumping large working
+sets into the shared blackboard.
+
 ## [1.6.0] - 2026-05-20
 
 ### Added

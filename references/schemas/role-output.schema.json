@@ -86,7 +86,7 @@
       "properties": {
         "status": { "enum": ["completed", "blocked", "needs_input"] },
         "role": { "type": "string", "minLength": 1 },
-        "summary": { "type": "string", "minLength": 1 },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 1200, "description": "Condensed summary of what the role did, ≤~200 tokens (~1200 chars). Enforces the subagent return budget: full findings/artifacts go to files, only this summary + artifact paths cross back into the blackboard. See references/subagent-dispatch.md#subagent-return." },
         "artifacts": { "type": "array", "items": { "$ref": "#/$defs/artifact" }, "minItems": 1 },
         "checks": { "type": "array", "items": { "$ref": "#/$defs/check" }, "minItems": 1 },
         "next_role": { "$ref": "#/$defs/nullableString" },
