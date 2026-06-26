@@ -48,15 +48,26 @@ return_format: handoff_yaml
 
 The slice is curated by the orchestrator: include sections the role will actually need, not the entire blackboard. Rule of thumb: ≤30% of the main-thread context, never the full transcript.
 
-### Subagent return
+### Subagent return (enforced budget)
 
-The subagent returns one structured object — the role's handoff per [schemas/role-output.schema.json](schemas/role-output.schema.json) — plus any artifact paths. The main thread:
+A subagent may burn tens of thousands of tokens internally, but only a **bounded, condensed**
+result is allowed to cross back into the main thread. This is what separates a context-isolated
+subagent from a naive one that dumps its whole working set into the shared blackboard. The return
+budget is a **hard contract**, not a suggestion:
 
-1. Validates the handoff against schema
-2. Appends the handoff (and an optional summary, ≤200 tokens) to the blackboard
-3. Decides next role per pipeline
+Exactly three things cross back:
 
-Subagent thinking, intermediate file reads, and tool calls are **not** propagated to the main thread. They are captured in the trace ([tracing.md](tracing.md)) for replay, not forwarded inline.
+1. the **structured handoff** (the role's object per [schemas/role-output.schema.json](schemas/role-output.schema.json)), whose `summary` is **capped at ≤~200 tokens (~1200 chars)** — the schema enforces `maxLength` on `summary`;
+2. **artifact paths** — never artifact *bodies*. A security audit's full finding list, a research role's raw fetches, a reviewer's annotated diff all go to **files**; the handoff references their paths;
+3. nothing else.
+
+The main thread then:
+
+1. Validates the handoff against schema (a summary over budget fails validation → counts against the role's retry budget);
+2. Appends the handoff + the condensed summary to the blackboard;
+3. Decides next role per pipeline.
+
+Subagent thinking, intermediate file reads, and tool calls are **not** propagated to the main thread. They are captured in the trace ([tracing.md](tracing.md)) for replay, not forwarded inline. This budget matters most for deep-audit / research roles (`security-reviewer`, `discovery-research`, `performance-reviewer`) whose internal context is large and rarely needed verbatim downstream.
 
 ## Failure handling
 

@@ -1,7 +1,7 @@
 ---
 name: discovery-research
 version: 1.1.0
-model: claude-opus-4-7
+model: claude-sonnet-4-6
 compatible_pipelines: [full, single-thread, audit]
 tool_surface:
   allow: [Read, Grep, Glob, WebSearch, WebFetch, Skill]

@@ -2,6 +2,84 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-06-26
+
+SOTA-hardening pass (steps B–E): tiered models, layered guardrails + circuit breaker, an
+independent evaluator gate with a runnable per-role eval, an enforced subagent return budget, and a
+runnable version gate. Also corrects `.claude-plugin/plugin.json` version (was stale at `1.0.0`) to
+track the CHANGELOG line.
+
+### Added
+
+**Tiered model strategy across all 42 roles (step B).** The `model:` frontmatter field — previously
+uniform `claude-opus-4-7` on every role — is now differentiated into three tiers and bumped to the
+current generation. Opus (`claude-opus-4-8`, 12 roles) for production-critical / irreversible /
+high-stakes reasoning (architecture, security, legal, money, release go/no-go, incident response,
+schema migrations, AI engineering); Sonnet (`claude-sonnet-4-6`, 24 roles) for implementation,
+reviews, and product/design/research; Haiku (`claude-haiku-4-5-20251001`, 6 roles) for mechanical /
+comms / simple-check work. New [references/model-tiers.md](references/model-tiers.md) documents the
+assignment rule and is the source of truth. This cuts run cost on long pipelines without lowering
+quality where reasoning depth changes the outcome.
+
+**Layered guardrails + circuit breaker (step C).** New [references/guardrails.md](references/guardrails.md)
+formalizes guardrails as a layered defense instead of ad-hoc rules inside roles:
+
+- **Input guardrail** — a new orchestrator Step 0.5 that screens the spec for injection/integrity,
+  scope, and feasibility *before* the pipeline fans out, so a doomed or unsafe run is stopped before
+  N roles burn tokens. Verdicts `pass` / `needs_input` / `reject`; safety is hard, scope is advisory.
+  New stop reason `input_guardrail_rejected`.
+- **Output guardrail** — documented secret/PII scan before any `Write`/`Edit`/commit/publish,
+  composing with (not replacing) the irreversibility action-class gate.
+- **Circuit breaker** — orchestrator now tracks tool-calls-without-progress per role and trips at
+  `max_tool_calls_without_progress` (default `12`), independent of the schema retry budget (2) and
+  verification loop (3). New stop reason `circuit_breaker_tripped`; policy in
+  [failure-policy.md](references/failure-policy.md#circuit-breaker-policy).
+
+The tool-layer guardrail (`tool_surface` + irreversibility action classes) already existed and is
+cross-referenced, not changed.
+
+**Independent evaluator gate + runnable per-role eval (step A).** New
+[references/evaluator.md](references/evaluator.md) adds a GAN-style evaluator that judges a role's
+artifact *before* the handoff is accepted, countering self-evaluation bias:
+
+- **Context-reset judge** — the evaluator runs as a fresh subagent receiving only the success
+  criteria + the artifact, never the generator's narrative or the full blackboard. This is the one
+  sanctioned exception to inline shared-context execution; generators stay inline (Cognition intact),
+  only the judge is isolated. The judge runs on a strong model regardless of the role's own tier.
+- **Mandatory for** `release-manager`, `security-reviewer`, and code/migration-writing roles;
+  on-demand elsewhere; skipped for roles with no verifiable artifact.
+- **Per-dimension rubric** — `criteria_coverage` / `grounding` / `correctness` / `safety` /
+  `quality`, scored one at a time on a 0–4 scale with concrete-evidence justifications and shuffled
+  dimension order to cancel position bias.
+- **Bounded evaluator-optimizer loop** — `pass` accepts; `revise`/`fail` triggers one optimizer
+  cycle (`max_evaluator_cycles` default `1`); `safety-fail` is a hard stop. New stop reason
+  `evaluator_gate_failed`. Wired into orchestrator Step 5.5.
+- **`bin/eval-role.sh`** — runnable eval: deterministic frontmatter validation against the role
+  schema (`--all` for a CI gate) + LLM-as-judge prompt assembly (emits the prompt; invokes `claude`
+  only with `--judge`; never fabricates a score). `evals/` is no longer docs-only.
+
+### Changed
+
+**Subagent return budget is now enforced (step D).** Previously the condensed summary was an
+*optional* ≤200-token convention; it is now a **hard contract**. `summary` in the role-output schema
+gains `maxLength: 1200` (~200 tokens), so an over-budget summary fails handoff validation. The
+`### Subagent return` contract in [references/subagent-dispatch.md](references/subagent-dispatch.md)
+is rewritten: exactly three things cross back to the main thread — the structured handoff (capped
+summary), artifact **paths** (never bodies), and nothing else. This stops deep-audit / research
+roles (`security-reviewer`, `discovery-research`, `performance-reviewer`) from dumping large working
+sets into the shared blackboard.
+
+**Trace-replay as an enforced version gate (step E).** [references/versioning.md](references/versioning.md)
+previously described regression evals aspirationally; they are now a concrete, runnable **version
+gate** with two layers: Layer 1 (static) is `bin/eval-role.sh <role>` / `--all`, blocking on
+frontmatter drift and runnable today; Layer 2 (behavioral) replays a role's baseline specs and
+blocks the bump on any grader regression, verdict flip, new schema failure, or >25% unjustified
+token regression. [references/trace-evals.md](references/trace-evals.md) is cross-linked as the
+behavioral half. Agent configuration (instructions, tool defs, guardrails, model pin) is now treated
+as code: a behavior change is reviewed like a code change. Documents the model-tier change (step B)
+as a minor-class pending ratification. Fixed a stale `claude-opus-4-7` example in the versioning
+docs.
+
 ## [1.6.0] - 2026-05-20
 
 ### Added

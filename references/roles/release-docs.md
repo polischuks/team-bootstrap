@@ -1,7 +1,7 @@
 ---
 name: release-docs
 version: 1.1.0
-model: claude-opus-4-7
+model: claude-haiku-4-5-20251001
 compatible_pipelines: [mvp]
 tool_surface:
   allow: [Read, Bash, Grep, Glob, Skill]

@@ -1,7 +1,7 @@
 ---
 name: frontend-engineer
 version: 1.1.0
-model: claude-opus-4-7
+model: claude-sonnet-4-6
 compatible_pipelines: [mvp, full]
 tool_surface:
   allow: [Read, Edit, Write, Bash, Grep, Glob, Skill]

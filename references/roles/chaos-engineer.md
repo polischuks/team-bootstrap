@@ -1,7 +1,7 @@
 ---
 name: chaos-engineer
 version: 1.1.0
-model: claude-opus-4-7
+model: claude-sonnet-4-6
 compatible_pipelines: [full]
 tool_surface:
   allow: [Read, Bash, Grep, Glob, Skill]

@@ -32,6 +32,16 @@ Run a pipeline entirely inside Claude by:
 - Initialize shared blackboard (run document) with metadata, spec, stack vector, AGENTS.md hash ([shared-blackboard.md](shared-blackboard.md)).
 - Open the run-level OpenTelemetry span ([tracing.md](tracing.md)).
 
+### Step 0.5 — Input guardrail (gate before fan-out)
+
+Run the **input guardrail** once, before the pipeline fans out ([guardrails.md](guardrails.md#input-guardrail-front-of-run)). A single cheap check screens the spec for injection/integrity, scope, and feasibility — it does not attempt the work. Verdict:
+
+- `pass` → proceed to Step 1.
+- `needs_input` → stop, ask only for the named gap.
+- `reject` → stop with `stop_reason: input_guardrail_rejected`; surface the reason.
+
+Safety (`reject` on injection) is hard; scope/feasibility may be overridden by explicit user confirmation. Record the verdict on the run-level span (`team_bootstrap.input_guardrail`).
+
 ### Step 1 — Pick the pipeline
 
 Read the active pipeline:
@@ -70,6 +80,7 @@ The role:
 - Operates within `tool_surface` and `permission_mode` declared in frontmatter.
 - Destructive actions gated by [irreversibility.md](irreversibility.md) — harness, not LLM, enforces.
 - For implementation roles, runs the verification loop (edit → typecheck → lint → unit tests → repair, max 3 cycles).
+- Is bounded by the **circuit breaker**: the orchestrator tracks tool-calls-without-progress for the active role (a call makes *progress* if it creates/edits a file, flips a check to passing, advances the verification loop, or emits the handoff). On `max_tool_calls_without_progress` consecutive no-progress calls (default `12`), halt the role with `status: failed`, `stop_reason: circuit_breaker_tripped`, and escalate ([failure-policy.md](failure-policy.md#circuit-breaker-policy)). This is independent of the schema retry budget (2) and the verification loop cap (3).
 - Produces:
   - Role output (per the role's template body)
   - YAML handoff (per [schemas/role-output.schema.json](schemas/role-output.schema.json))
@@ -79,6 +90,18 @@ The role:
 - Validate against the schema (oneOf discriminator on `role`, `unevaluatedProperties: false`).
 - Resolve `next_role: <determined-by-pipeline>` from the active pipeline. Never leave the placeholder in the emitted handoff.
 - Validation failure → bounded retry per [failure-policy.md](failure-policy.md). On exhausted budget → `stop_reason: schema_validation_failed`.
+
+### Step 5.5 — Evaluator gate (independent judge)
+
+For roles in the evaluator's **mandatory** set (or when on-demand evaluation is requested), run the independent evaluator before accepting the handoff ([evaluator.md](evaluator.md)):
+
+- Dispatch the evaluator as a **fresh subagent with a context reset** — pass only the success criteria + the artifact, **never** the generator's narrative or the full blackboard. This is the one sanctioned exception to inline shared-context execution; it counters self-evaluation bias.
+- The evaluator scores per dimension (criteria_coverage / grounding / correctness / safety / quality), one at a time, on a 0–4 scale with concrete-evidence justifications and shuffled dimension order.
+- Verdict handling:
+  - `pass` → record verdict, continue to Step 6.
+  - `revise` / `fail` → one bounded optimizer cycle (re-activate the original role inline with the evaluator's feedback), `max_evaluator_cycles` default `1`; still failing → `blocked`, `stop_reason: evaluator_gate_failed`.
+  - `safety-fail` → hard stop, no retry: `blocked`, `stop_reason: evaluator_gate_failed`, escalate.
+- Record the verdict on the role span (`team_bootstrap.evaluator_verdict`).
 
 ### Step 6 — Append to blackboard, emit span, decide next
 
@@ -111,6 +134,9 @@ When the last role completes, close the run-level span, persist the final run do
 - Role templates declare `next_role: <determined-by-pipeline>` with an inline comment listing per-pipeline targets. The orchestrator MUST resolve this placeholder from the active pipeline before emitting the handoff.
 - Never leave the placeholder string in a final handoff object.
 - Subagents are dispatched only per [subagent-dispatch.md](subagent-dispatch.md); never to delegate decisions, only for context isolation.
+- Run the input guardrail before fan-out (Step 0.5); never start the pipeline on a spec that failed a safety `reject`.
+- The circuit breaker is always armed: no role may loop indefinitely on no-progress tool calls. Trip → `failed` + escalate, never silently continue.
+- The evaluator (Step 5.5) judges with a context reset and never edits the artifact — it returns feedback; the generator revises. Never let the producing role grade its own work.
 
 ## Minimal Orchestrator Prompt
 
@@ -166,6 +192,8 @@ role: <role-name>
 
 ## See also
 
+- [guardrails.md](guardrails.md) — layered input/tool/output guardrails
+- [evaluator.md](evaluator.md) — independent evaluator gate (Step 5.5)
 - [shared-blackboard.md](shared-blackboard.md) — how context propagates
 - [subagent-dispatch.md](subagent-dispatch.md) — when to dispatch
 - [subagent-mapping.md](subagent-mapping.md) — role → `subagent_type` slug routing
