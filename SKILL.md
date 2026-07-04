@@ -81,6 +81,10 @@ Roles add required per-role fields (e.g. `release_decision: go|no_go` for `relea
 
 ## Reference index
 
+Planning (run first):
+
+- [speckit-preimpl-flow.md](references/speckit-preimpl-flow.md) — the recommended first step: a 6-step spec → plan → tasks → dispatch flow that produces the artifacts the pipelines consume (implemented by the bundled `speckit-*` skills)
+
 Operational:
 
 - [orchestrator.md](references/orchestrator.md) — execution loop

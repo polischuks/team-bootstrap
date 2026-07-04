@@ -6,6 +6,10 @@ All notable changes to team-bootstrap. Format follows [Keep a Changelog](https:/
 
 ### Added
 
+- **Pre-implementation flow doctrine** ([references/speckit-preimpl-flow.md](references/speckit-preimpl-flow.md)):
+  a 6-step spec → plan → tasks → dispatch sequence, positioned as the recommended **first step**
+  before pipelines run and mapped onto the bundled `speckit-*` skills. Linked from README and SKILL.md.
+
 - **Reviewer consensus signal.** Optional `reviewer_consensus` array on the reviewer roles
   (`code-reviewer`, `security-reviewer`, `performance-reviewer`, `accessibility-reviewer`,
   `data-schema-reviewer`): per-finding `flagged_by` / `reviewers_total` / `disposition`, so a

@@ -52,6 +52,7 @@ This design follows Cognition's "Don't Build Multi-Agents" principle: shared con
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Design rationale and trade-offs |
 | [CHANGELOG.md](CHANGELOG.md) | Version history |
 | [SKILL.md](SKILL.md) | Claude Code skill entry point |
+| [references/speckit-preimpl-flow.md](references/speckit-preimpl-flow.md) | Pre-implementation flow — the recommended **first step**: spec → plan → tasks → dispatch before pipelines run |
 | [references/](references/) | Orchestration, pipelines, schemas, role playbooks |
 
 ## Project requirements
