@@ -22,6 +22,19 @@ Use this for project-state assessment against a reference (spec, design, product
 | `documentation-agent` | Docs gap analysis. |
 | `release-manager` | Synthesize → backlog + go/no_go. |
 
+## L2P Team (6 roles, read-only)
+
+Landing↔platform↔docs gap audit. Output: prioritized backlog of implementation tasks (feeds `single-thread` / `mvp` / `full`). Evidence-disciplined — every claim cites a grounding id. See [pipelines/l2p.md](pipelines/l2p.md).
+
+| Role | Purpose |
+| --- | --- |
+| `recon` | Normalized fact base (claims/surfaces/features/instrumentation), CLAIMED vs OBSERVED. |
+| `usecase-miner` | Personas + JTBD + prioritized use cases from grounding. |
+| `cartographer` | Landing↔platform promise/fulfillment map; overpromise + undersold orphans. |
+| `funnel-auditor` | Stage-by-stage funnel audit; ICE-ranked findings; instrumentation gaps. |
+| `gatekeeper` | Per-gate pass/fail thresholds + gate ledger. |
+| `gap-backlog-author` | Synthesize → ICE-ranked backlog (task = AC + precedent) + audit report. |
+
 ## MVP Team (7 roles)
 
 Use this by default for quick iterations.

@@ -8,3 +8,5 @@ __pycache__/
 *.pyc
 *.swp
 .runs/
+l2p-artifacts/
+temp/

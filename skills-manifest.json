@@ -333,6 +333,24 @@
           "fallback": "WebFetch + parse manually"
         }
       ]
+    },
+    "l2p": {
+      "required": [],
+      "recommended": [],
+      "optional": [
+        {
+          "name": "web-scraper",
+          "used_by": ["recon"],
+          "purpose": "Structured extraction from the landing page(s) and platform screens during grounding.",
+          "fallback": "WebFetch + manual capture"
+        },
+        {
+          "name": "tavily-research",
+          "used_by": ["usecase-miner"],
+          "purpose": "Cited research on how comparable products frame the same JTBD (optional context for use-case mining).",
+          "fallback": "WebSearch + manual triangulation"
+        }
+      ]
     }
   }
 }

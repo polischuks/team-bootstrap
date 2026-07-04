@@ -48,6 +48,22 @@ For tasks where you need explicit role-by-role audit trail (compliance, producti
 
 Pipeline definitions: [references/pipelines/](references/pipelines/).
 
+## Read-only audits (→ backlog)
+
+Assessment pipelines that produce a prioritized backlog instead of code. Each backlog item then runs through `single-thread` / `mvp` / `full` (or the whole backlog through `/deliver`):
+
+```text
+/team-bootstrap audit <spec>    # technical/operational readiness → backlog
+/team-bootstrap l2p   <spec>    # landing↔platform↔docs gaps (conversion) → backlog
+```
+
+| Pipeline | Lens | Output |
+|---|---|---|
+| `audit` | technical/operational readiness (15 roles) | remediation backlog |
+| `l2p` | landing↔platform↔docs gaps (6 roles, evidence-disciplined) | ICE-ranked task backlog |
+
+`l2p` needs three inputs in the spec: landing URL(s), how to observe the platform, and the docs path. See [references/pipelines/l2p.md](references/pipelines/l2p.md).
+
 ## Single role
 
 For targeted use when only one phase is needed:

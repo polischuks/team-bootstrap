@@ -2,6 +2,23 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`l2p` pipeline** ([references/pipelines/l2p.md](references/pipelines/l2p.md)) — read-only
+  Landing-to-Platform gap audit: finds where landing promises, platform delivery, and docs
+  diverge, and turns each gap into an ICE-ranked implementation task that `single-thread` /
+  `mvp` / `full` (or `/deliver`) consume. Six new roles (`recon`, `usecase-miner`,
+  `cartographer`, `funnel-auditor`, `gatekeeper`, `gap-backlog-author`) with strict evidence
+  discipline — every downstream claim cites a `recon` grounding id (C###/S###/F###/I###) or is
+  tagged HYPOTHESIS/ESTIMATE. Domain refs under [references/l2p/](references/l2p/).
+- **`bin/check-citations.sh`** — machine-checked evidence gate: scans `l2p-artifacts/` for
+  assertions lacking a grounding id, hardening the citation discipline that was previously
+  prose-only.
+- Role count 42 → 48; pipelines 5 → 6 (constitution enumeration updated, MINOR per its rules).
+  Ports the funnel-cartography framework into team-bootstrap as a native audit→backlog lens.
+
 ## [2.0.0] - 2026-07-04
 
 Spec-driven delivery milestone: a one-command flow (`/deliver`) chains the full

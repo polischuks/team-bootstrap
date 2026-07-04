@@ -24,12 +24,13 @@ team-bootstrap activates when the user types `/team-bootstrap <args>` or asks Cl
 /team-bootstrap mvp <task>               # 7-role implementation pipeline
 /team-bootstrap full <task>              # 20-role implementation pipeline
 /team-bootstrap audit <spec>             # 15-role read-only assessment, outputs prioritized backlog
+/team-bootstrap l2p <spec>               # 6-role landing↔platform↔docs gap audit, outputs backlog
 /team-bootstrap role <name> <task>       # single role
 /team-bootstrap resume <run_id>          # resume from checkpoint
 /team-bootstrap replay <run_id>          # re-run from trace
 ```
 
-The `audit` pipeline is read-only: it assesses an existing codebase against a reference (spec, design, production-readiness checklist) and outputs a prioritized backlog. Each backlog item then becomes a separate `single-thread` / `mvp` / `full` run.
+The `audit` and `l2p` pipelines are read-only: they assess against a reference and output a prioritized backlog. `audit` = technical/operational readiness; `l2p` = landing↔platform↔docs gaps (conversion). Each backlog item then becomes a separate `single-thread` / `mvp` / `full` run (or feed the whole backlog to `/deliver`).
 
 See [USAGE.md](USAGE.md) for full semantics.
 
@@ -41,6 +42,7 @@ See [USAGE.md](USAGE.md) for full semantics.
    - [mvp.md](references/pipelines/mvp.md) — 7 roles
    - [full.md](references/pipelines/full.md) — 20 roles
    - [audit.md](references/pipelines/audit.md) — 15 roles, read-only assessment → backlog
+   - [l2p.md](references/pipelines/l2p.md) — 6 roles, read-only landing↔platform↔docs gap audit → backlog
 3. For each role, load its playbook from [references/roles/](references/roles/), enforce the declared `tool_surface` and `permission_mode`, run inline or as subagent per [references/subagent-dispatch.md](references/subagent-dispatch.md). When dispatching, resolve the concrete `subagent_type` from the role's `preferred_subagent_types` frontmatter per [references/subagent-mapping.md](references/subagent-mapping.md) (fallback: `general-purpose`).
 4. After each role, validate the handoff against [references/schemas/role-output.schema.json](references/schemas/role-output.schema.json) and append to the run document ([references/shared-blackboard.md](references/shared-blackboard.md)).
 5. For evaluated roles, run the independent evaluator gate ([references/evaluator.md](references/evaluator.md)) as a context-reset subagent before accepting the handoff.
@@ -105,7 +107,7 @@ Persistent state & I/O:
 
 Catalogs:
 
-- [role-matrix.md](references/role-matrix.md) — all 42 roles, when to use which
+- [role-matrix.md](references/role-matrix.md) — all 48 roles, when to use which
 - [invocation-examples.md](references/invocation-examples.md) — copy-paste prompts
 - [roles/](references/roles/) — per-role playbooks
 - [pipelines/](references/pipelines/) — pipeline definitions

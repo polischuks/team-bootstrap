@@ -37,6 +37,13 @@ For a single targeted role:
 /team-bootstrap role security-reviewer "Audit the OAuth changes"
 ```
 
+For a read-only audit that produces an implementation backlog (technical, or landing↔platform↔docs conversion gaps):
+
+```text
+/team-bootstrap audit "Production-readiness review of the billing module"
+/team-bootstrap l2p "landing: https://… · platform: <routes/screens> · docs: ./docs"
+```
+
 For a full spec-driven milestone — one command runs the pre-implementation flow (spec → plan → tasks), then drives implementation batches step-by-step through `mvp`/`full`:
 
 ```text

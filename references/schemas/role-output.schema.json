@@ -44,7 +44,13 @@
     { "$ref": "#/$defs/customer-health-analyst" },
     { "$ref": "#/$defs/ip-contracts-reviewer" },
     { "$ref": "#/$defs/culture-team-dd" },
-    { "$ref": "#/$defs/investment-thesis-author" }
+    { "$ref": "#/$defs/investment-thesis-author" },
+    { "$ref": "#/$defs/recon" },
+    { "$ref": "#/$defs/usecase-miner" },
+    { "$ref": "#/$defs/cartographer" },
+    { "$ref": "#/$defs/funnel-auditor" },
+    { "$ref": "#/$defs/gatekeeper" },
+    { "$ref": "#/$defs/gap-backlog-author" }
   ],
   "$defs": {
     "artifact": {
@@ -592,6 +598,60 @@
             "probability_weighted_moic": { "type": "number", "minimum": 0 }
           },
           "required": ["investment_recommendation", "thesis_confidence"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "recon": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "role": { "const": "recon" },
+            "grounding_complete": { "type": "boolean" }
+          },
+          "required": ["grounding_complete"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "usecase-miner": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        { "properties": { "role": { "const": "usecase-miner" } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "cartographer": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        { "properties": { "role": { "const": "cartographer" } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "funnel-auditor": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        { "properties": { "role": { "const": "funnel-auditor" } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "gatekeeper": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        { "properties": { "role": { "const": "gatekeeper" } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "gap-backlog-author": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "role": { "const": "gap-backlog-author" },
+            "task_count": { "type": "integer", "minimum": 0 }
+          },
+          "required": ["task_count"]
         }
       ],
       "unevaluatedProperties": false
