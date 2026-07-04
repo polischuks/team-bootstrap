@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify tag matches declared version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          FILE_VERSION="$(cat VERSION)"
+          PLUGIN_VERSION="$(python3 -c "import json;print(json.load(open('.claude-plugin/plugin.json'))['version'])")"
+          echo "tag=$TAG  VERSION=$FILE_VERSION  plugin.json=$PLUGIN_VERSION"
+          if [ "$TAG" != "$FILE_VERSION" ] || [ "$TAG" != "$PLUGIN_VERSION" ]; then
+            echo "::error::tag ($TAG) must match VERSION ($FILE_VERSION) and plugin.json ($PLUGIN_VERSION)"
+            exit 1
+          fi
+
+      - name: Validate (roles + JSON)
+        run: |
+          bin/eval-role.sh --all
+          python3 - <<'PY'
+          import json, glob
+          for f in glob.glob('.claude-plugin/*.json') + glob.glob('references/schemas/*.json') + ['skills-manifest.json']:
+              json.load(open(f))
+          print("json ok")
+          PY
+
+      - name: Package plugin tarball
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p dist
+          tar --exclude-vcs \
+              --exclude='./dist' \
+              --exclude='./assets' \
+              --exclude='./.runs' \
+              -czf "dist/team-bootstrap-${VERSION}.tar.gz" .
+          ls -la dist
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.tar.gz
+          generate_release_notes: true

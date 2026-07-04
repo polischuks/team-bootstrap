@@ -42,6 +42,9 @@ bump reflects the new delivery entry point and governance model. The handoff-con
 - **Repo hygiene: `.github/dependabot.yml`** (github-actions ecosystem — the only dependency
   surface for a markdown asset) and **`.github/workflows/security.yml`** (shellcheck + `bash -n`
   on `bin/*.sh`, gitleaks secret scan). The markdown/shell analog of a vuln-scan gate.
+- **`.github/workflows/release.yml`** — on a `v*` tag: verifies the tag matches `VERSION` and
+  `plugin.json`, re-runs the role/JSON gates, packages the plugin as a tarball, and cuts a
+  GitHub Release with auto-generated notes.
 
 ### Changed
 
