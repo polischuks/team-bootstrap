@@ -1,6 +1,26 @@
 # Usage
 
-team-bootstrap can be invoked four ways: single-thread, multi-role pipeline, single role, or resume/replay.
+team-bootstrap can be invoked four ways: single-thread, multi-role pipeline, single role, or resume/replay. For a full spec-driven milestone, the `/deliver` command chains planning and implementation in one entry point (see below).
+
+## One-command spec-driven delivery (`/deliver`)
+
+For a non-trivial milestone, `/deliver` runs the whole pre-implementation flow, then drives
+implementation batches step-by-step through a pipeline:
+
+```text
+/deliver mvp  "Add OAuth login to /api/auth"
+/deliver full "Migrate user table to UUID primary keys"
+```
+
+- **Phase A (autonomous):** `speckit-constitution` → `speckit-specify` → `speckit-clarify` →
+  `speckit-plan` → `speckit-tasks` → `speckit-analyze`. Stops if a hard blocker or CRITICAL
+  inconsistency surfaces.
+- **Phase B (human-paced):** decomposes tasks into batches and fires them **one at a time**
+  through the chosen pipeline (`mvp`/`full`), waiting for your confirmation between batches.
+  Subagents commit locally; nothing is pushed without explicit authorization.
+
+Command definition: [commands/deliver.md](commands/deliver.md). For a single small change, skip
+`/deliver` and use `single-thread` below.
 
 ## Single-thread (recommended default)
 

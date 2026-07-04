@@ -6,6 +6,12 @@ All notable changes to team-bootstrap. Format follows [Keep a Changelog](https:/
 
 ### Added
 
+- **`/deliver` command** ([commands/deliver.md](commands/deliver.md)) — one entry point that runs
+  the full pre-implementation flow autonomously (`speckit-constitution` → `specify` → `clarify` →
+  `plan` → `tasks` → `analyze`), gates on unresolved blockers, then drives implementation batches
+  **step-by-step** through `mvp`/`full` (waits for confirmation between batches; commits local,
+  never pushes without authorization). Documented in USAGE.md.
+
 - **Pre-implementation flow doctrine** ([references/speckit-preimpl-flow.md](references/speckit-preimpl-flow.md)):
   a 6-step spec → plan → tasks → dispatch sequence, positioned as the recommended **first step**
   before pipelines run and mapped onto the bundled `speckit-*` skills. Linked from README and SKILL.md.
