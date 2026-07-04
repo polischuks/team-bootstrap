@@ -53,8 +53,9 @@ Before deciding, tally every CRITICAL/HIGH finding raised by the reviewer roles
 `accessibility-reviewer`, `code-reviewer`) and check each one's disposition on the
 blackboard. Count those still **open** (not `resolved` / `accepted_risk` / `wont_fix`)
 into `unresolved_blocking_findings`. **A `go` decision requires this count to be 0** —
-no unresolved blocker may coexist with a ship verdict (schema-enforced). If any remain
-open, emit `no_go` (or route them back for disposition first). Where reviewers reported
+no unresolved blocker may coexist with a ship verdict (enforced by the schema whenever the
+field is present, so always emit it). If any remain open, emit `no_go` (or route them back
+for disposition first). Where reviewers reported
 `reviewer_consensus`, treat a finding flagged by a majority of reviewers as high-confidence
 — do not wave it through on a single dissent.
 

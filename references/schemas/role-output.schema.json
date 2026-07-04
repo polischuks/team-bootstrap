@@ -275,12 +275,12 @@
           "properties": {
             "role": { "const": "release-manager" },
             "release_decision": { "enum": ["go", "no_go"] },
-            "unresolved_blocking_findings": { "type": "integer", "minimum": 0, "description": "Count of CRITICAL/HIGH findings from prior reviewer roles whose disposition is still open (not resolved/accepted_risk/wont_fix). A `go` decision requires this to be 0 — no unresolved blocker may coexist with a ship verdict. See references/trace-evals.md." }
+            "unresolved_blocking_findings": { "type": "integer", "minimum": 0, "description": "Optional. Count of CRITICAL/HIGH findings from prior reviewer roles whose disposition is still open (not resolved/accepted_risk/wont_fix). When present, a `go` decision requires this to be 0 — no unresolved blocker may coexist with a ship verdict. Omitting it keeps older handoffs valid; the release-manager playbook still instructs roles to emit it. See references/trace-evals.md." }
           },
-          "required": ["release_decision", "unresolved_blocking_findings"]
+          "required": ["release_decision"]
         },
         {
-          "if": { "properties": { "release_decision": { "const": "go" } } },
+          "if": { "properties": { "release_decision": { "const": "go" }, "unresolved_blocking_findings": { "type": "integer" } }, "required": ["unresolved_blocking_findings"] },
           "then": { "properties": { "unresolved_blocking_findings": { "const": 0 } } }
         }
       ],

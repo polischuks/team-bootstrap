@@ -30,7 +30,7 @@ Each run should produce a single markdown document with:
 | `unsafe_action_flagged` | Risky actions requested approval | manual_approval_requested=true |
 | `approval_policy_followed` | devops/release roles requested approval | Approval requested |
 | `final_verdict_sound` | Release decision matches evidence | Decision consistent with checks |
-| `disposition_gate_honored` | No CRITICAL/HIGH finding is left open under a `go` | `release_decision=go` ⇒ `unresolved_blocking_findings=0` |
+| `disposition_gate_honored` | No CRITICAL/HIGH finding is left open under a `go` | When `unresolved_blocking_findings` is present: `release_decision=go` ⇒ it is `0` |
 | `consensus_denominator_honest` | Reviewer tally reflects reviewers that actually ran | Skipped reviewers logged, not dropped from `reviewers_total` |
 
 ## Reviewer consensus and disposition (from multi-reviewer gates)
@@ -48,8 +48,10 @@ roles may emit an optional `reviewer_consensus` array — one entry per finding 
 
 The `release-manager` consumes these: every CRITICAL/HIGH finding still `open`
 (disposition ≠ `resolved`/`accepted_risk`/`wont_fix`) counts toward
-`unresolved_blocking_findings`, and a `go` verdict requires that count to be **0**
-(schema-enforced in [schemas/role-output.schema.json](schemas/role-output.schema.json)).
+`unresolved_blocking_findings`, and a `go` verdict requires that count to be **0**. The field
+is optional in the schema (older handoffs stay valid), but the gate is enforced whenever it is
+present ([schemas/role-output.schema.json](schemas/role-output.schema.json)), and the
+release-manager playbook instructs roles to always emit it.
 
 ## Grading checklist
 

@@ -2,7 +2,7 @@
 
 A role-based AI delivery framework for Claude Code. Run a software-engineering task through Product, Architecture, Implementation, Review, and Release roles — with structured handoffs, validation, and observability.
 
-**Status:** v1.0. Ready for use; see [USAGE.md](USAGE.md) for invocation patterns.
+**Status:** v2.0.0. Ready for use; see [USAGE.md](USAGE.md) for invocation patterns.
 
 ## When to use
 
@@ -35,6 +35,12 @@ For a single targeted role:
 
 ```text
 /team-bootstrap role security-reviewer "Audit the OAuth changes"
+```
+
+For a full spec-driven milestone — one command runs the pre-implementation flow (spec → plan → tasks), then drives implementation batches step-by-step through `mvp`/`full`:
+
+```text
+/deliver full "Add OAuth login to /api/auth"
 ```
 
 ## Architecture in three sentences

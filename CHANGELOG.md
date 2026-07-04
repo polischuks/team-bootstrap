@@ -2,7 +2,13 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.0] - 2026-07-04
+
+Spec-driven delivery milestone: a one-command flow (`/deliver`) chains the full
+pre-implementation sequence into step-by-step batch delivery, backed by a versioned
+constitution and milestone scaffolding, plus reviewer-consensus and disposition gates. Major
+bump reflects the new delivery entry point and governance model. The handoff-contract change is
+**backward-compatible** (the new field is optional; older handoffs still validate).
 
 ### Added
 
@@ -27,18 +33,21 @@ All notable changes to team-bootstrap. Format follows [Keep a Changelog](https:/
   finding raised by a majority of independent reviewers reads as high-confidence and the
   denominator stays honest about reviewers that didn't run. Documented in
   [trace-evals.md](references/trace-evals.md).
-- **Disposition gate before `go`.** `release-manager` now emits `unresolved_blocking_findings`;
-  a `go` decision requires it to be `0` (schema-enforced). No open CRITICAL/HIGH finding may
-  coexist with a ship verdict. New grading dimensions `disposition_gate_honored` and
-  `consensus_denominator_honest` in [trace-evals.md](references/trace-evals.md).
+- **Disposition gate before `go`.** `release-manager` emits an optional
+  `unresolved_blocking_findings`; whenever present, a `go` decision requires it to be `0`, so no
+  open CRITICAL/HIGH finding can coexist with a ship verdict. The field is optional (older
+  handoffs stay valid) and the playbook instructs roles to always emit it. New grading dimensions
+  `disposition_gate_honored` and `consensus_denominator_honest` in
+  [trace-evals.md](references/trace-evals.md).
 - **Repo hygiene: `.github/dependabot.yml`** (github-actions ecosystem — the only dependency
   surface for a markdown asset) and **`.github/workflows/security.yml`** (shellcheck + `bash -n`
   on `bin/*.sh`, gitleaks secret scan). The markdown/shell analog of a vuln-scan gate.
 
 ### Changed
 
-- **Breaking (handoff contract):** `release-manager` handoff now requires
-  `unresolved_blocking_findings`. Existing release-manager handoffs must add the field.
+- **Handoff contract (backward-compatible):** `release-manager` gains an optional
+  `unresolved_blocking_findings` field. Existing handoffs without it remain valid; when present,
+  the `go`-requires-`0` gate is enforced. No migration required.
 
 ## [1.7.0] - 2026-06-26
 
