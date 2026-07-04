@@ -9,6 +9,11 @@ All notable changes to team-bootstrap. Format follows [Keep a Changelog](https:/
 - **Pre-implementation flow doctrine** ([references/speckit-preimpl-flow.md](references/speckit-preimpl-flow.md)):
   a 6-step spec → plan → tasks → dispatch sequence, positioned as the recommended **first step**
   before pipelines run and mapped onto the bundled `speckit-*` skills. Linked from README and SKILL.md.
+- **Pre-implementation scaffolding** so the flow runs against team-bootstrap itself:
+  [`constitution.md`](constitution.md) v1.0.0 (invariants P1–P8 + amendment/enumeration rules
+  distilled from existing doctrine), [`specs/`](specs/) convention with a milestone
+  [`TEMPLATE/`](specs/TEMPLATE/), [`feature.json`](feature.json) active-milestone pointer, and
+  [`docs/adr/`](docs/adr/) seeded with ADR-0001 (single-thread-by-default).
 
 - **Reviewer consensus signal.** Optional `reviewer_consensus` array on the reviewer roles
   (`code-reviewer`, `security-reviewer`, `performance-reviewer`, `accessibility-reviewer`,

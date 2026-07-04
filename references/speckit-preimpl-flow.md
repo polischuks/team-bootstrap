@@ -21,10 +21,11 @@ The six steps map onto the bundled `speckit-*` skills, which implement them:
 `speckit-taskstoissues` (cross-check + dispatch). Use the skills to execute each step; use
 this manual as the doctrine and quality bar behind them.
 
-> **Note:** team-bootstrap itself does not yet ship the assumed scaffolding (`specs/`,
-> `constitution.md`, `feature.json`, an ADR dir). Stand those up per the Prerequisites
-> before running the flow against this repo, or apply the flow to a project that already
-> has them.
+> **Scaffolding (present in this repo):** [`constitution.md`](../constitution.md) (Step 1
+> principles), [`specs/`](../specs/) with a milestone [`TEMPLATE/`](../specs/TEMPLATE/),
+> [`feature.json`](../feature.json) (active-milestone pointer), and [`docs/adr/`](../docs/adr/).
+> Copy `specs/TEMPLATE/` to `specs/NNN-slug/` to start a milestone and set `active_spec` in
+> `feature.json`.
 
 ---
 
