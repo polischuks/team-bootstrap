@@ -81,6 +81,22 @@
       "required": ["critical", "high", "medium", "low"],
       "additionalProperties": false
     },
+    "reviewerConsensus": {
+      "type": "array",
+      "description": "Optional per-finding cross-reviewer agreement. When a surface is judged by multiple independent reviewers or verification passes, record how many flagged each finding: a higher tally is a stronger confidence signal, and the denominator must reflect reviewers that actually ran (log skipped ones — never silently shrink it). See references/trace-evals.md.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "finding": { "type": "string", "minLength": 1 },
+          "severity": { "enum": ["critical", "high", "medium", "low"] },
+          "flagged_by": { "type": "integer", "minimum": 1, "description": "How many independent reviewers/passes raised this finding." },
+          "reviewers_total": { "type": "integer", "minimum": 1, "description": "How many reviewers/passes actually ran (skipped ones are logged, not dropped from the count)." },
+          "disposition": { "enum": ["open", "resolved", "accepted_risk", "wont_fix"] }
+        },
+        "required": ["finding", "severity", "flagged_by", "reviewers_total"],
+        "additionalProperties": false
+      }
+    },
     "base": {
       "type": "object",
       "properties": {
@@ -244,7 +260,8 @@
         {
           "properties": {
             "role": { "const": "code-reviewer" },
-            "approval_status": { "enum": ["approved", "changes_requested"] }
+            "approval_status": { "enum": ["approved", "changes_requested"] },
+            "reviewer_consensus": { "$ref": "#/$defs/reviewerConsensus" }
           },
           "required": ["approval_status"]
         }
@@ -257,9 +274,14 @@
         {
           "properties": {
             "role": { "const": "release-manager" },
-            "release_decision": { "enum": ["go", "no_go"] }
+            "release_decision": { "enum": ["go", "no_go"] },
+            "unresolved_blocking_findings": { "type": "integer", "minimum": 0, "description": "Count of CRITICAL/HIGH findings from prior reviewer roles whose disposition is still open (not resolved/accepted_risk/wont_fix). A `go` decision requires this to be 0 — no unresolved blocker may coexist with a ship verdict. See references/trace-evals.md." }
           },
-          "required": ["release_decision"]
+          "required": ["release_decision", "unresolved_blocking_findings"]
+        },
+        {
+          "if": { "properties": { "release_decision": { "const": "go" } } },
+          "then": { "properties": { "unresolved_blocking_findings": { "const": 0 } } }
         }
       ],
       "unevaluatedProperties": false
@@ -278,6 +300,7 @@
           "properties": {
             "role": { "const": "security-reviewer" },
             "severity_counts": { "$ref": "#/$defs/severityCounts" },
+            "reviewer_consensus": { "$ref": "#/$defs/reviewerConsensus" },
             "secrets_audit_passed": { "type": "boolean" }
           },
           "required": ["severity_counts", "secrets_audit_passed"]
@@ -291,7 +314,8 @@
         {
           "properties": {
             "role": { "const": "performance-reviewer" },
-            "severity_counts": { "$ref": "#/$defs/severityCounts" }
+            "severity_counts": { "$ref": "#/$defs/severityCounts" },
+            "reviewer_consensus": { "$ref": "#/$defs/reviewerConsensus" }
           },
           "required": ["severity_counts"]
         }
@@ -305,6 +329,7 @@
           "properties": {
             "role": { "const": "accessibility-reviewer" },
             "severity_counts": { "$ref": "#/$defs/severityCounts" },
+            "reviewer_consensus": { "$ref": "#/$defs/reviewerConsensus" },
             "wcag_aa_compliant": { "type": "boolean" }
           },
           "required": ["severity_counts", "wcag_aa_compliant"]
@@ -319,6 +344,7 @@
           "properties": {
             "role": { "const": "data-schema-reviewer" },
             "severity_counts": { "$ref": "#/$defs/severityCounts" },
+            "reviewer_consensus": { "$ref": "#/$defs/reviewerConsensus" },
             "migration_safe": { "type": "boolean" }
           },
           "required": ["severity_counts", "migration_safe"]

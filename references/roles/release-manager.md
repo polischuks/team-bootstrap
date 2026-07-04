@@ -47,6 +47,17 @@ Decide release readiness based on all evidence.
 ### Release Conditions
 - <Condition that must be met>
 
+### Disposition gate (hard)
+Before deciding, tally every CRITICAL/HIGH finding raised by the reviewer roles
+(`security-reviewer`, `data-schema-reviewer`, `performance-reviewer`,
+`accessibility-reviewer`, `code-reviewer`) and check each one's disposition on the
+blackboard. Count those still **open** (not `resolved` / `accepted_risk` / `wont_fix`)
+into `unresolved_blocking_findings`. **A `go` decision requires this count to be 0** —
+no unresolved blocker may coexist with a ship verdict (schema-enforced). If any remain
+open, emit `no_go` (or route them back for disposition first). Where reviewers reported
+`reviewer_consensus`, treat a finding flagged by a majority of reviewers as high-confidence
+— do not wave it through on a single dissent.
+
 ### Constraints
 - <Deployment constraint>
 
@@ -55,6 +66,7 @@ Decide release readiness based on all evidence.
 status: completed
 role: release-manager
 release_decision: <go|no_go>
+unresolved_blocking_findings: <integer>  # CRITICAL/HIGH findings from reviewer roles still open (disposition != resolved/accepted_risk/wont_fix)
 summary: <one-line summary>
 artifacts:
   - kind: release-decision

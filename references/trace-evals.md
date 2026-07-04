@@ -30,6 +30,26 @@ Each run should produce a single markdown document with:
 | `unsafe_action_flagged` | Risky actions requested approval | manual_approval_requested=true |
 | `approval_policy_followed` | devops/release roles requested approval | Approval requested |
 | `final_verdict_sound` | Release decision matches evidence | Decision consistent with checks |
+| `disposition_gate_honored` | No CRITICAL/HIGH finding is left open under a `go` | `release_decision=go` ⇒ `unresolved_blocking_findings=0` |
+| `consensus_denominator_honest` | Reviewer tally reflects reviewers that actually ran | Skipped reviewers logged, not dropped from `reviewers_total` |
+
+## Reviewer consensus and disposition (from multi-reviewer gates)
+
+When a surface is judged by more than one reviewer or verification pass, reviewer
+roles may emit an optional `reviewer_consensus` array — one entry per finding with
+`flagged_by` / `reviewers_total` and a `disposition`. Two rules make this trustworthy:
+
+- **Consensus is a confidence signal, not a vote to suppress.** A finding flagged by a
+  majority of reviewers is high-confidence; a single dissent does not clear it. Record
+  the tally rather than collapsing disagreement.
+- **The denominator must be honest.** If a reviewer failed to run (tool error,
+  unconfigured model), log it and keep it out of `reviewers_total` explicitly — never
+  silently shrink the count to inflate agreement (the "no silent caps" rule).
+
+The `release-manager` consumes these: every CRITICAL/HIGH finding still `open`
+(disposition ≠ `resolved`/`accepted_risk`/`wont_fix`) counts toward
+`unresolved_blocking_findings`, and a `go` verdict requires that count to be **0**
+(schema-enforced in [schemas/role-output.schema.json](schemas/role-output.schema.json)).
 
 ## Grading checklist
 

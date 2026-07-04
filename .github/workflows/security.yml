@@ -1,0 +1,45 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  # There is no Go/npm dependency tree to vuln-scan (the analog of session-indexer's
+  # govulncheck). For a markdown + shell asset the real surfaces are the bundled
+  # shell scripts and any accidental secret. These two jobs cover both.
+  shell:
+    name: Shell scripts (syntax + shellcheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bash syntax check
+        run: |
+          for f in bin/*.sh; do
+            echo "bash -n $f"
+            bash -n "$f"
+          done
+
+      - name: ShellCheck (errors only)
+        # ubuntu-latest ships shellcheck preinstalled. --severity=error fails the
+        # build on real breakage (undefined behavior, quoting bugs) without
+        # blocking on style nits.
+        run: shellcheck --severity=error bin/*.sh
+
+  secrets:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

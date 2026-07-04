@@ -2,6 +2,29 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Reviewer consensus signal.** Optional `reviewer_consensus` array on the reviewer roles
+  (`code-reviewer`, `security-reviewer`, `performance-reviewer`, `accessibility-reviewer`,
+  `data-schema-reviewer`): per-finding `flagged_by` / `reviewers_total` / `disposition`, so a
+  finding raised by a majority of independent reviewers reads as high-confidence and the
+  denominator stays honest about reviewers that didn't run. Documented in
+  [trace-evals.md](references/trace-evals.md).
+- **Disposition gate before `go`.** `release-manager` now emits `unresolved_blocking_findings`;
+  a `go` decision requires it to be `0` (schema-enforced). No open CRITICAL/HIGH finding may
+  coexist with a ship verdict. New grading dimensions `disposition_gate_honored` and
+  `consensus_denominator_honest` in [trace-evals.md](references/trace-evals.md).
+- **Repo hygiene: `.github/dependabot.yml`** (github-actions ecosystem — the only dependency
+  surface for a markdown asset) and **`.github/workflows/security.yml`** (shellcheck + `bash -n`
+  on `bin/*.sh`, gitleaks secret scan). The markdown/shell analog of a vuln-scan gate.
+
+### Changed
+
+- **Breaking (handoff contract):** `release-manager` handoff now requires
+  `unresolved_blocking_findings`. Existing release-manager handoffs must add the field.
+
 ## [1.7.0] - 2026-06-26
 
 SOTA-hardening pass (steps B–E): tiered models, layered guardrails + circuit breaker, an

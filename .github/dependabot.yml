@@ -1,0 +1,9 @@
+version: 2
+updates:
+  # team-bootstrap ships no package manifest (it's markdown + JSON), so the only
+  # dependency surface is the GitHub Actions used by the CI/security workflows.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
