@@ -2,7 +2,10 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.1.1] - 2026-07-04
+
+Patch: portability + correctness fix for the l2p citation gate, surfaced by dogfooding the
+pipeline on a live landing.
 
 ### Fixed
 
