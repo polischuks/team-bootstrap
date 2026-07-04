@@ -2,6 +2,16 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`bin/check-citations.sh`**: table-header rows are now skipped structurally (the line above a
+  `|---|` separator) instead of by a case-sensitive keyword list — fixes false positives on
+  lowercase headers. Rewritten single-pass without `mapfile` so it runs on bash 3.2 (macOS),
+  where the previous version silently passed. Surfaced by dogfooding the `l2p` pipeline on a live
+  landing.
+
 ## [2.1.0] - 2026-07-04
 
 Adds the `l2p` (Landing-to-Platform) gap-audit pipeline — a third read-only audit lens that
