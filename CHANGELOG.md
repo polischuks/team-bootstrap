@@ -2,7 +2,11 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.1.0] - 2026-07-04
+
+Adds the `l2p` (Landing-to-Platform) gap-audit pipeline — a third read-only audit lens that
+turns landing↔platform↔docs gaps into an implementation backlog. MINOR: new pipeline + six
+roles, no breaking changes.
 
 ### Added
 

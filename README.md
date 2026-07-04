@@ -2,7 +2,7 @@
 
 A role-based AI delivery framework for Claude Code. Run a software-engineering task through Product, Architecture, Implementation, Review, and Release roles — with structured handoffs, validation, and observability.
 
-**Status:** v2.0.0. Ready for use; see [USAGE.md](USAGE.md) for invocation patterns.
+**Status:** v2.1.0. Ready for use; see [USAGE.md](USAGE.md) for invocation patterns.
 
 ## When to use
 
