@@ -14,7 +14,7 @@ jobs:
     name: Validate roles, links, and manifests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Static role validation (all 42 roles)
         run: bin/eval-role.sh --all
