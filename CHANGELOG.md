@@ -2,7 +2,7 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.3.0] - 2026-07-09
 
 Agent-quality & autonomy hardening — Tier 1 + Tier 2 practices from Anthropic and other vendors,
 applied to the pipeline. Sources: [Anthropic — Building Effective Agents](https://www.anthropic.com/engineering/building-effective-agents),
