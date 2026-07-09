@@ -9,6 +9,7 @@ tool_surface:
   mcp: []
 permission_mode: ask
 preferred_subagent_types: [test-automator, qa-expert, general-purpose]
+thinking: extended
 ---
 
 # Integration Verifier

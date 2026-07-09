@@ -52,13 +52,17 @@ Note: phase-level handoffs use `phase` and `next_phase` instead of `role`/`next_
 
 ### Phase 2 — Implement
 
-Activates the **implementation composite role**: backend + frontend changes inline, with mandatory verification loop after each edit batch:
+Activates the **implementation composite role**: backend + frontend changes inline, following
+**TDD red→green** ([../tdd.md](../tdd.md)) — write the test, confirm it fails, then implement — with
+a mandatory verification loop after each edit batch:
 
 ```
-edit → typecheck → lint → unit tests → (if any fail) repair → retry
+write test → confirm RED → implement → typecheck → lint → tests → (if any fail) repair → retry → GREEN
 ```
 
-Max 3 repair cycles per check; on exhausted, phase emits `blocked`.
+Tests are not weakened to pass. Max 3 repair cycles per check; on exhausted, phase emits `blocked`.
+The verify phase records **evidence** (real command output), not an assertion, and if the change
+spans backend↔frontend, confirms the path is wired end-to-end (no orphans).
 
 Phase-end handoff:
 

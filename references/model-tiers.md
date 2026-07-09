@@ -41,6 +41,23 @@ customer, delivery): `backend-engineer`, `frontend-engineer`, `qa-test-engineer`
 `market-analyst`, `growth-marketer`, `customer-health-analyst`, `customer-success-manager`,
 `partnerships-lead`, `product-marketer`, `culture-team-dd`.
 
+## Extended thinking
+
+Independent of the model tier, high-reasoning roles request **extended thinking** via the
+`thinking: extended` frontmatter field — more test-time reasoning where the decision is hard and
+expensive to get wrong ([Anthropic — Building Effective Agents](https://www.anthropic.com/engineering/building-effective-agents)).
+Reserve it for architecture, verification, and final release calls; routine roles omit it (or use
+`standard`) to keep latency/cost down.
+
+Roles that carry `thinking: extended`:
+
+- `cto-architect`, `cto-tech-lead`, `solution-architect` — architecture and constraint decisions
+- `integration-verifier` — the outcome-based wiring gate
+- `release-manager` — the final go/no-go under the disposition gate
+
+`thinking` is advisory to the harness in the same way `model` is: honored where the host supports a
+per-call thinking budget, documentation-of-intent otherwise.
+
 ## Notes
 
 - The `model:` field is **advisory to the harness**. When a role is dispatched as a subagent, the

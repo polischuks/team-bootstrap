@@ -157,7 +157,17 @@
     "backend-engineer": {
       "allOf": [
         { "$ref": "#/$defs/base" },
-        { "properties": { "role": { "const": "backend-engineer" } } }
+        {
+          "properties": {
+            "role": { "const": "backend-engineer" },
+            "verification_evidence": { "type": "string", "minLength": 1, "description": "Real command output excerpt (typecheck/lint/test) proving the change works — evidence, not assertion. Required when status=completed. See references/trace-evals.md." },
+            "tests_failed_first": { "type": "boolean", "description": "TDD red step: new tests were run and observed to FAIL before implementation. See references/tdd.md." }
+          }
+        },
+        {
+          "if": { "properties": { "status": { "const": "completed" } }, "required": ["status"] },
+          "then": { "required": ["verification_evidence"] }
+        }
       ],
       "unevaluatedProperties": false
     },
@@ -167,9 +177,15 @@
         {
           "properties": {
             "role": { "const": "frontend-engineer" },
-            "frontend_required": { "type": "boolean" }
+            "frontend_required": { "type": "boolean" },
+            "verification_evidence": { "type": "string", "minLength": 1, "description": "Real command output excerpt (typecheck/lint/test) proving the change works — evidence, not assertion. Required when status=completed. See references/trace-evals.md." },
+            "tests_failed_first": { "type": "boolean", "description": "TDD red step: new tests were run and observed to FAIL before implementation. See references/tdd.md." }
           },
           "required": ["frontend_required"]
+        },
+        {
+          "if": { "properties": { "status": { "const": "completed" } }, "required": ["status"] },
+          "then": { "required": ["verification_evidence"] }
         }
       ],
       "unevaluatedProperties": false
@@ -180,9 +196,14 @@
         {
           "properties": {
             "role": { "const": "qa-test-engineer" },
-            "release_risk": { "enum": ["low", "medium", "high"] }
+            "release_risk": { "enum": ["low", "medium", "high"] },
+            "verification_evidence": { "type": "string", "minLength": 1, "description": "Real test-run output excerpt — evidence, not assertion. Required when status=completed. See references/trace-evals.md." }
           },
           "required": ["release_risk"]
+        },
+        {
+          "if": { "properties": { "status": { "const": "completed" } }, "required": ["status"] },
+          "then": { "required": ["verification_evidence"] }
         }
       ],
       "unevaluatedProperties": false

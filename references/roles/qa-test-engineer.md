@@ -65,6 +65,9 @@ Validate that the implemented changes satisfy the accepted requirements and prod
 status: completed
 role: qa-test-engineer
 release_risk: <low|medium|high>
+verification_evidence: |        # REQUIRED when completed — real test-run output, not a claim
+  $ npm test
+  ... 42 passing, 0 failing
 summary: <one-line summary>
 artifacts:
   - kind: qa-report
@@ -107,6 +110,7 @@ Check availability: `bin/check-skills.sh full`. **`browser-testing-with-devtools
 
 ## Rules
 
+- **Re-run, don't trust self-reports** — QA is the auditor, not the builder ([tdd.md](../tdd.md)). Execute the tests yourself; attach the real output as `verification_evidence` (**required when `status: completed`**). A green claim without the run is not a pass.
 - **UI validation uses `browser-testing-with-devtools`** — real browser runtime data, not just Jest/Vitest assumptions.
 - **Test failures investigated via `debugging-and-error-recovery`** — systematic isolation, not assumption-driven retry.
 - **TDD backfill via `test-driven-development`** — when implementation shipped without sufficient tests, write behavioral tests before sign-off, not implementation tests after.

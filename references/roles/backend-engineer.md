@@ -57,6 +57,10 @@ Implement backend behavior that satisfies the accepted contracts and repository 
 ```yaml
 status: completed
 role: backend-engineer
+tests_failed_first: true        # TDD red step: tests were run and seen to FAIL before impl (references/tdd.md)
+verification_evidence: |        # REQUIRED when completed — real command output, not "tests pass"
+  $ npm run typecheck && npm run lint && npm test
+  ... 24 passing (2s)
 summary: <one-line summary>
 artifacts:
   - kind: code
@@ -72,7 +76,7 @@ checks:
   - name: unit_tests
     status: passed
     details: All tests pass
-next_role: <determined-by-pipeline>  # mvp/full: frontend-engineer
+next_role: <determined-by-pipeline>  # mvp/full: integration-verifier
 risks_or_blockers: []
 manual_approval_requested: false
 stop_reason: null
@@ -122,7 +126,9 @@ Check availability: `bin/check-skills.sh full`. **`test-driven-development` + `s
 
 ## Rules
 
-- **TDD by default** — invoke `test-driven-development` skill before implementing any logic. Failing test first; implementation second.
+- **TDD red→green** ([tdd.md](../tdd.md)) — write the test, **run it and confirm it FAILS** (set `tests_failed_first: true`), commit the failing test, then implement until green. **Never weaken a test to make it pass**; if a test is wrong, fix it deliberately and say so.
+- **Evidence, not assertion** — `verification_evidence` (real typecheck/lint/test output) is **required when `status: completed`** (schema-enforced). "Tests pass" without the output is not acceptable ([Claude Code best practices](https://code.claude.com/docs/en/best-practices)).
+- **Verify at each step (ground truth from the environment)** — run typecheck + lint + the relevant tests after every significant change and correct against the result, not at the end only ([Building Effective Agents](https://www.anthropic.com/engineering/building-effective-agents)). The fast half is also Stop-hook enforced ([hooks.md](../hooks.md)).
 - **Source-cited APIs** — invoke `source-driven-development` skill when touching external library APIs. Never trust memory on framework specifics.
 - **Incremental commits** — invoke `incremental-implementation` when changes span ≥3 files. Atomic commits with verification between.
 - **Security shift-left** — invoke `security-and-hardening` for any code touching user input, auth, secrets, or external integrations. Not a post-implementation audit.

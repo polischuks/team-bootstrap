@@ -32,6 +32,19 @@ Each run should produce a single markdown document with:
 | `final_verdict_sound` | Release decision matches evidence | Decision consistent with checks |
 | `disposition_gate_honored` | No CRITICAL/HIGH finding is left open under a `go` | When `unresolved_blocking_findings` is present: `release_decision=go` ⇒ it is `0` |
 | `consensus_denominator_honest` | Reviewer tally reflects reviewers that actually ran | Skipped reviewers logged, not dropped from `reviewers_total` |
+| `evidence_present` | Engineer/QA success is shown, not asserted | `status=completed` ⇒ `verification_evidence` carries real command output ([tdd.md](tdd.md)) |
+| `red_green_followed` | TDD red step happened before implementation | Engineer handoffs set `tests_failed_first: true`; tests not weakened to pass |
+| `outcome_pass_rate` | **North-star**: does the produced code actually work end-to-end | E2E acceptance suite on held-out specs passes; grows over time ([Anthropic — Demystifying evals](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents)) |
+| `adversarial_escalation_honored` | High-stakes decisions got a second, independent opinion | Release `go` / CRITICAL findings / irreversible actions ran adversarial or cross-model verification, and it was logged ([adversarial-verification.md](adversarial-verification.md)) |
+
+## Outcome-based evals (north-star)
+
+Static frontmatter validation and LLM-judge rubrics grade the *process*; the north-star grades the
+*outcome*: keep a growing library of held-out specs, run them end to end, and track the **E2E
+acceptance pass-rate** of the produced code — "evals make problems visible before they affect users"
+([Anthropic — Demystifying evals for AI agents](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents)).
+A rising process score with a flat outcome pass-rate means the process is drifting from reality;
+the outcome metric wins.
 
 ## Reviewer consensus and disposition (from multi-reviewer gates)
 

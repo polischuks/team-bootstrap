@@ -126,7 +126,9 @@ Check availability: `bin/check-skills.sh full`. **`test-driven-development` is n
 
 - **Test cases written using `test-driven-development` patterns** — behavioral tests (does the system do X?) not implementation tests (does function Y call function Z?).
 - **High-stakes paths use `doubt-driven-development`** — for auth, payments, data deletion, anything irreversible, write the test that catches the failure mode you're afraid of, not the happy path you already trust.
-- **Define tests BEFORE implementation, not after.**
+- **Define tests BEFORE implementation, not after.** They must be **run and seen to fail** (red) before any code — a test that passes before the code exists tests nothing ([tdd.md](../tdd.md)). Downstream engineers set `tests_failed_first: true`.
+- **Tests are immutable once red** — engineers implement to the test; they do not weaken the test to go green. If a test is wrong, flag it here for a deliberate fix.
+- **Acceptance criteria are end-to-end / user-observable** ("user does X → sees Y"), not layer-local ("endpoint returns 200") — this is what the [integration-verifier](../roles/integration-verifier.md) checks.
 - **Every requirement must have at least one test case.**
 - **Edge cases are not optional — identify them explicitly.**
 - **Prioritize tests:** High = blocks release, Medium = should have, Low = nice to have.

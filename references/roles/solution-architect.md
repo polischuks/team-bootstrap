@@ -9,6 +9,7 @@ tool_surface:
   mcp: []
 permission_mode: plan
 preferred_subagent_types: [backend-architect, api-designer, architect-reviewer]
+thinking: extended
 ---
 
 # Solution Architect

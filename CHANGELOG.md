@@ -2,6 +2,41 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Agent-quality & autonomy hardening — Tier 1 + Tier 2 practices from Anthropic and other vendors,
+applied to the pipeline. Sources: [Anthropic — Building Effective Agents](https://www.anthropic.com/engineering/building-effective-agents),
+[Claude Code best practices](https://code.claude.com/docs/en/best-practices),
+[Effective context engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents),
+[Demystifying evals](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents),
+[OpenAI — A practical guide to building agents](https://openai.com/business/guides-and-resources/a-practical-guide-to-building-ai-agents/),
+[The Verification Gap](https://codemyspec.com/blog/agentic-qa-verification).
+
+### Added
+
+- **TDD red→green discipline** ([references/tdd.md](references/tdd.md)) — tests first, **run and
+  seen to fail**, implement to green, tests immutable. Engineer handoffs set `tests_failed_first`.
+- **Harness-enforced quality gate (hooks, ~100% vs ~70% prose)** — `hooks/hooks.json` Stop hook
+  runs `bin/quality-gate.sh` (fast typecheck+lint from AGENTS.md; no-ops outside team-bootstrap
+  projects; `TEAM_BOOTSTRAP_QUALITY_GATE=off` to disable). Full/E2E stay with integration-verifier
+  + CI. ([references/hooks.md](references/hooks.md)).
+- **Evidence, not assertion** — `verification_evidence` (real command output) is schema-required
+  when a `backend-engineer` / `frontend-engineer` / `qa-test-engineer` handoff is `completed`.
+  Verified: `completed` without evidence is REJECTED.
+- **Per-step ground-truth verification** — engineer roles verify (typecheck+lint+tests) after each
+  significant change, not only at the end.
+- **Structured note-taking** ([references/note-taking.md](references/note-taking.md)) — durable
+  run-notes across compaction (third context lever beyond compaction + distilled subagent returns).
+- **Adversarial & cross-model verification** ([references/adversarial-verification.md](references/adversarial-verification.md))
+  — refutation panels + optional cross-provider second opinion for high-stakes calls.
+- **Extended thinking** — new `thinking: extended` frontmatter field on high-reasoning roles
+  (`cto-architect`, `cto-tech-lead`, `solution-architect`, `integration-verifier`,
+  `release-manager`); documented in [references/model-tiers.md](references/model-tiers.md).
+- **Outcome-based evals (north-star)** + new grader dimensions (`evidence_present`,
+  `red_green_followed`, `outcome_pass_rate`, `adversarial_escalation_honored`) in
+  [references/trace-evals.md](references/trace-evals.md).
+- **Constitution P9** — verify by red→green and evidence, never by assertion.
+
 ## [2.2.0] - 2026-07-09
 
 Reliability milestone: an outcome-based integration gate that stops agents from shipping unwired

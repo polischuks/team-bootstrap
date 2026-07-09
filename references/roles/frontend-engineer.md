@@ -61,6 +61,10 @@ Implement frontend behavior that satisfies the accepted requirements and provide
 status: completed
 role: frontend-engineer
 frontend_required: <true|false>
+tests_failed_first: true        # TDD red step before impl (references/tdd.md)
+verification_evidence: |        # REQUIRED when completed — real command output, not "it works"
+  $ npm run typecheck && npm run lint && npm test
+  ... 18 passing
 summary: <one-line summary>
 artifacts:
   - kind: code
@@ -73,7 +77,7 @@ checks:
   - name: lint
     status: passed
     details: No lint errors
-next_role: <determined-by-pipeline>  # mvp: qa-test-engineer, full: devops-platform
+next_role: <determined-by-pipeline>  # mvp: integration-verifier, full: integration-verifier
 risks_or_blockers: []
 manual_approval_requested: false
 stop_reason: null
@@ -123,6 +127,8 @@ Check availability: `bin/check-skills.sh full`. **`frontend-ui-engineering` is n
 - **UI quality is non-negotiable** — invoke `frontend-ui-engineering` skill on every component touched. Output must look production-grade, not AI-generated.
 - **TDD where logic exists** — invoke `test-driven-development` for hooks, state machines, validation logic. UI shells can skip TDD but logic cannot.
 - **Real-browser verification** — invoke `browser-testing-with-devtools` for any UI touching network requests, async state, or user interaction patterns. Unit tests alone miss browser-specific bugs.
+- **Wire what the backend built** — if this batch's backend produced an endpoint, the frontend must actually call it end-to-end (a created endpoint with no consumer is dead code). The [integration-verifier](../roles/integration-verifier.md) hard gate scans for exactly this; verify the wiring yourself first.
+- **Evidence, not assertion** — `verification_evidence` (real typecheck/lint/test output) is **required when `status: completed`** (schema-enforced). Verify at each step, not only at the end ([tdd.md](../tdd.md), [hooks.md](../hooks.md)).
 - **Performance budget aware** — invoke `web-performance-audit` if the surface affects Core Web Vitals (LCP, INP, CLS) or user-facing perceived performance.
 - **Follow existing component patterns.**
 - **Use the project's UI framework and styling conventions.**

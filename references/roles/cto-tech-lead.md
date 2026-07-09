@@ -9,6 +9,7 @@ tool_surface:
   mcp: []
 permission_mode: plan
 preferred_subagent_types: [architect-reviewer, architect-review, backend-architect]
+thinking: extended
 ---
 
 # CTO Tech Lead

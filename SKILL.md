@@ -96,6 +96,13 @@ Operational:
 - [failure-policy.md](references/failure-policy.md) — retries, stop reasons, approvals
 - [irreversibility.md](references/irreversibility.md) — action class taxonomy
 
+Quality & verification:
+
+- [tdd.md](references/tdd.md) — red→green discipline + evidence-not-assertion
+- [hooks.md](references/hooks.md) — harness-enforced Stop-hook quality gate (~100% vs ~70% prose)
+- [adversarial-verification.md](references/adversarial-verification.md) — refutation + cross-model checks for high-stakes calls
+- [note-taking.md](references/note-taking.md) — structured note-taking (context engineering)
+
 Persistent state & I/O:
 
 - [agents-md-contract.md](references/agents-md-contract.md) — project memory

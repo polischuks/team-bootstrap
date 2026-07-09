@@ -119,6 +119,9 @@ If the blackboard exceeds ~50% of context window before activating the next role
 - Compact prior role narratives to ~200-token summaries each.
 - Keep all handoffs and artifact references verbatim.
 - Mark the compaction in the document.
+- On long `full`/`/deliver` runs, maintain a durable **run-notes** file (decisions, in-flight/
+  blocked state, carry-forward) per [note-taking.md](note-taking.md) and re-read it first after
+  compacting — so no decision is silently lost across the summary boundary.
 
 ### Step 8 — Final
 

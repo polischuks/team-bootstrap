@@ -60,6 +60,14 @@ pass the eval gate ([references/versioning.md](references/versioning.md),
 [references/trace-evals.md](references/trace-evals.md)) — static frontmatter validation plus
 behavioral regression — before it lands.
 
+### P9 — Verify by red→green and evidence, never by assertion
+Implementation follows TDD: tests are written first, **run and seen to fail**, then implemented to
+green, and never weakened to pass ([references/tdd.md](references/tdd.md)). A `completed`
+engineering/QA handoff must carry `verification_evidence` — real command output, not a claim —
+and fast checks are harness-enforced by the Stop hook ([references/hooks.md](references/hooks.md)).
+Wiring is proven end-to-end by [integration-verifier](references/roles/integration-verifier.md),
+not by self-report. This operationalizes P6 (report truth) for code.
+
 ---
 
 ## Boundary rules
@@ -95,7 +103,7 @@ Adding a role touches, in the same change: the role playbook, its
 
 - **PATCH** — clarification or wording; no rule redefined.
 - **MINOR** — a new principle, a new sanctioned exception, or a new enumeration invariant.
-- **MAJOR** — changing, weakening, or removing an existing invariant (P1–P8).
+- **MAJOR** — changing, weakening, or removing an existing invariant (P1–P9).
 
 Every milestone's Step 1 analysis
 ([references/speckit-preimpl-flow.md](references/speckit-preimpl-flow.md)) must state which,

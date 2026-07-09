@@ -63,6 +63,10 @@
       "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
       "uniqueItems": true,
       "description": "Ordered list of Claude Code `subagent_type` slugs the orchestrator should try when dispatching this role as a subagent. Walk left-to-right, pick the first registered slug, fall back to `general-purpose`. See references/subagent-mapping.md."
+    },
+    "thinking": {
+      "enum": ["standard", "extended"],
+      "description": "Reasoning budget for this role. `extended` requests interleaved/extended thinking for high-reasoning roles (architecture, verification, final release calls); omit or `standard` otherwise. See references/model-tiers.md#extended-thinking."
     }
   },
   "required": ["name", "version", "model", "compatible_pipelines", "tool_surface", "permission_mode"],

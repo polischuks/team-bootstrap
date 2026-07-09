@@ -9,6 +9,7 @@ tool_surface:
   mcp: [github]
 permission_mode: ask
 preferred_subagent_types: [deployment-engineer, project-shipper]
+thinking: extended
 ---
 
 # Release Manager
