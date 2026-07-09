@@ -212,6 +212,10 @@ Where:
 
 Every AC-N from spec.md MUST map to ≥1 task. Grep-verify before commit. If any AC has no task, either the spec is over-specified or the task list is incomplete.
 
+### Vertical slices, end-to-end acceptance
+
+Group tasks into **vertical slices** — each batch delivers one working user-visible path (e.g. endpoint + the frontend that calls it + the wiring), not a horizontal layer ("all backend" then "all frontend"). Horizontal slicing is what produces an endpoint with no consumer: dead code each builder reports as done. Write acceptance criteria as **end-to-end, user-observable outcomes** ("user clicks X → sees Y"), not layer-local facts ("endpoint returns 200"). The `integration-verifier` gate ([roles/integration-verifier.md](roles/integration-verifier.md)) enforces this at build time — a batch cannot close while any produced artifact has no live consumer.
+
 ---
 
 ## Step 6 — Team-Bootstrap Dispatch File

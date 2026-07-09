@@ -50,7 +50,8 @@
     { "$ref": "#/$defs/cartographer" },
     { "$ref": "#/$defs/funnel-auditor" },
     { "$ref": "#/$defs/gatekeeper" },
-    { "$ref": "#/$defs/gap-backlog-author" }
+    { "$ref": "#/$defs/gap-backlog-author" },
+    { "$ref": "#/$defs/integration-verifier" }
   ],
   "$defs": {
     "artifact": {
@@ -652,6 +653,25 @@
             "task_count": { "type": "integer", "minimum": 0 }
           },
           "required": ["task_count"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "integration-verifier": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "role": { "const": "integration-verifier" },
+            "integration_verified": { "type": "boolean" },
+            "orphans_found": { "type": "integer", "minimum": 0 },
+            "e2e_evidence": { "type": "string" }
+          },
+          "required": ["integration_verified", "orphans_found"]
+        },
+        {
+          "if": { "properties": { "status": { "const": "completed" } }, "required": ["status"] },
+          "then": { "properties": { "integration_verified": { "const": true }, "orphans_found": { "const": 0 } } }
         }
       ],
       "unevaluatedProperties": false

@@ -2,6 +2,26 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`integration-verifier` role + hard integration gate** — closes the "backend built the
+  endpoint, frontend never called it, both reported done" failure. An independent, read-only
+  auditor runs after the builders (`mvp`/`full`, and each `/deliver` batch) with a **clean
+  context** (builder ≠ auditor): it executes the E2E command from `AGENTS.md` and scans for
+  orphans (any produced endpoint/component with no live consumer). Schema-enforced hard gate — a
+  handoff **cannot be `completed` unless `integration_verified: true` and `orphans_found: 0`**;
+  otherwise `blocked`, sent back, and after 3–5 attempts stopped for human rollback. Grounded in
+  published vendor practice: outcome-based verification, evaluator-optimizer separation, and
+  harness-enforced gates ([Anthropic — Building Effective Agents](https://www.anthropic.com/engineering/building-effective-agents),
+  [The Verification Gap](https://codemyspec.com/blog/agentic-qa-verification)).
+- **`bin/check-orphans.sh`** — heuristic dead-code/unwired-artifact scan over a batch diff
+  (advisory input to the verifier): flags added exports/routes with no consumer.
+- **Vertical-slice doctrine** in the pre-implementation flow and `/deliver`: batches deliver a
+  working end-to-end path, and acceptance criteria are written as user-observable outcomes — not
+  horizontal layers. Role count 48 → 49 (constitution enumeration updated, MINOR).
+
 ## [2.1.1] - 2026-07-04
 
 Patch: portability + correctness fix for the l2p citation gate, surfaced by dogfooding the

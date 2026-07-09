@@ -35,7 +35,7 @@ Landing↔platform↔docs gap audit. Output: prioritized backlog of implementati
 | `gatekeeper` | Per-gate pass/fail thresholds + gate ledger. |
 | `gap-backlog-author` | Synthesize → ICE-ranked backlog (task = AC + precedent) + audit report. |
 
-## MVP Team (7 roles)
+## MVP Team (8 roles)
 
 Use this by default for quick iterations.
 
@@ -46,10 +46,11 @@ Use this by default for quick iterations.
 | `cto-architect` | Define constraints, contracts, and decisions. | technical direction, constraints, contracts, ADR |
 | `backend-engineer` | Implement backend changes. | code, backend notes |
 | `frontend-engineer` | Implement frontend changes. | code, frontend notes, UI notes |
+| `integration-verifier` | Outcome-based check that the batch is wired end-to-end: runs E2E + orphan scan (builder ≠ auditor, hard gate). | integration_verified, orphans_found, E2E evidence |
 | `qa-test-engineer` | Validate behavior and collect evidence. | test plan, QA report, defect list |
 | `release-docs` | Make the final go or no-go and doc handoff. | release decision, release notes, runbook notes |
 
-## Full Team (20 roles)
+## Full Team (21 roles)
 
 Use this for production releases with full quality gates.
 
@@ -64,6 +65,7 @@ Use this for production releases with full quality gates.
 | `solution-architect` | Define architecture and integration boundaries. | Architecture |
 | `backend-engineer` | Implement backend changes. | Implementation |
 | `frontend-engineer` | Implement frontend changes. | Implementation |
+| `integration-verifier` | Outcome-based end-to-end wiring check + orphan scan (builder ≠ auditor, hard gate). | **Quality (post-impl)** |
 | `devops-platform` | Handle infrastructure and CI concerns. | Infrastructure |
 | `data-schema-reviewer` | Review migrations, backwards compatibility, data integrity. | **Review** |
 | `accessibility-reviewer` | Review WCAG compliance, keyboard nav, screen readers. | **Review** |

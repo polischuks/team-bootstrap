@@ -39,9 +39,12 @@ with unresolved blockers.
 
 ## Phase B — Implementation, batch-by-batch (step-by-step, human-paced)
 
-Decompose the task list into batches per the flow's Step 6 batch rules (single sequential batch
-when coherence matters; parallel tracks only when file trees are independent and tasks are
-parallel-safe; surface cross-batch dependencies).
+Decompose the task list into batches per the flow's Step 6 batch rules. **Prefer vertical slices
+over horizontal layers:** a batch should deliver one working end-to-end path (e.g. endpoint +
+the frontend that calls it + the wiring), not "all backend" then "all frontend." Horizontal
+slicing is what produces an endpoint with no consumer — dead code that each builder reports as
+done. Only split a slice across batches when a genuine dependency forces it, and then name the
+cross-batch wiring explicitly.
 
 Then, for **each batch, one at a time**:
 
@@ -53,8 +56,16 @@ Then, for **each batch, one at a time**:
    `/team-bootstrap PIPELINE "<batch scope: cite the task IDs + point at spec.md/plan.md/tasks.md>"`
 4. Subagents **commit locally only**. Never `git push` or deploy without explicit per-call
    authorization (constitution P5 / irreversibility).
-5. After the batch returns: mark its tasks `[x]` in `tasks.md`, report commit SHA(s), the gate
-   status, and any new drift catches. Then present the **next** batch and **WAIT** again.
+5. **Integration gate (hard).** The pipeline's `integration-verifier` runs after the builders,
+   with a clean context: it executes the E2E command from `AGENTS.md` and scans for orphans
+   (any endpoint/component the batch produced with no live consumer). **Do not mark the batch
+   done, and do not present the next batch, while `orphans_found > 0` or the E2E path fails.**
+   Send the orphan back to the builder; after 3–5 failed attempts, **stop and ask the human**
+   (rollback the batch's local commits rather than shipping unwired code). Outcome over
+   self-report: trust the verifier's run, not the builders' "done."
+6. After the batch **passes the gate**: mark its tasks `[x]` in `tasks.md`, report commit SHA(s),
+   the verifier's result (E2E + 0 orphans), and any drift catches. Then present the **next**
+   batch and **WAIT** again.
 
 Stop after the final batch, or whenever the user says stop. At the end, summarize: batches shipped,
 tasks closed vs deferred, and what still needs a human (push authorization, prod deploy, open risks).
