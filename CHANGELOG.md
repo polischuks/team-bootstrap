@@ -2,7 +2,10 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.2.0] - 2026-07-09
+
+Reliability milestone: an outcome-based integration gate that stops agents from shipping unwired
+/ dead code while reporting success. MINOR — new role + additive gate, no breaking changes.
 
 ### Added
 
