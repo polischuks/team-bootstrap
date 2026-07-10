@@ -1,6 +1,6 @@
 {
   "name": "team-bootstrap",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "description": "Role-based AI delivery framework for Claude Code: run software-engineering tasks through Product, Architecture, Implementation, Review, and Release roles with structured handoffs, validation, and observability.",
   "license": "MIT",
   "author": "Sergey Polishchuk",

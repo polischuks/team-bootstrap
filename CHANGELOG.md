@@ -2,7 +2,10 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.4.0] - 2026-07-10
+
+Architecture-governance milestone: soundness + conformance gates that stop a batch from passing
+tests and E2E wiring while drifting from the app's architecture. MINOR — new role + additive gates.
 
 ### Added
 
