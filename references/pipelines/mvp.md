@@ -8,8 +8,9 @@ Run roles in this order:
 4. `backend-engineer`
 5. `frontend-engineer`
 6. `integration-verifier` ← **outcome-based: E2E path runs + no orphans (dead code) — hard gate**
-7. `qa-test-engineer`
-8. `release-docs`
+7. `architecture-reviewer` ← **conformance: batch stays within the app's architecture (no drift) — hard gate**
+8. `qa-test-engineer`
+9. `release-docs`
 
 ## Required Handoff Outputs
 
@@ -21,6 +22,7 @@ Run roles in this order:
 | `backend-engineer` | implementation summary, changed files, validation results, next role |
 | `frontend-engineer` | implementation summary, changed files, validation results, next role |
 | `integration-verifier` | integration_verified, orphans_found (0 to pass), E2E evidence — **hard gate: cannot pass over dead code** |
+| `architecture-reviewer` | conformance_verified, drift_findings (0 to pass) against the baseline — **hard gate: cannot pass over architectural drift** |
 | `qa-test-engineer` | test results, defects, release risk summary, next role |
 | `release-docs` | final release decision, evidence summary, blockers |
 
@@ -33,3 +35,13 @@ batch **cannot advance** while `orphans_found > 0` or the E2E path fails — the
 `blocked`, the orphan is sent back to the builder, and after 3–5 failed attempts the run stops
 for human intervention / rollback. This is the fix for "backend built the endpoint, frontend
 never called it, both reported done." See [../roles/integration-verifier.md](../roles/integration-verifier.md).
+
+## Architecture conformance gate (hard)
+
+After the integration gate, `architecture-reviewer` checks the batch against the app's
+[architecture baseline](../architecture-baseline.md) — boundaries, layers, dependency directions —
+using fitness functions ([../../bin/check-architecture.sh](../../bin/check-architecture.sh)). Passing
+E2E is not enough: a batch can work and still **drift** (wrong layer, bypassed boundary). The batch
+**cannot advance** while `drift_findings > 0`; drift goes back to the builder, 3–5 attempts → human
+/ rollback. This catches architectural erosion that the integration gate can't see. See
+[../roles/architecture-reviewer.md](../roles/architecture-reviewer.md).

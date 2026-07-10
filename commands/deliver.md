@@ -29,11 +29,16 @@ unless a step reports a hard blocker.
 4. **Skill `speckit-plan`** — architecture, phase decomposition, compliance matrix (Step 4).
 5. **Skill `speckit-tasks`** — numbered tasks; every acceptance criterion maps to ≥1 task (Step 5).
 6. **Skill `speckit-analyze`** — cross-artifact consistency guard (spec ↔ plan ↔ tasks).
+7. **Role `architecture-reviewer` (`review_mode: soundness`)** — an independent review of `plan.md`
+   against the project's [architecture baseline](../references/architecture-baseline.md): is the
+   *planned* architecture correct and does it fit the app as a whole? `analyze` checks that the
+   artifacts agree with each other; this checks that the architecture is actually sound.
 
 **Gate before Phase B:** print a short summary — spec/plan/tasks paths, task count, version-bump
-verdict, drift catches, and any unresolved blocker. If `speckit-analyze` surfaced a CRITICAL
-inconsistency, or any question is still open, **STOP here** and surface it. Do not enter Phase B
-with unresolved blockers.
+verdict, drift catches, and any unresolved blocker. **STOP here** if `speckit-analyze` surfaced a
+CRITICAL inconsistency, any question is still open, or `architecture-reviewer` returned
+`architecture_sound: false` — fix the plan before any batch fires. Do not enter Phase B with
+unresolved blockers.
 
 ---
 
@@ -63,6 +68,10 @@ Then, for **each batch, one at a time**:
    Send the orphan back to the builder; after 3–5 failed attempts, **stop and ask the human**
    (rollback the batch's local commits rather than shipping unwired code). Outcome over
    self-report: trust the verifier's run, not the builders' "done."
+   Then the **architecture conformance gate (hard):** `architecture-reviewer` (`review_mode:
+   conformance`) runs the fitness functions against the [baseline](../references/architecture-baseline.md)
+   — a batch can pass E2E and still **drift** (wrong layer, bypassed boundary). Do not close the
+   batch while `drift_findings > 0`; send drift back to the builder, 3–5 attempts → human / rollback.
 6. After the batch **passes the gate**: mark its tasks `[x]` in `tasks.md`, report commit SHA(s),
    the verifier's result (E2E + 0 orphans), and any drift catches. Then present the **next**
    batch and **WAIT** again.

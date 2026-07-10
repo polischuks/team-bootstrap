@@ -2,6 +2,28 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Architecture conformance & soundness gates** ([references/architecture-reviewer.md](references/roles/architecture-reviewer.md),
+  [references/architecture-baseline.md](references/architecture-baseline.md)) — closes the gap where
+  a batch passes tests + E2E wiring yet violates the app's architecture (architectural **drift**).
+  New independent `architecture-reviewer` role (builder ≠ auditor, `thinking: extended`) with two
+  modes: **soundness** (Phase A — is `plan.md` correct and baseline-fitting? gate before any batch)
+  and **conformance** (Phase B — per batch, no drift from the baseline; hard gate). Schema-enforced:
+  a `completed` handoff requires `architecture_sound`/`conformance_verified` true and
+  `drift_findings: 0`.
+- **`bin/check-architecture.sh`** — architecture **fitness functions**: delegates to the project's
+  arch-lint tool (dependency-cruiser / Deptrac / go-arch-lint) or applies declared forbidden-import
+  rules from the baseline. Wired into `mvp`/`full` (after `integration-verifier`) and both `/deliver`
+  phases.
+- Role count 49 → 50; MVP 8 → 9, Full 21 → 22 (role-matrix, constitution enumeration, SKILL).
+  `AGENTS.md` gains an optional `## Architecture` (baseline) section.
+  Grounded in [architectural fitness functions](https://www.infoq.com/articles/fitness-functions-architecture/),
+  [conformance/governance](https://developersvoice.com/blog/architecture/architectural-fitness-functions-automating-governance/),
+  and [drift vs. erosion](https://earezki.com/ai-news/2026-06-08-architecture-drift-detection-keep-your-code-aligned-with-design/).
+
 ## [2.3.0] - 2026-07-09
 
 Agent-quality & autonomy hardening — Tier 1 + Tier 2 practices from Anthropic and other vendors,

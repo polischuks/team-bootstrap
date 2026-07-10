@@ -86,7 +86,7 @@ before claiming a threshold, and flag any delta:
 
 | Invariant | Current | Bump trigger |
 |---|---|---|
-| Role playbooks (`references/roles/*.md`) | 49 | New role → PATCH (new sanctioned enumeration entry) + role-matrix row + schema branch + skills-manifest entry |
+| Role playbooks (`references/roles/*.md`) | 50 | New role → PATCH (new sanctioned enumeration entry) + role-matrix row + schema branch + skills-manifest entry |
 | Pipelines (`references/pipelines/*.md`) | 6 | New pipeline → MINOR (new doctrine surface) |
 | Reviewer roles carrying `severity_counts` | 4 | New reviewer dimension → MINOR |
 | Irreversibility action classes | see [irreversibility.md](references/irreversibility.md) | New class → MINOR |

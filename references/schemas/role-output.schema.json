@@ -51,7 +51,8 @@
     { "$ref": "#/$defs/funnel-auditor" },
     { "$ref": "#/$defs/gatekeeper" },
     { "$ref": "#/$defs/gap-backlog-author" },
-    { "$ref": "#/$defs/integration-verifier" }
+    { "$ref": "#/$defs/integration-verifier" },
+    { "$ref": "#/$defs/architecture-reviewer" }
   ],
   "$defs": {
     "artifact": {
@@ -693,6 +694,25 @@
         {
           "if": { "properties": { "status": { "const": "completed" } }, "required": ["status"] },
           "then": { "properties": { "integration_verified": { "const": true }, "orphans_found": { "const": 0 } } }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "architecture-reviewer": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "role": { "const": "architecture-reviewer" },
+            "review_mode": { "enum": ["soundness", "conformance"] },
+            "architecture_sound": { "type": "boolean", "description": "Soundness mode: is the planned architecture correct and baseline-fitting? See references/architecture-baseline.md." },
+            "conformance_verified": { "type": "boolean", "description": "Conformance mode: did the batch stay within the baseline (no drift)?" },
+            "drift_findings": { "type": "integer", "minimum": 0, "description": "Conformance mode: count of baseline violations (boundary/layer/dependency drift)." }
+          }
+        },
+        {
+          "if": { "properties": { "status": { "const": "completed" } }, "required": ["status"] },
+          "then": { "properties": { "architecture_sound": { "const": true }, "conformance_verified": { "const": true }, "drift_findings": { "const": 0 } } }
         }
       ],
       "unevaluatedProperties": false

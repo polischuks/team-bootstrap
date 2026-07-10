@@ -54,6 +54,17 @@ A `## Known Hazards` section:
 - File patterns engineers should avoid touching without coordination
 - Modules with high churn / fragile tests
 
+An `## Architecture` section (the **architecture baseline** — see
+[architecture-baseline.md](architecture-baseline.md)):
+
+- Boundaries/modules, layers, and allowed dependency directions (e.g. `web → app → domain`).
+- Forbidden edges, ideally machine-checkable, e.g. `- forbid: src/domain imports web`.
+- Sanctioned patterns for recurring work.
+
+Consumed by `architecture-reviewer` to gate soundness (plan) and conformance/drift (batch). If
+absent, that role's first finding is "no baseline — establish one". A project `ARCHITECTURE.md` or
+the project's ADRs may hold this instead.
+
 ## Per-role consumption
 
 | Role | Reads which sections |
