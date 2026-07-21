@@ -52,7 +52,8 @@
     { "$ref": "#/$defs/gatekeeper" },
     { "$ref": "#/$defs/gap-backlog-author" },
     { "$ref": "#/$defs/integration-verifier" },
-    { "$ref": "#/$defs/architecture-reviewer" }
+    { "$ref": "#/$defs/architecture-reviewer" },
+    { "$ref": "#/$defs/regression-guardian" }
   ],
   "$defs": {
     "artifact": {
@@ -687,13 +688,14 @@
             "role": { "const": "integration-verifier" },
             "integration_verified": { "type": "boolean" },
             "orphans_found": { "type": "integer", "minimum": 0 },
+            "capability_gaps": { "type": "integer", "minimum": 0, "description": "Capabilities/vendors/tools the batch DECLARES but does not observably EXERCISE (declared N, dispatched < N; connected = string present, not probe-passes). See references/regression-and-invariants.md#2." },
             "e2e_evidence": { "type": "string" }
           },
           "required": ["integration_verified", "orphans_found"]
         },
         {
           "if": { "properties": { "status": { "const": "completed" } }, "required": ["status"] },
-          "then": { "properties": { "integration_verified": { "const": true }, "orphans_found": { "const": 0 } } }
+          "then": { "properties": { "integration_verified": { "const": true }, "orphans_found": { "const": 0 }, "capability_gaps": { "const": 0 } } }
         }
       ],
       "unevaluatedProperties": false
@@ -713,6 +715,25 @@
         {
           "if": { "properties": { "status": { "const": "completed" } }, "required": ["status"] },
           "then": { "properties": { "architecture_sound": { "const": true }, "conformance_verified": { "const": true }, "drift_findings": { "const": 0 } } }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "regression-guardian": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "role": { "const": "regression-guardian" },
+            "regressions_found": { "type": "integer", "minimum": 0, "description": "Previously-green invariants that went red when the accumulated suite is re-run across all workflows. See references/regression-and-invariants.md." },
+            "regression_suite_current": { "type": "boolean", "description": "Every acceptance criterion this batch closed has graduated into the regression suite (protected going forward)." },
+            "gate_integrity_ok": { "type": "boolean", "description": "No green-by-skip and no silently-disabled gate; every declared gate was observed to run." }
+          },
+          "required": ["regressions_found"]
+        },
+        {
+          "if": { "properties": { "status": { "const": "completed" } }, "required": ["status"] },
+          "then": { "properties": { "regressions_found": { "const": 0 }, "regression_suite_current": { "const": true }, "gate_integrity_ok": { "const": true } } }
         }
       ],
       "unevaluatedProperties": false

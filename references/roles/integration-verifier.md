@@ -46,6 +46,12 @@ Grounded in vendor practice: *ground truth from the environment at each step* an
 3. **Contract match.** The frontend call and the backend endpoint agree on path, method, and
    shape (params/response). A caller that hits a different path/shape than what was built is a
    `contradicted` finding.
+4. **Capability conformance — `declared ⇒ exercised`.** Every capability/vendor/tool the batch
+   *claims* must be observably *invoked and succeed* (probe passes), not merely present. Declaring
+   15 tools but dispatching 9, or a `connected_vendors` check that only confirms a string is
+   present, is a `capability_gaps` finding (ground truth from the environment, not declaration —
+   [regression-and-invariants.md](../regression-and-invariants.md#2)). `completed` requires
+   `capability_gaps: 0` (schema-enforced).
 
 ## Outputs
 

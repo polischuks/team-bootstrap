@@ -65,6 +65,16 @@ Consumed by `architecture-reviewer` to gate soundness (plan) and conformance/dri
 absent, that role's first finding is "no baseline — establish one". A project `ARCHITECTURE.md` or
 the project's ADRs may hold this instead.
 
+An `## Invariants` section (or a `.regressions/registry.md` + invariant-tagged tests — see
+[regression-and-invariants.md](regression-and-invariants.md)):
+
+- What must **hold across all workflows** (not just the one closed today), and how each is checked
+  (the test/command that proves it).
+- How a verified closure **graduates** into the regression suite.
+
+Consumed by `regression-guardian` to re-run invariants across workflows and gate regressions. If
+absent, closures aren't protected and "closed for that day" drift goes undetected.
+
 ## Per-role consumption
 
 | Role | Reads which sections |

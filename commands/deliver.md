@@ -72,9 +72,15 @@ Then, for **each batch, one at a time**:
    conformance`) runs the fitness functions against the [baseline](../references/architecture-baseline.md)
    — a batch can pass E2E and still **drift** (wrong layer, bypassed boundary). Do not close the
    batch while `drift_findings > 0`; send drift back to the builder, 3–5 attempts → human / rollback.
-6. After the batch **passes the gate**: mark its tasks `[x]` in `tasks.md`, report commit SHA(s),
-   the verifier's result (E2E + 0 orphans), and any drift catches. Then present the **next**
-   batch and **WAIT** again.
+   Then the **regression & invariant gate (hard):** `regression-guardian` re-runs the accumulated
+   invariant/regression suite **across all workflows**, **graduates** this batch's verified acceptance
+   into the suite, and meta-checks gate integrity (no green-by-skip / no disabled gate). Do not close
+   the batch while `regressions_found > 0`, the suite isn't current, or a gate didn't actually run —
+   this is what stops "closed for the workflow that existed that day." See
+   [../references/regression-and-invariants.md](../references/regression-and-invariants.md).
+6. After the batch **passes all gates**: mark its tasks `[x]` in `tasks.md`, report commit SHA(s),
+   the gate results (E2E + 0 orphans + 0 drift + 0 regressions), and any catches. Then present the
+   **next** batch and **WAIT** again.
 
 Stop after the final batch, or whenever the user says stop. At the end, summarize: batches shipped,
 tasks closed vs deferred, and what still needs a human (push authorization, prod deploy, open risks).

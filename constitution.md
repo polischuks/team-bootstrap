@@ -68,6 +68,15 @@ and fast checks are harness-enforced by the Stop hook ([references/hooks.md](ref
 Wiring is proven end-to-end by [integration-verifier](references/roles/integration-verifier.md),
 not by self-report. This operationalizes P6 (report truth) for code.
 
+### P10 — Verification is cumulative and fail-closed
+A closure holds only if its invariant holds **across all workflows now**, not "for the workflow that
+existed that day": verified acceptance **graduates** into a regression suite re-run every batch/
+milestone ([regression-and-invariants.md](references/regression-and-invariants.md),
+[regression-guardian](references/roles/regression-guardian.md)). A declared capability must be
+**exercised**, not merely present (`declared ⇒ exercised`). And a gate that did not actually run —
+green-by-skip, silently disabled, vacuous — is a **failure, not a pass**. Point fixes that close a
+class in one place while leaving it open elsewhere violate P10.
+
 ---
 
 ## Boundary rules
@@ -86,7 +95,7 @@ before claiming a threshold, and flag any delta:
 
 | Invariant | Current | Bump trigger |
 |---|---|---|
-| Role playbooks (`references/roles/*.md`) | 50 | New role → PATCH (new sanctioned enumeration entry) + role-matrix row + schema branch + skills-manifest entry |
+| Role playbooks (`references/roles/*.md`) | 51 | New role → PATCH (new sanctioned enumeration entry) + role-matrix row + schema branch + skills-manifest entry |
 | Pipelines (`references/pipelines/*.md`) | 6 | New pipeline → MINOR (new doctrine surface) |
 | Reviewer roles carrying `severity_counts` | 4 | New reviewer dimension → MINOR |
 | Irreversibility action classes | see [irreversibility.md](references/irreversibility.md) | New class → MINOR |
@@ -103,7 +112,7 @@ Adding a role touches, in the same change: the role playbook, its
 
 - **PATCH** — clarification or wording; no rule redefined.
 - **MINOR** — a new principle, a new sanctioned exception, or a new enumeration invariant.
-- **MAJOR** — changing, weakening, or removing an existing invariant (P1–P9).
+- **MAJOR** — changing, weakening, or removing an existing invariant (P1–P10).
 
 Every milestone's Step 1 analysis
 ([references/speckit-preimpl-flow.md](references/speckit-preimpl-flow.md)) must state which,

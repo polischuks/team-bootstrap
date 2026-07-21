@@ -13,17 +13,18 @@ Run roles in this order:
 9. `frontend-engineer`
 10. `integration-verifier` ← **outcome-based: E2E path runs + no orphans (dead code) — hard gate**
 11. `architecture-reviewer` ← **conformance: no drift from the app's architecture baseline — hard gate**
-12. `devops-platform`
-13. `data-schema-reviewer` ← **migrations, backwards compatibility**
-14. `accessibility-reviewer` ← **WCAG compliance**
-15. `performance-reviewer` ← **N+1, memory, scalability**
-16. `security-reviewer` ← **OWASP, secrets, auth**
-17. `qa-test-engineer`
-18. `overengineering-reviewer`
-19. `code-reviewer`
-20. `release-manager`
-21. `stakeholder-communicator` ← **non-technical release notes**
-22. `documentation-agent`
+12. `regression-guardian` ← **cumulative: invariants across all workflows + graduate + gate integrity — hard gate**
+13. `devops-platform`
+14. `data-schema-reviewer` ← **migrations, backwards compatibility**
+15. `accessibility-reviewer` ← **WCAG compliance**
+16. `performance-reviewer` ← **N+1, memory, scalability**
+17. `security-reviewer` ← **OWASP, secrets, auth**
+18. `qa-test-engineer`
+19. `overengineering-reviewer`
+20. `code-reviewer`
+21. `release-manager`
+22. `stakeholder-communicator` ← **non-technical release notes**
+23. `documentation-agent`
 
 ## Optional Roles (triggered by spec content, not part of normal flow)
 

@@ -2,6 +2,34 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Reliability milestone driven by an audit of real `/deliver` output (126 of 224 confirmed
+PARTIAL/MISSING findings were marked `[x]/CLOSED`). Makes verification **cumulative, fail-closed,
+and meta-checked** — the Anthropic-grounded cure for "closed for the workflow that existed that day."
+Sources: [Demystifying evals](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents)
+(capability evals graduate to a regression suite that holds ~100%),
+[Building Effective Agents](https://www.anthropic.com/engineering/building-effective-agents)
+(ground truth from the environment), [Writing tools for agents](https://www.anthropic.com/engineering/writing-tools-for-agents)
+(tools are contracts), [The Verification Gap](https://codemyspec.com/blog/agentic-qa-verification).
+
+### Added
+
+- **`regression-guardian` role + cumulative-invariant gate** ([role](references/roles/regression-guardian.md),
+  [doctrine](references/regression-and-invariants.md)): re-runs the accumulated invariant/regression
+  suite **across all workflows** each batch, **graduates** verified closures into the suite, and
+  meta-checks **gate integrity**. Schema-enforced: `completed` requires `regressions_found: 0`,
+  `regression_suite_current: true`, `gate_integrity_ok: true`. Fixes the dominant failure — an
+  invariant closed for one workflow that a later milestone silently breaks.
+- **Gate-integrity meta-check** — `bin/check-gate-integrity.sh` flags **green-by-skip** (a
+  gate/constitutional/contract test that passes only because it's skipped) and **can't-fail gates**
+  (`continue-on-error` on a CI gate). A gate that didn't run is a failure, not a pass.
+- **Capability conformance (`declared ⇒ exercised`)** in `integration-verifier`: a claimed
+  capability/vendor/tool must be observably exercised, not merely present (new `capability_gaps`;
+  `completed` requires 0). Catches "declares 15 tools, dispatches 9" and "connected = string exists."
+- **Constitution P10** — verification is cumulative and fail-closed. Role count 50 → 51; MVP 9 → 10,
+  Full 22 → 23. `AGENTS.md` gains an optional `## Invariants` section.
+
 ## [2.4.0] - 2026-07-10
 
 Architecture-governance milestone: soundness + conformance gates that stop a batch from passing

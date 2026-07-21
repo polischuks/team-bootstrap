@@ -103,6 +103,7 @@ Quality & verification:
 - [adversarial-verification.md](references/adversarial-verification.md) — refutation + cross-model checks for high-stakes calls
 - [note-taking.md](references/note-taking.md) — structured note-taking (context engineering)
 - [architecture-baseline.md](references/architecture-baseline.md) — architecture baseline + fitness functions (drift/conformance gate)
+- [regression-and-invariants.md](references/regression-and-invariants.md) — cumulative invariants (graduate-to-regression), capability conformance, gate integrity
 
 Persistent state & I/O:
 
@@ -115,7 +116,7 @@ Persistent state & I/O:
 
 Catalogs:
 
-- [role-matrix.md](references/role-matrix.md) — all 50 roles, when to use which
+- [role-matrix.md](references/role-matrix.md) — all 51 roles, when to use which
 - [invocation-examples.md](references/invocation-examples.md) — copy-paste prompts
 - [roles/](references/roles/) — per-role playbooks
 - [pipelines/](references/pipelines/) — pipeline definitions
