@@ -2,7 +2,7 @@
 name: regression-guardian
 version: 1.0.0
 model: claude-sonnet-4-6
-compatible_pipelines: [mvp, full]
+compatible_pipelines: [mvp, full, single-thread]
 tool_surface:
   allow: [Read, Grep, Glob, Bash]
   deny: [Write, Edit]

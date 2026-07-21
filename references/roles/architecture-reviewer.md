@@ -2,7 +2,7 @@
 name: architecture-reviewer
 version: 1.0.0
 model: claude-opus-4-8
-compatible_pipelines: [mvp, full, audit]
+compatible_pipelines: [mvp, full, audit, single-thread]
 tool_surface:
   allow: [Read, Grep, Glob, Bash]
   deny: [Write, Edit]

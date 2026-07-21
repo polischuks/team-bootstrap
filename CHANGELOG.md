@@ -2,6 +2,19 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Uniform verification across all pipelines (P10).** The reliability gates (`integration-verifier`,
+  `architecture-reviewer`, `regression-guardian` + orphan/architecture/gate-integrity machine checks +
+  capability conformance) are now **mandatory in `single-thread` too**, run as clean-context subagents
+  in its Verify phase — not risk-gated. single-thread is lightweight in *orchestration* (one session
+  builds), never in *verification*: skimping gates on the default pipeline is the false economy that
+  produces "done but not real" and forces a costlier re-audit. The three gate roles gain
+  `single-thread` in `compatible_pipelines`; the "when to use" guidance now frames the choice as
+  orchestration/audit-trail, not verification rigor.
+
 ## [2.5.0] - 2026-07-21
 
 Reliability milestone driven by an audit of real `/deliver` output (126 of 224 confirmed

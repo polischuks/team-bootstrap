@@ -92,9 +92,28 @@ next_phase: verify
 
 ### Phase 3 — Verify & Decide
 
-Activates **review + release composite**: runs full test suite, performs a self-review pass (covers what `code-reviewer`, `overengineering-reviewer`, `qa-test-engineer` would check), and emits a release decision.
+Activates **review + release composite**. The reliability gates that `mvp`/`full` run per role are
+**mandatory here too** — verification discipline is uniform across pipelines (constitution
+[P10](../../constitution.md)). single-thread is lightweight in *orchestration* (one session builds),
+**not** in *verification*: a one-line change is small enough to skip the orchestration, never the
+gates — skimping there is the false economy that produces "done but not real" and forces a far
+costlier re-audit. The verifiers run as **clean-context subagents** (builder ≠ auditor — the
+sanctioned use of subagents for isolation, [subagent-dispatch.md](../subagent-dispatch.md)):
 
-For high-risk changes (security-sensitive, schema migrations, accessibility-critical UI), the orchestrator dispatches the relevant specialist reviewer roles as **parallel subagents** ([subagent-dispatch.md](../subagent-dispatch.md)) and merges their findings into this phase's output.
+- `integration-verifier` — E2E path runs, no orphans (dead code), `declared ⇒ exercised`.
+- `architecture-reviewer` (`review_mode: conformance`) — no drift from the [architecture baseline](../architecture-baseline.md).
+- `regression-guardian` — re-run the accumulated invariant suite **across all workflows**, graduate
+  this change's acceptance, meta-check gate integrity (no green-by-skip / disabled gate).
+- Machine checks always: [`check-orphans.sh`](../../bin/check-orphans.sh),
+  [`check-architecture.sh`](../../bin/check-architecture.sh),
+  [`check-gate-integrity.sh`](../../bin/check-gate-integrity.sh) (the Stop-hook
+  [quality-gate](../hooks.md) already enforces typecheck + lint).
+- Full test suite + a self-review pass (covers `code-reviewer` / `overengineering-reviewer` / `qa-test-engineer`).
+
+Any orphan, drift, regression, capability gap, or green-by-skip ⇒ `no_go`, back to implement
+(bounded retries), then human / rollback — exactly as in `mvp`/`full`.
+
+For high-risk changes (security-sensitive, schema migrations, accessibility-critical UI), the orchestrator **additionally** dispatches the relevant specialist reviewer roles as parallel subagents and merges their findings into this phase's output.
 
 Phase-end handoff:
 
@@ -112,6 +131,15 @@ checks:
   - name: full_tests
     status: passed
     details: <N>/<N>
+  - name: integration_gate
+    status: passed | failed
+    details: E2E path runs, 0 orphans, declared⇒exercised (integration-verifier)
+  - name: architecture_gate
+    status: passed | failed
+    details: 0 drift vs baseline (architecture-reviewer)
+  - name: regression_gate
+    status: passed | failed
+    details: 0 regressions across workflows, closure graduated, gate integrity ok (regression-guardian)
   - name: self_review
     status: passed
     details: No blocking findings
@@ -135,6 +163,10 @@ rollback_scope: null
 | External stakeholders need role-attributed sign-off | `mvp` or `full` |
 | Long-horizon (>2 hours wall-clock) | `single-thread` with checkpoints |
 | Production release of customer-facing change | `full` (includes `release-manager`, `stakeholder-communicator`, `documentation-agent`) |
+
+The choice is about **orchestration and audit trail**, not verification rigor: the integration,
+architecture, and regression gates are mandatory on every pipeline (P10). `single-thread` gives you
+fewer role hand-offs, not fewer gates.
 
 ## Specialist subagent dispatch (Phase 3)
 
