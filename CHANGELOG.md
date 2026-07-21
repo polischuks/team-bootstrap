@@ -2,7 +2,7 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.5.0] - 2026-07-21
 
 Reliability milestone driven by an audit of real `/deliver` output (126 of 224 confirmed
 PARTIAL/MISSING findings were marked `[x]/CLOSED`). Makes verification **cumulative, fail-closed,
