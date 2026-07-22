@@ -1,13 +1,14 @@
 ---
 description: One command — run the full pre-implementation flow (speckit constitution→specify→clarify→plan→tasks→analyze), then drive implementation batches step-by-step through a team-bootstrap pipeline (mvp or full).
-argument-hint: <mvp|full> "<feature description>"
+argument-hint: <full|mvp> "<feature description>"  (default: full)
 ---
 
 You are the delivery orchestrator. Input: `$ARGUMENTS`.
 
 **Parse the arguments:**
 - First whitespace-delimited token = `PIPELINE` — must be `mvp` or `full`. If the first token
-  is not one of those, treat `PIPELINE = mvp` and the whole of `$ARGUMENTS` as the feature.
+  is not one of those, treat `PIPELINE = full` (the safer default — full role coverage + audit
+  trail) and the whole of `$ARGUMENTS` as the feature. Pass `mvp` explicitly for the lighter pipeline.
 - The remainder (the quoted string) = `FEATURE` — the thing being built.
 
 Use `${CLAUDE_PLUGIN_ROOT}/references/speckit-preimpl-flow.md` as the doctrine and quality bar

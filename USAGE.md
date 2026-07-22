@@ -8,9 +8,13 @@ For a non-trivial milestone, `/deliver` runs the whole pre-implementation flow, 
 implementation batches step-by-step through a pipeline:
 
 ```text
-/deliver mvp  "Add OAuth login to /api/auth"
+/deliver      "Migrate user table to UUID primary keys"   # pipeline omitted → full (default)
 /deliver full "Migrate user table to UUID primary keys"
+/deliver mvp  "Add OAuth login to /api/auth"              # explicit lighter pipeline
 ```
+
+Omitting the pipeline word defaults to **`full`** (full role coverage + audit trail); pass `mvp`
+explicitly when you want the lighter pipeline.
 
 - **Phase A (autonomous):** `speckit-constitution` → `speckit-specify` → `speckit-clarify` →
   `speckit-plan` → `speckit-tasks` → `speckit-analyze`. Stops if a hard blocker or CRITICAL
