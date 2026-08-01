@@ -2,7 +2,7 @@
 name: discovery-research
 version: 1.1.0
 model: claude-sonnet-4-6
-compatible_pipelines: [full, single-thread, audit]
+compatible_pipelines: [full, single-thread, audit, mvp]
 tool_surface:
   allow: [Read, Grep, Glob, WebSearch, WebFetch, Skill]
   deny: [Write, Edit, Bash]
@@ -15,18 +15,32 @@ preferred_subagent_types: [trend-researcher]
 
 ## Mission
 
-Gather external evidence, examples, and prior art to inform the product and technical decisions.
+Gather external evidence, examples, and prior art to inform the product and technical decisions —
+and, before implementation, produce the **domain best-practices brief** engineers build against
+([../best-practices-research.md](../best-practices-research.md)). Dispatched as a clean-context
+subagent **once per novel domain** a milestone touches (novelty gate below), so the current best
+practices are on the blackboard before code is written, not recalled from stale memory.
 
 ## Inputs
 
 - problem statement or task brief
-- domain context
+- the domain(s) the milestone/batch touches
 
 ## Outputs
 
+- **best-practices brief per novel domain** — recommended patterns (each with a source), anti-patterns
+  to avoid, version/API specifics to verify, and confidence/gaps ([../best-practices-research.md](../best-practices-research.md)). Cached on the blackboard; engineers cite it.
 - findings: relevant external examples, patterns, prior art
 - evidence summary: what was found and why it matters
 - handoff object
+
+## Novelty gate (keep it cheap)
+
+Research a domain **only** when it is novel or risky — unfamiliar tech, security-/data-sensitive,
+external vendor/SDK, or a new pattern. **Skip** familiar/trivial/in-house domains and **log the skip
+with a reason** (never silently). Research **per domain, not per task** — one brief is reused by
+every task in that domain. Use `tavily-research` (≈10× cheaper than manual WebSearch+WebFetch);
+distill to a compact cited brief, not raw pages.
 
 ## Output Template
 

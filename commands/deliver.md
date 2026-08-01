@@ -34,6 +34,12 @@ unless a step reports a hard blocker.
    against the project's [architecture baseline](../references/architecture-baseline.md): is the
    *planned* architecture correct and does it fit the app as a whole? `analyze` checks that the
    artifacts agree with each other; this checks that the architecture is actually sound.
+8. **Best-practices briefs (novelty-gated).** For each **novel/risky domain** the tasks touch
+   (unfamiliar tech, security-/data-sensitive, external vendor/SDK, new pattern), dispatch
+   `discovery-research` as a clean-context subagent to produce a **best-practices brief** (once per
+   domain, cached on the blackboard) so builders implement against current practice, not stale
+   memory. Skip familiar/in-house domains and **log the skip**. Use `tavily-research` and distill —
+   ~5–15K tokens per domain ([../references/best-practices-research.md](../references/best-practices-research.md)).
 
 **Gate before Phase B:** print a short summary — spec/plan/tasks paths, task count, version-bump
 verdict, drift catches, and any unresolved blocker. **STOP here** if `speckit-analyze` surfaced a

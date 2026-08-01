@@ -13,9 +13,13 @@ version: 1.0.0
 
 ### Phase 1 — Discover & Plan
 
-Activates the **planning composite role**: the agent reads spec + AGENTS.md, optionally invokes `discovery-research` as a subagent for external evidence, then produces:
+Activates the **planning composite role**: the agent reads spec + AGENTS.md, then produces:
 
 - A scoped plan (list of changes, files affected, tests to run)
+- **A best-practices brief for any novel/risky domain** — dispatch `discovery-research` (clean
+  context, `tavily-research`) once per novel domain so the change is built against current practice,
+  not stale memory; skip familiar/in-house domains and log the skip
+  ([../best-practices-research.md](../best-practices-research.md)).
 - Open questions (if any) → if non-empty, return `needs_input` and stop
 - A test plan (what proves the change works)
 

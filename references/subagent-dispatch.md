@@ -15,6 +15,7 @@ Dispatch **only** when context isolation strictly outweighs the cost of summariz
 | Role will read >5 files of code in detail (e.g. security audit on a wide surface) | Subagent context fills with raw file content; main thread stays clean |
 | Multiple reviewers can run in parallel (security + perf + a11y on the same diff) | Wall-clock speedup; outputs merged on return |
 | Long-form research (discovery-research with web fetches) | Web content is bulky and rarely needed by downstream roles verbatim |
+| **Novel/risky domain before implementation** → dispatch `discovery-research` for a **best-practices brief** (once per domain, novelty-gated) | Ground the domain in current practice before code; distilled brief returns, raw pages stay isolated ([best-practices-research.md](best-practices-research.md)) |
 | User explicitly requests isolation for compliance reasons | Auditable separation of inputs |
 
 ### Do not dispatch

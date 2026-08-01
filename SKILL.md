@@ -104,6 +104,7 @@ Quality & verification:
 - [note-taking.md](references/note-taking.md) — structured note-taking (context engineering)
 - [architecture-baseline.md](references/architecture-baseline.md) — architecture baseline + fitness functions (drift/conformance gate)
 - [regression-and-invariants.md](references/regression-and-invariants.md) — cumulative invariants (graduate-to-regression), capability conformance, gate integrity
+- [best-practices-research.md](references/best-practices-research.md) — domain best-practices brief before implementation (per-domain, novelty-gated, distilled)
 
 Persistent state & I/O:
 

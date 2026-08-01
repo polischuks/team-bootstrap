@@ -2,6 +2,21 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Best-practices research before implementation** ([references/best-practices-research.md](references/best-practices-research.md)).
+  Before building in a domain, its current best practices land on the blackboard as a distilled,
+  cited **brief**. Right-sized to stay cheap: **per domain, not per task** (reused across the domain's
+  tasks), **novelty-gated** (only unfamiliar/risky domains; skips are logged), `tavily-research`
+  (~10× cheaper than manual triangulation), and distilled (raw pages stay isolated). Cost envelope
+  ~15–45K tokens per milestone. `discovery-research` extended to emit the brief and added to `mvp`;
+  `backend-engineer`/`frontend-engineer` must cite the brief (contradicting it without a reason is a
+  review finding); wired into `/deliver` Phase A, `single-thread` planning, and a subagent-dispatch
+  trigger. Grounds source-driven-development at the *domain* level, distilled per
+  [context engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents).
+
 ## [2.7.0] - 2026-07-21
 
 ### Changed

@@ -130,6 +130,7 @@ Check availability: `bin/check-skills.sh full`. **`frontend-ui-engineering` is n
 - **Wire what the backend built** — if this batch's backend produced an endpoint, the frontend must actually call it end-to-end (a created endpoint with no consumer is dead code). The [integration-verifier](../roles/integration-verifier.md) hard gate scans for exactly this; verify the wiring yourself first.
 - **Evidence, not assertion** — `verification_evidence` (real typecheck/lint/test output) is **required when `status: completed`** (schema-enforced). Verify at each step, not only at the end ([tdd.md](../tdd.md), [hooks.md](../hooks.md)).
 - **Performance budget aware** — invoke `web-performance-audit` if the surface affects Core Web Vitals (LCP, INP, CLS) or user-facing perceived performance.
+- **Cite the domain best-practices brief** ([../best-practices-research.md](../best-practices-research.md)) for design decisions in a researched domain (accessibility, state, perf patterns); contradicting it without a reason is a review finding. No brief for a novel/risky UI domain → flag it.
 - **Follow existing component patterns.**
 - **Use the project's UI framework and styling conventions.**
 - **Handle loading, error, and empty states** — every async surface ships all four states (initial, loading, error, empty/null).
