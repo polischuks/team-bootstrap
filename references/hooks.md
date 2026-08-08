@@ -27,6 +27,7 @@ the agent cannot stop over red checks.
 | Typecheck + Lint | **Stop hook** (`quality-gate.sh`) | fast, every completion — 100% |
 | Red→green + evidence | role handoff schema (`verification_evidence`, `tests_failed_first`) | TDD + evidence, per role |
 | E2E + no-orphans | `integration-verifier` role | wiring, per batch |
+| Batch gate (orphans + drift + gate-integrity) | `bin/verify-batch.sh` at batch close **+ CI** | dead code / drift / green-by-skip — non-bypassable at merge ([enforcement.md](enforcement.md)) |
 | Full suite from scratch | CI (`.github/workflows/ci.yml`) | independent environment |
 
 ## Controls

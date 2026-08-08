@@ -100,6 +100,7 @@ Quality & verification:
 
 - [tdd.md](references/tdd.md) — red→green discipline + evidence-not-assertion
 - [hooks.md](references/hooks.md) — harness-enforced Stop-hook quality gate (~100% vs ~70% prose)
+- [enforcement.md](references/enforcement.md) — make gates non-skippable: batch gate (`verify-batch.sh`) + CI backstop + strict Stop-hook opt-in
 - [adversarial-verification.md](references/adversarial-verification.md) — refutation + cross-model checks for high-stakes calls
 - [note-taking.md](references/note-taking.md) — structured note-taking (context engineering)
 - [architecture-baseline.md](references/architecture-baseline.md) — architecture baseline + fitness functions (drift/conformance gate)

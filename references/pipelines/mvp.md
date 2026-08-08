@@ -11,7 +11,8 @@ Run roles in this order:
 7. `architecture-reviewer` ← **conformance: batch stays within the app's architecture (no drift) — hard gate**
 8. `regression-guardian` ← **cumulative: re-run invariants across all workflows + graduate + gate integrity — hard gate**
 9. `qa-test-engineer`
-10. `release-docs`
+10. `code-reviewer` ← **code quality, conventions, maintainability — mandatory review before release**
+11. `release-docs`
 
 ## Required Handoff Outputs
 
@@ -26,6 +27,7 @@ Run roles in this order:
 | `architecture-reviewer` | conformance_verified, drift_findings (0 to pass) against the baseline — **hard gate: cannot pass over architectural drift** |
 | `regression-guardian` | regressions_found (0), regression_suite_current, gate_integrity_ok — **hard gate: invariants hold across ALL workflows, closure graduated, no green-by-skip** |
 | `qa-test-engineer` | test results, defects, release risk summary, next role |
+| `code-reviewer` | approval_status, code-quality findings — **mandatory: no batch ships unreviewed** |
 | `release-docs` | final release decision, evidence summary, blockers |
 
 ## Integration gate (hard)

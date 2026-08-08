@@ -85,6 +85,10 @@ Then, for **each batch, one at a time**:
    the batch while `regressions_found > 0`, the suite isn't current, or a gate didn't actually run —
    this is what stops "closed for the workflow that existed that day." See
    [../references/regression-and-invariants.md](../references/regression-and-invariants.md).
+   Then the **machine backstop (hard):** run `${CLAUDE_PLUGIN_ROOT}/bin/verify-batch.sh` — the same
+   script CI runs — which re-checks the OUTCOMES (dead code / drift / green-by-skip) regardless of
+   which roles ran. A non-zero exit blocks the batch. The reviewer roles can be skipped by an LLM;
+   this script and CI cannot ([../references/enforcement.md](../references/enforcement.md)).
 6. After the batch **passes all gates**: mark its tasks `[x]` in `tasks.md`, report commit SHA(s),
    the gate results (E2E + 0 orphans + 0 drift + 0 regressions), and any catches. Then present the
    **next** batch and **WAIT** again.

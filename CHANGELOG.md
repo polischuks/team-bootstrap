@@ -2,6 +2,30 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Harness-enforced gates (fix for skipped review / dead code in `/deliver`)**
+  ([references/enforcement.md](references/enforcement.md)). The reviewer roles are prose an LLM
+  orchestrator can skip (~70% adherence); an audit of real `/deliver` output confirmed batches
+  shipping dead code and unreviewed diffs because the roles simply didn't run. Enforcement of the
+  **outcomes** now moves onto the harness:
+  - **`bin/verify-batch.sh`** — one batch gate that runs orphans (dead code / not-wired) +
+    architecture drift + gate-integrity + typecheck/lint. Run at each batch close **and in CI**.
+  - **CI backstop** — a `verify.yml` template so the same gate runs on every PR; a batch that
+    skipped the roles locally is blocked at merge (the layer the orchestrator can't talk past).
+  - **Strict opt-in** — register `verify-batch.sh` on the Stop/SubagentStop hook to block
+    in-session completion (not on by default — heuristic checks would block WIP pauses).
+  Grounded in [Claude Code hooks](https://code.claude.com/docs/en/hooks) (deterministic enforcement),
+  [The Verification Gap](https://codemyspec.com/blog/agentic-qa-verification), and
+  [Building Effective Agents](https://www.anthropic.com/engineering/building-effective-agents).
+
+### Changed
+
+- **`code-reviewer` added to `mvp`** (was `full`/`audit` only) — no pipeline ships a batch
+  unreviewed. `/deliver` now runs code review on every batch regardless of pipeline.
+
 ## [2.8.0] - 2026-08-01
 
 ### Added
