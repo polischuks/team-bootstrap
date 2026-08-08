@@ -23,8 +23,12 @@ All notable changes to team-bootstrap. Format follows [Keep a Changelog](https:/
 
 ### Changed
 
-- **`code-reviewer` added to `mvp`** (was `full`/`audit` only) — no pipeline ships a batch
-  unreviewed. `/deliver` now runs code review on every batch regardless of pipeline.
+- **`code-reviewer` added to `mvp` and `single-thread`** (was `full`/`audit` only) — no pipeline
+  ships unreviewed. `/deliver` reviews every batch regardless of pipeline.
+- **`single-thread` runs the same enforcement flow** — its Verify phase now runs `verify-batch.sh`
+  as a hard machine backstop (orphans + drift + gate-integrity + typecheck/lint) and mandates
+  `code-reviewer`, with the same CI backstop as `mvp`/`full`. Uniform verification across every
+  pipeline, enforced by the harness, not prose.
 
 ## [2.8.0] - 2026-08-01
 

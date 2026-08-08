@@ -108,14 +108,18 @@ sanctioned use of subagents for isolation, [subagent-dispatch.md](../subagent-di
 - `architecture-reviewer` (`review_mode: conformance`) — no drift from the [architecture baseline](../architecture-baseline.md).
 - `regression-guardian` — re-run the accumulated invariant suite **across all workflows**, graduate
   this change's acceptance, meta-check gate integrity (no green-by-skip / disabled gate).
-- Machine checks always: [`check-orphans.sh`](../../bin/check-orphans.sh),
-  [`check-architecture.sh`](../../bin/check-architecture.sh),
-  [`check-gate-integrity.sh`](../../bin/check-gate-integrity.sh) (the Stop-hook
-  [quality-gate](../hooks.md) already enforces typecheck + lint).
-- Full test suite + a self-review pass (covers `code-reviewer` / `overengineering-reviewer` / `qa-test-engineer`).
+- `code-reviewer` — mandatory review of the diff (quality, conventions, maintainability); no change
+  ships unreviewed, same as `mvp`/`full`. (`overengineering-reviewer` folded into the self-review.)
+- **Machine backstop (hard):** run [`verify-batch.sh`](../../bin/verify-batch.sh) — the same script
+  CI runs — which re-checks the outcomes (orphans + drift + gate-integrity + typecheck/lint)
+  regardless of which subagents ran. A non-zero exit is `no_go`. The reviewer subagents can be
+  skipped by the orchestrator; this script and CI cannot ([../enforcement.md](../enforcement.md)).
+- Full test suite + a self-review pass (overengineering / readability).
 
-Any orphan, drift, regression, capability gap, or green-by-skip ⇒ `no_go`, back to implement
-(bounded retries), then human / rollback — exactly as in `mvp`/`full`.
+Any orphan, drift, regression, capability gap, green-by-skip, or `verify-batch` failure ⇒ `no_go`,
+back to implement (bounded retries), then human / rollback — exactly as in `mvp`/`full`. **The same
+CI backstop applies:** a single-thread change that skipped a gate locally is still blocked at merge
+([../enforcement.md](../enforcement.md)).
 
 For high-risk changes (security-sensitive, schema migrations, accessibility-critical UI), the orchestrator **additionally** dispatches the relevant specialist reviewer roles as parallel subagents and merges their findings into this phase's output.
 
@@ -144,6 +148,12 @@ checks:
   - name: regression_gate
     status: passed | failed
     details: 0 regressions across workflows, closure graduated, gate integrity ok (regression-guardian)
+  - name: code_review
+    status: passed | failed
+    details: code-reviewer approved (quality, conventions); no change ships unreviewed
+  - name: verify_batch
+    status: passed | failed
+    details: bin/verify-batch.sh green — machine backstop (same as CI)
   - name: self_review
     status: passed
     details: No blocking findings

@@ -2,7 +2,7 @@
 name: code-reviewer
 version: 1.1.0
 model: claude-sonnet-4-6
-compatible_pipelines: [full, audit, mvp]
+compatible_pipelines: [full, audit, mvp, single-thread]
 tool_surface:
   allow: [Read, Grep, Glob, Bash, Skill]
   deny: [Write, Edit]
