@@ -77,6 +77,16 @@ milestone ([regression-and-invariants.md](references/regression-and-invariants.m
 green-by-skip, silently disabled, vacuous — is a **failure, not a pass**. Point fixes that close a
 class in one place while leaving it open elsewhere violate P10.
 
+### P11 — Ground claims in the mechanism, not the name
+Any assertion that existing code "already handles this" must be traced to the **terminal definition**
+— the SQL predicate, validator, CHECK, or actual enforcement — and cited `file:line`; never infer a
+capability from a matching name, wrapper, or audit label
+([grounding-to-mechanism.md](references/grounding-to-mechanism.md)). Read the touched surface's
+`Known Hazards`/`Invariants` before implementing; a mitigation is verified by **exercising** it, not
+by prose; `plan.md` is the single source of truth that `tasks.md` derives from. Inferring behavior
+from a name that merely sounds right — the dominant avoidable failure in a mature codebase — violates
+P11.
+
 ---
 
 ## Boundary rules
@@ -112,7 +122,7 @@ Adding a role touches, in the same change: the role playbook, its
 
 - **PATCH** — clarification or wording; no rule redefined.
 - **MINOR** — a new principle, a new sanctioned exception, or a new enumeration invariant.
-- **MAJOR** — changing, weakening, or removing an existing invariant (P1–P10).
+- **MAJOR** — changing, weakening, or removing an existing invariant (P1–P11).
 
 Every milestone's Step 1 analysis
 ([references/speckit-preimpl-flow.md](references/speckit-preimpl-flow.md)) must state which,

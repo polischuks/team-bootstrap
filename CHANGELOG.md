@@ -2,6 +2,26 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Grounding to mechanism, not name (P11)** ([references/grounding-to-mechanism.md](references/grounding-to-mechanism.md)).
+  Addresses the dominant *avoidable* failure surfaced by a retrospective on real `/deliver` output:
+  agents inferring a capability from a name that sounds right and stopping at the first hop
+  (`enumerate_active_*` read as "activity" when the meaning lived four hops away in a SECDEF SQL
+  predicate; a `reason` token read as granting access when the SECDEF function did; a "mirror" assumed
+  to include a validator it didn't — the same mistake made twice, the second inside the fix for the
+  first, while `AGENTS.md > ## Known Hazards` warned in plain text). The rule: any "X already handles
+  this" traces to the **terminal definition** (SQL / validator / CHECK / guard) at `file:line`, never
+  to the name; read the surface's Known Hazards/Invariants before implementing; a mitigation is
+  verified by **exercising** it, not by prose; `plan.md` is the single source of truth `tasks.md`
+  derives from. New rules on `cto-architect` (design), `backend-engineer` (implement), and
+  `code-reviewer` ("read three hops deeper" — verify claims against the mechanism). Constitution P11.
+  This is evidence-not-assertion shifted **left** into reasoning about existing code — where the
+  post-implementation gates don't reach. Grounded in source-driven-development and ground-truth from
+  the environment ([Building Effective Agents](https://www.anthropic.com/engineering/building-effective-agents)).
+
 ## [2.9.0] - 2026-08-08
 
 ### Added

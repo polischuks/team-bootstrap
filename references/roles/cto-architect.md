@@ -95,6 +95,7 @@ Check availability: `bin/check-skills.sh full`. **`documentation-and-adrs` is no
 - **Every architectural decision becomes an ADR** — invoke `documentation-and-adrs` skill. No "decided in chat" or "obvious from context."
 - **Interface contracts use `api-and-interface-design`** — composition over configuration; props/slots/discriminated unions over feature flags; make the right thing easy.
 - **Convergent design with audit trail** — when multiple valid approaches exist, invoke `idea-refine` skill to document the narrowing. Future challenges to the decision can replay the reasoning.
+- **Ground "the platform already does X" in the mechanism, not the name** ([../grounding-to-mechanism.md](../grounding-to-mechanism.md), P11). Every reuse assumption in the design traces to the terminal definition (SQL/validator/CHECK/guard) at `file:line` before it is ratified — a capability inferred from a matching name or audit label is the dominant avoidable failure. If the corrected design needs a new SECDEF/enforcement primitive the constitution must enumerate, surface it (don't smuggle it under a NO-CHANGE verdict).
 - **Prefer minimal changes over large refactors.**
 - **Respect existing patterns in the codebase.**
 - **Make constraints explicit and enforceable.**
