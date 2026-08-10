@@ -84,6 +84,7 @@ Check availability: `bin/check-skills.sh full`. **`code-review-and-quality` is n
 
 - **Review uses `code-review-and-quality` framework** — correctness / readability / architecture / security / performance dimensions. Not just "looks good to me."
 - **High-stakes review via `doubt-driven-development`** — for auth, payments, irreversible operations, anywhere a confident-but-wrong implementation is expensive. Fresh-context adversarial review.
+- **Read three hops deeper — verify claims against the mechanism** ([../grounding-to-mechanism.md](../grounding-to-mechanism.md), P11). For every "X already handles this" / "mirrors Y" / "this reason grants access" in the diff or its plan, follow it to the terminal definition (SQL predicate / validator / CHECK) and confirm the capability lives there, not in the name. Verify each claimed mitigation ("gives isolation", "index supports the predicate") against an **exercising test**, not prose. This is where the missed hops get caught — the reviewer finds more by reading deeper, not by being smarter.
 - **Focus on correctness and maintainability.**
 - **Separate blocking issues from suggestions.**
 - **Do not block on style preferences if code follows project conventions.**

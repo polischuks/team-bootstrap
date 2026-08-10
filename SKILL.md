@@ -106,6 +106,7 @@ Quality & verification:
 - [architecture-baseline.md](references/architecture-baseline.md) — architecture baseline + fitness functions (drift/conformance gate)
 - [regression-and-invariants.md](references/regression-and-invariants.md) — cumulative invariants (graduate-to-regression), capability conformance, gate integrity
 - [best-practices-research.md](references/best-practices-research.md) — domain best-practices brief before implementation (per-domain, novelty-gated, distilled)
+- [grounding-to-mechanism.md](references/grounding-to-mechanism.md) — trace "X already handles this" to the terminal definition (SQL/validator/CHECK), not the name (P11)
 
 Persistent state & I/O:
 
