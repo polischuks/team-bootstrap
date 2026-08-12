@@ -2,6 +2,28 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.12.2] - 2026-08-12
+
+### Fixed
+
+- **Plugin packaging — the plugin now installs through the standard `/plugin` flow (and its hooks
+  register).** v2.12.1 shipped the delivery gate, but the repository was not a valid, installable
+  plugin/marketplace, so `/plugin install` failed with a generic error and the hooks never loaded.
+  Verified end-to-end with the Claude Code CLI (`claude plugin validate` passes; `claude plugin
+  install` succeeds; the `UserPromptSubmit`/`Stop` hooks fire in a CLI session):
+  - Added [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json) — the repo is now its
+    own marketplace (`/plugin marketplace add polischuks/team-bootstrap`).
+  - Corrected [`.claude-plugin/plugin.json`](.claude-plugin/plugin.json) to the documented manifest
+    schema: `author` is an object (was a string), and the invalid `skills` array was removed (the
+    root `SKILL.md` auto-loads). Wrong-typed fields are load errors, which blocked install.
+  - Plugin `source` clones over **HTTPS** (`url`) instead of `github`/SSH. The `github` source
+    resolved to an SSH clone that failed host-key verification (`No ED25519 host key is known for
+    github.com … Host key verification failed`) on machines without github.com SSH configured — the
+    actual cause of the "Plugin couldn't be installed" error.
+  - Rewrote [INSTALL.md](INSTALL.md) with the correct, hook-registering install methods (marketplace /
+    skills-directory / `--plugin-dir`, plus the non-interactive `claude plugin …` subcommands) and a
+    note that some embedded surfaces load skills/commands but do not execute plugin hooks.
+
 ## [2.12.1] - 2026-08-12
 
 ### Fixed
