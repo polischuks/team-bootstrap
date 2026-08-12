@@ -61,7 +61,7 @@ stamp_batch_closed() {
   # to base..HEAD for the first batch, else the last commit.
   local since range base b
   since="$(grep '"status":"closed"' "$ledger" 2>/dev/null | tail -1 \
-    | grep -oE '"commit_shas":\["[0-9a-f]+"' | grep -oE '[0-9a-f]+' | head -1 || true)"
+    | sed -nE 's/.*"commit_shas":\["([0-9a-f]+)".*/\1/p')"
   if [ -n "$since" ] && git rev-parse --verify -q "$since" >/dev/null 2>&1; then
     range="$since..HEAD"
   else
