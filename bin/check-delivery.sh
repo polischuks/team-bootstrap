@@ -42,7 +42,9 @@ if [ "${1:-}" = "--self-test" ]; then
     if [ "$got" -eq "$exp" ]; then echo "  PASS (exit $got) $desc"
     else echo "  FAIL (exit $got, want $exp) $desc" >&2; fail=$((fail + 1)); fi
   }
-  mkdir -p .runs/_st_ac1 .runs/_st_ac2
+  _dirs="_st_ac1 _st_ac2 _st_ac4a _st_ac4b _st_ac5 _st_f2i _st_f2ii"
+  for d in $_dirs; do mkdir -p ".runs/$d"; done
+  # F-A recompute (no marker → binding off) -----------------------------------
   printf '%s\n' '{"id":"F1","kind":"code","status":"closed","commit_shas":["deadbeef"],"code_delta":137}' > .runs/_st_ac1/batches.jsonl
   _expect _st_ac1 1 "AC-1 — forged deadbeef SHA rejected"
   printf '%s\n' '{"id":"F2","kind":"code","status":"closed","commit_shas":["4d4a42d"],"code_delta":137}' > .runs/_st_ac2/batches.jsonl
@@ -52,7 +54,24 @@ if [ "${1:-}" = "--self-test" ]; then
   else
     echo "  SKIP  AC-3 — historical ledger absent (gate-integrity: sanctioned — fixture not present in this checkout)"
   fi
-  rm -rf .runs/_st_ac1 .runs/_st_ac2
+  # F-B fail-closed under an active marker -------------------------------------
+  printf '%s\n' '{"run":"_st_ac4a","intends_code":true,"source":"harness"}' > .runs/_st_ac4a/RUN
+  _expect _st_ac4a 1 "AC-4 — active run (intends_code) + no ledger → fail-closed"
+  printf '%s\n' '{"run":"_st_ac4b","intends_code":true,"source":"harness"}' > .runs/_st_ac4b/RUN
+  printf '%s\n' '{"id":"D1","kind":"doc","status":"closed"}' > .runs/_st_ac4b/batches.jsonl
+  _expect _st_ac4b 1 "AC-4 — active run + only kind:doc closures → fail-closed"
+  # AC-5 — no marker + no ledger → skip (isolated run dir, empty) --------------
+  _expect _st_ac5 0 "AC-5 — no marker + no ledger → exit 0 (not a delivery run)"
+  # F-2 commit-to-batch binding (active marker) -------------------------------
+  printf '%s\n' '{"run":"_st_f2i","intends_code":true,"source":"harness"}' > .runs/_st_f2i/RUN
+  printf '%s\n%s\n' \
+    '{"id":"C1","kind":"code","status":"closed","commit_shas":["e6bba5d"],"code_delta":5}' \
+    '{"id":"C2","kind":"code","status":"closed","commit_shas":["e6bba5d"],"code_delta":5}' > .runs/_st_f2i/batches.jsonl
+  _expect _st_f2i 1 "F-2 — a commit reused across two closed batches → rejected"
+  printf '%s\n' '{"run":"_st_f2ii","intends_code":true,"source":"harness","baseline_sha":"f104f0b"}' > .runs/_st_f2ii/RUN
+  printf '%s\n' '{"id":"C1","kind":"code","status":"closed","commit_shas":["e6bba5d"],"code_delta":5}' > .runs/_st_f2ii/batches.jsonl
+  _expect _st_f2ii 1 "F-2 — a commit predating the run baseline → rejected"
+  for d in $_dirs; do rm -rf ".runs/$d"; done
   if [ "$fail" -eq 0 ]; then echo "check-delivery --self-test: OK"; exit 0; fi
   echo "check-delivery --self-test: $fail case(s) FAILED" >&2; exit 1
 fi
@@ -60,8 +79,26 @@ fi
 root="${1:-.}"
 cd "$root" 2>/dev/null || { echo "check-delivery: bad dir '$root'" >&2; exit 64; }
 
+# --- resolve the harness run marker (the machine fact "delivery active") ------
+# Present + intends_code:true  => an ACTIVE delivery run; the gate becomes
+# fail-closed (absent/empty delivery is a FAILURE, not a skip) and commit-to-batch
+# binding (F-2) is enforced. Absent => not a governed delivery run; keep the exit-0
+# skip so non-delivery / docs-only sessions are never nagged (AC-5).
+marker="$(resolve_marker)"
+intends=""; baseline=""
+if [ -n "$marker" ] && [ -f "$marker" ]; then
+  mk="$(cat "$marker" 2>/dev/null || true)"
+  intends="$(field_bool "$mk" intends_code)"
+  baseline="$(field_str "$mk" baseline_sha)"
+fi
+
 ledger="$(resolve_ledger)"
 if [ -z "$ledger" ] || [ ! -f "$ledger" ]; then
+  if [ "$intends" = "true" ]; then
+    echo "  FAIL-CLOSED: active delivery run (marker intends_code:true) but NO batch ledger — delivery did not occur; an agent cannot finish Phase A, skip Phase B, and report closure (AC-4)." >&2
+    echo "check-delivery: fail-closed under an active run — no delivery." >&2
+    exit 1
+  fi
   echo "check-delivery: no batch ledger — delivery not machine-checkable, skipping."
   exit 0
 fi
@@ -71,6 +108,9 @@ n=0
 viol=0
 first_kind=""
 any_code=0
+closed_code=0      # count of earned kind:code closures (AC-4 second case)
+inflight_code=0    # a kind:code batch legitimately in flight (bootstrap-safe)
+seen_shas=""       # F-2: a commit_sha may be credited to at most one closed batch
 while IFS= read -r line; do
   [ -n "$line" ] || continue
   n=$((n + 1))
@@ -108,7 +148,31 @@ while IFS= read -r line; do
       echo "  FORGED: batch '$id' stamped code_delta=$delta EXCEEDS git-recomputed non-doc delta=$recomputed over [${shas}] — inflated closure (AC-2)." >&2
       viol=$((viol + 1)); continue
     fi
+    # F-2 commit-to-batch binding — enforced ONLY under an active harness marker.
+    # Marker-less replay (the historical ledger, AC-3) skips this: that history
+    # legitimately reuses e6bba5d across B1+B2 (a pre-P2 cumulative-range artifact).
+    if [ -n "$marker" ]; then
+      for s in $shas; do
+        [ -n "$s" ] || continue
+        sfull="$(resolve_sha "$s")"
+        case " $seen_shas " in
+          *" $sfull "*)
+            echo "  FORGED: batch '$id' reuses commit $s already credited to an earlier closed batch — one commit cannot earn N closures (F-2)." >&2
+            viol=$((viol + 1)) ;;
+        esac
+        seen_shas="$seen_shas $sfull"
+        if [ -n "$baseline" ]; then
+          bfull="$(resolve_sha "$baseline")"
+          if [ -n "$bfull" ] && git merge-base --is-ancestor "$sfull" "$bfull" 2>/dev/null; then
+            echo "  FORGED: batch '$id' cites commit $s that predates the run baseline ($baseline) — closure must be earned by this run's commits, not pre-existing history (F-2)." >&2
+            viol=$((viol + 1))
+          fi
+        fi
+      done
+    fi
+    closed_code=$((closed_code + 1))
   elif [ "$n" -eq "$total" ]; then
+    inflight_code=1
     echo "check-delivery: batch '$id' in flight (status=$status) — not yet closed, allowed."
   else
     echo "  UNEARNED: batch '$id' is kind:code status='$status' — announced then abandoned (a later batch exists, this one never closed)." >&2
@@ -120,6 +184,15 @@ done < "$ledger"
 # docs — the load-bearing code leads, documentation does not front-run it.
 if [ "$any_code" -eq 1 ] && [ "$first_kind" = "doc" ]; then
   echo "  ORDERING: first batch is kind:doc while the run delivers code later — a delivery run must open with the load-bearing code, not documentation." >&2
+  viol=$((viol + 1))
+fi
+
+# fail-closed, second case (AC-4): an active delivery run whose ledger carries NO
+# earned code closure and nothing in flight — e.g. only kind:doc closures. A run that
+# intends code but delivered none is a failure, not a pass. Bootstrap-safe: a single
+# code batch legitimately in flight (inflight_code) is NOT penalised.
+if [ "$intends" = "true" ] && [ "$closed_code" -eq 0 ] && [ "$inflight_code" -eq 0 ]; then
+  echo "  FAIL-CLOSED: active delivery run (intends_code:true) with zero earned kind:code closures and nothing in flight — no delivery occurred (AC-4)." >&2
   viol=$((viol + 1))
 fi
 

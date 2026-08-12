@@ -11,22 +11,24 @@
 # check-delivery recompute. Sourcing has no side effects.
 
 # resolve_ledger — echo the active batch ledger path (or empty).
-#   $TEAM_BOOTSTRAP_RUN wins; else the newest .runs/*/batches.jsonl.
+#   If $TEAM_BOOTSTRAP_RUN names a run, resolve to THAT run only (empty if it has no
+#   ledger yet) — a named run means that run, not "whatever's newest", and this keeps
+#   a self-test run isolated from any real ledger in the tree. Unset => newest.
 resolve_ledger() {
-  if [ -n "${TEAM_BOOTSTRAP_RUN:-}" ] && [ -f ".runs/${TEAM_BOOTSTRAP_RUN}/batches.jsonl" ]; then
-    printf '%s' ".runs/${TEAM_BOOTSTRAP_RUN}/batches.jsonl"
-  else
-    ls -t .runs/*/batches.jsonl 2>/dev/null | head -1 || true
+  if [ -n "${TEAM_BOOTSTRAP_RUN:-}" ]; then
+    [ -f ".runs/${TEAM_BOOTSTRAP_RUN}/batches.jsonl" ] && printf '%s' ".runs/${TEAM_BOOTSTRAP_RUN}/batches.jsonl"
+    return 0
   fi
+  ls -t .runs/*/batches.jsonl 2>/dev/null | head -1 || true
 }
 
-# resolve_marker — echo the active RUN marker path (or empty).
+# resolve_marker — echo the active RUN marker path (or empty). Same run-scoping rule.
 resolve_marker() {
-  if [ -n "${TEAM_BOOTSTRAP_RUN:-}" ] && [ -f ".runs/${TEAM_BOOTSTRAP_RUN}/RUN" ]; then
-    printf '%s' ".runs/${TEAM_BOOTSTRAP_RUN}/RUN"
-  else
-    ls -t .runs/*/RUN 2>/dev/null | head -1 || true
+  if [ -n "${TEAM_BOOTSTRAP_RUN:-}" ]; then
+    [ -f ".runs/${TEAM_BOOTSTRAP_RUN}/RUN" ] && printf '%s' ".runs/${TEAM_BOOTSTRAP_RUN}/RUN"
+    return 0
   fi
+  ls -t .runs/*/RUN 2>/dev/null | head -1 || true
 }
 
 # field_str LINE KEY  → "key":"value"  string value
