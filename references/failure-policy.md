@@ -2,6 +2,15 @@
 
 Use this policy for autonomous multi-role execution.
 
+## Delivery-command policy
+
+A confirmation to deliver ("fire", "go", "ship") requires a **pipeline run that produces code**, not
+another round of analysis or review. Answering a delivery command with fresh reviews, briefs, or
+documents instead of code is a policy violation — the enforced signal is a stamped `code_delta > 0`
+in the batch ledger ([enforcement.md](enforcement.md), delivery-occurred layer). "Analysis instead of
+delivery" gets no canonical stop reason; it gets a code delta or it did not happen. Deep analysis is
+**pulled per-batch** by the work in front of it, not front-loaded ahead of all delivery.
+
 ## Statuses
 
 - `completed`: role finished and produced the required output shape
