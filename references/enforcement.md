@@ -61,6 +61,17 @@ Honest reach: `.runs/` is gitignored, so the ledger/marker are per-run *local* s
 way past — and reproduces in CI **only when a run commits its ledger**. It does not weaken the
 code-clean layers, which remain non-bypassable in CI regardless.
 
+**Scope of the guarantee (be precise):** F-2 commit binding and the fail-closed branches are **marker-gated**,
+so they run **in-session only** — in CI, neither marker nor ledger exists (`.runs/` gitignored), so
+`check-delivery.sh` takes its exit-0 skip and the "independent backstop" means orphans/architecture/
+gate-integrity, *not* the delivery-occurred layer. When `check-delivery.sh` runs **without** an active
+marker it says so explicitly ("MARKER-LESS run — F-2 binding and fail-closed are NOT enforced"): a
+marker-less pass is only the basic SHA-exists + delta-not-inflated check, not the full guarantee. Under
+an active marker each cited commit must additionally be **reachable from HEAD** (on this run's delivered
+history, not a sibling/discarded branch) and post-date the baseline. One further presence-dependency:
+AC-7's blocking ack only bites if `check-preconditions.sh` actually recorded `precond.exit==2` — if that
+probe is never run, no advisory is recorded and nothing blocks (the marker defaults `precond.exit:0`).
+
 The batch gate is the same script CI runs, so a batch whose local run skipped `integration-verifier`
 or `code-reviewer` still fails at merge. That is the point: **CI is the layer the orchestrator cannot
 talk its way past.**
