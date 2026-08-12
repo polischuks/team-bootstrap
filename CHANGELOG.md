@@ -2,6 +2,56 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.11.0] - 2026-08-12
+
+### Added
+
+- **Delivery-occurred enforcement — closure-by-artifact (P0–P2)** ([references/enforcement.md](references/enforcement.md)).
+  Addresses the failure a retrospective on real `/deliver` output surfaced: the existing gates enforce
+  that delivered *code is clean* (orphans / drift / green-by-skip / typecheck-lint), but **nothing
+  enforced that delivery happened**. A batch declared "closed" in prose while no pipeline ran and no
+  code changed passes every code-quality gate — nothing to typecheck, no orphan, no drift — so "closed"
+  stayed a claim; six doc commits and zero shipped code could be reported as a closed batch. Now closure
+  is a machine fact:
+  - **`bin/check-delivery.sh`** — a fail-closed gate over the run ledger (`.runs/<run>/batches.jsonl`):
+    a `kind:code` batch announced but never closed, or closed with `code_delta = 0`, fails the run.
+    `kind:doc` batches earn no delivery credit. Graceful no-op when no ledger exists.
+  - **`bin/verify-batch.sh`** — on a passing batch it **stamps** the in-flight ledger entry
+    `status:closed` with `commit_shas` + a per-batch `code_delta` (computed since the previous closed
+    batch, over non-doc files). Only the script — never the orchestrator's prose — can flip a batch to
+    closed. Added as the fifth gate inside the same script CI runs.
+  - **First batch must be code (P2)** — a run that delivers any code must open with the load-bearing
+    code, not the document explaining it; `check-delivery` rejects a run whose first batch is `kind:doc`
+    while code batches wait behind it (a docs-only run is left alone). The "B1 ≠ doctrine" rule.
+  Honest reach: `.runs/` is gitignored, so this layer is non-bypassable **in-session** and reproduces in
+  CI only when a run commits its ledger; the code-clean layers remain non-bypassable in CI regardless.
+  Shifts evidence-not-assertion into *delivery*, not just code quality
+  ([Building Effective Agents](https://www.anthropic.com/engineering/building-effective-agents)).
+
+- **Deliverability-precondition gate in Phase A (P1)** ([bin/check-preconditions.sh](bin/check-preconditions.sh)).
+  The ten-second `git ls-remote` that belongs at the plan, not after the files are written. Phase A can
+  produce a perfect spec/plan/tasks against a delivery path that dead-ends at a wall — a remote that
+  isn't reachable, a branch the build-from-git deploy never sees, a publication step needing an
+  authorization nobody asked for. Run at the end of Phase A, it checks remote reachability, whether the
+  current branch is on the remote / diverges, detects a build-from-git deploy source (Railway / Render /
+  Fly / Vercel / Netlify / Heroku / GH Actions) and flags push/publication as irreversible. Exit 1 (hard)
+  stops; exit 2 (advisory) must be surfaced and acknowledged before Phase B. Wired into `/deliver` Phase A
+  and cross-referenced from [references/irreversibility.md](references/irreversibility.md).
+
+### Changed
+
+- **`/deliver` closes batches by the ledger, not by assertion** ([commands/deliver.md](commands/deliver.md)).
+  Announce writes the announced ledger entry; step 6 **reads** closure from the ledger (a batch is closed
+  only if its entry says so). New batch-ordering rule: order by load-bearing risk, not ease of writing —
+  doc-only batches go last and earn no delivery credit.
+- **`failure-policy` — delivery-command policy (P3)** ([references/failure-policy.md](references/failure-policy.md)).
+  A confirmation to deliver ("fire") requires a pipeline run that produces code, not another round of
+  analysis or review; the enforced signal is a stamped `code_delta > 0`, not prose.
+- **`best-practices-research` — pull briefs per-batch (P4)** ([references/best-practices-research.md](references/best-practices-research.md)).
+  A fifth cost-control move: produce a domain's brief when the first batch touching it fires, not all
+  briefs up front. Front-loading 100% of analysis before 0% of delivery is the failure this avoids; a
+  cached brief costs nothing extra, it just moves next to the code it serves.
+
 ## [2.10.0] - 2026-08-10
 
 ### Added
