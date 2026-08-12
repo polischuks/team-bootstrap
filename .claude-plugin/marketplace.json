@@ -12,8 +12,8 @@
     {
       "name": "team-bootstrap",
       "source": {
-        "source": "github",
-        "repo": "polischuks/team-bootstrap"
+        "source": "url",
+        "url": "https://github.com/polischuks/team-bootstrap.git"
       },
       "description": "Run software-engineering tasks through Product, Architecture, Implementation, Review, and Release roles with structured handoffs, validation, observability, and harness-enforced delivery gates. Ships UserPromptSubmit + Stop hooks that arm a run marker and block premature completion.",
       "version": "2.12.1",
