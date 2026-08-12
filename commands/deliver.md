@@ -85,6 +85,11 @@ Then, for **each batch, one at a time**:
    batch — this is step-by-step by design.
 3. On confirmation, run the batch through the chosen pipeline:
    `/team-bootstrap PIPELINE "<batch scope: cite the task IDs + point at spec.md/plan.md/tasks.md>"`
+   **"fire" means code, not another review.** The required response to a delivery confirmation is a
+   pipeline run that produces committed code (a stamped `code_delta > 0`) — not fresh analysis, more
+   briefs, or another review pass. Answering a delivery command with analysis is a policy violation
+   ([../references/failure-policy.md](../references/failure-policy.md)); the ledger enforces it — the
+   next batch cannot be announced until this one is closed by a real run.
 4. Subagents **commit locally only**. Never `git push` or deploy without explicit per-call
    authorization (constitution P5 / irreversibility).
 5. **Integration gate (hard).** The pipeline's `integration-verifier` runs after the builders,
