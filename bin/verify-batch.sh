@@ -9,6 +9,12 @@
 #   - check-orphans   : dead code / created-but-not-wired
 #   - check-architecture : drift from the baseline
 #   - check-gate-integrity : no green-by-skip / disabled gate
+#   - check-delivery  : no unearned closure (a prior code batch announced but never closed)
+#
+# On success it STAMPS the in-flight batch closed in the run ledger
+# (.runs/<run>/batches.jsonl): status->closed + commit_shas + code_delta. Only this
+# script — not the orchestrator's prose — can flip a batch to closed. That is what
+# makes "batch closed" a machine fact, not a claim (see check-delivery.sh).
 #
 # Run it at batch completion AND in CI (the independent backstop that catches a
 # batch whose local run skipped the roles). See references/enforcement.md.
@@ -33,14 +39,75 @@ gate() {
   fi
 }
 
+# stamp_batch_closed — machine-only closure. On a passing batch, flip the in-flight
+# (last still-announced) ledger entry to status:closed and record the commit_shas and
+# code_delta that earned it. No ledger / nothing in flight -> no-op. This is the half
+# the orchestrator cannot do in prose: closure becomes a recorded fact.
+stamp_batch_closed() {
+  local ledger=""
+  if [ -n "${TEAM_BOOTSTRAP_RUN:-}" ] && [ -f ".runs/${TEAM_BOOTSTRAP_RUN}/batches.jsonl" ]; then
+    ledger=".runs/${TEAM_BOOTSTRAP_RUN}/batches.jsonl"
+  else
+    ledger="$(ls -t .runs/*/batches.jsonl 2>/dev/null | head -1 || true)"
+  fi
+  [ -n "$ledger" ] && [ -f "$ledger" ] || return 0
+
+  local target
+  target="$(grep -n '"status":"announced"' "$ledger" 2>/dev/null | tail -1 | sed -E 's/^[0-9]+://')"
+  [ -n "$target" ] || return 0   # nothing in flight to close
+
+  # commit range: base..HEAD for the first existing upstream, else the last commit
+  local base="" b range
+  for b in origin/main main origin/master master; do
+    if git rev-parse --verify -q "$b" >/dev/null 2>&1; then base="$b"; break; fi
+  done
+  if [ -n "$base" ] && [ "$(git rev-parse -q "$base" 2>/dev/null)" != "$(git rev-parse -q HEAD 2>/dev/null)" ]; then
+    range="$base..HEAD"
+  else
+    range="HEAD~1..HEAD"
+  fi
+
+  local shas
+  shas="$(git log --format=%h "$range" 2>/dev/null | head -50 | paste -sd',' - 2>/dev/null || true)"
+
+  # code_delta = added+deleted lines on NON-doc files across the range
+  local delta=0 add del path
+  while IFS="$(printf '\t')" read -r add del path; do
+    [ -n "${path:-}" ] || continue
+    case "$path" in
+      *.md|*.mdx|*.txt|docs/*|references/*|LICENSE|CHANGELOG*) continue ;;
+    esac
+    case "$add" in ''|*[!0-9]*) add=0 ;; esac
+    case "$del" in ''|*[!0-9]*) del=0 ;; esac
+    delta=$((delta + add + del))
+  done < <(git diff --numstat "$range" 2>/dev/null || true)
+
+  local shas_json="[]"
+  [ -n "$shas" ] && shas_json="[\"$(printf '%s' "$shas" | sed 's/,/","/g')\"]"
+  local gates="quality-gate=ok;orphans=ok;architecture=ok;gate-integrity=ok;delivery=ok"
+
+  local newline
+  newline="$(printf '%s' "$target" \
+    | sed 's/"status":"announced"/"status":"closed"/' \
+    | sed 's/}[[:space:]]*$/,"commit_shas":'"$shas_json"',"code_delta":'"$delta"',"gate_results":"'"$gates"'"}/')"
+
+  local tmp; tmp="$(mktemp)"
+  while IFS= read -r l; do
+    if [ "$l" = "$target" ]; then printf '%s\n' "$newline"; else printf '%s\n' "$l"; fi
+  done < "$ledger" > "$tmp" && mv "$tmp" "$ledger"
+  echo "verify-batch: stamped closed in $ledger — code_delta=$delta shas=${shas:-none}" >&2
+}
+
 gate "quality-gate (typecheck + lint)"      "$here/quality-gate.sh" .
 gate "orphans (dead code / not wired)"       "$here/check-orphans.sh"
 gate "architecture (drift vs baseline)"      "$here/check-architecture.sh" .
 gate "gate-integrity (no skip / disabled)"   "$here/check-gate-integrity.sh" .
+gate "delivery (no unearned closure)"        "$here/check-delivery.sh" .
 
 if [ "$fails" -gt 0 ]; then
   echo "verify-batch: $fails gate(s) failed — batch cannot pass. Fix and re-run." >&2
   exit 1
 fi
+stamp_batch_closed
 echo "verify-batch: all gates passed."
 exit 0
