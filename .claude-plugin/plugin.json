@@ -3,14 +3,12 @@
   "version": "2.12.1",
   "description": "Role-based AI delivery framework for Claude Code: run software-engineering tasks through Product, Architecture, Implementation, Review, and Release roles with structured handoffs, validation, and observability.",
   "license": "MIT",
-  "author": "Sergey Polishchuk",
-  "skills": [
-    {
-      "name": "team-bootstrap",
-      "path": "./SKILL.md"
-    }
-  ],
+  "author": {
+    "name": "Sergey Polishchuk",
+    "url": "https://github.com/polischuks"
+  },
   "homepage": "https://github.com/polischuks/team-bootstrap",
+  "repository": "https://github.com/polischuks/team-bootstrap",
   "keywords": [
     "claude-code",
     "agents",
