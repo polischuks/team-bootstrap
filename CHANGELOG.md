@@ -2,6 +2,28 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.12.1] - 2026-08-12
+
+### Fixed
+
+- **Post-review hardening of the delivery gate (R-1–R-3, N-1)** ([bin/check-delivery.sh](bin/check-delivery.sh),
+  [bin/delivery-marker-init.sh](bin/delivery-marker-init.sh)). An execution-grounded review of 2.12.0 confirmed
+  the headline fixes but found closure could still be earned by non-run commits and that success reporting
+  overstated what actually ran. Landed as batches B6–B7 (both git-verified):
+  - **R-2 reachable-from-HEAD binding** — each cited `commit_sha` must now be reachable from `HEAD`
+    (`git merge-base --is-ancestor <sha> HEAD`), so a sibling/discarded/cherry-pick-source commit no longer
+    earns closure. This is the primary "earned by *this* run's commits" guarantee, independent of `baseline_sha`.
+  - **R-1 honest reporting** — the success line distinguishes `GIT-VERIFIED` (active marker: F-2 + fail-closed
+    enforced) from a `WEAK` marker-less check where those protections are off, instead of labelling both "git-verified" (P6).
+  - **R-3** — `delivery-marker-init.sh` omits `baseline_sha` rather than writing a bogus `"unknown"`;
+    `check-delivery.sh` warns when an active baseline does not resolve (including when absent).
+  - **N-1 class fix** — the success line now **enumerates every anchor's real state**
+    (`marker`/`reuse`/`reachability`/`predate`/`fail-closed` = `ON`/`OFF`), so `GIT-VERIFIED` is definitionally
+    incapable of claiming more than actually ran. The "protection silently off when its input is absent"
+    pattern (F-B, R-1, N-1) now surfaces as an `=OFF` token rather than a silent pass.
+  - `check-delivery.sh --self-test` now 13/13; `delivery-stop-hook --self-test` 3/3; shellcheck clean;
+    historical ledger still passes.
+
 ## [2.12.0] - 2026-08-12
 
 ### Added
