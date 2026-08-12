@@ -56,15 +56,24 @@ stamp_batch_closed() {
   target="$(grep -n '"status":"announced"' "$ledger" 2>/dev/null | tail -1 | sed -E 's/^[0-9]+://')"
   [ -n "$target" ] || return 0   # nothing in flight to close
 
-  # commit range: base..HEAD for the first existing upstream, else the last commit
-  local base="" b range
-  for b in origin/main main origin/master master; do
-    if git rev-parse --verify -q "$b" >/dev/null 2>&1; then base="$b"; break; fi
-  done
-  if [ -n "$base" ] && [ "$(git rev-parse -q "$base" 2>/dev/null)" != "$(git rev-parse -q HEAD 2>/dev/null)" ]; then
-    range="$base..HEAD"
+  # per-batch commit range: since the PREVIOUS closed batch's newest commit (so each
+  # batch's code_delta counts only its own work, not the cumulative run). Falls back
+  # to base..HEAD for the first batch, else the last commit.
+  local since range base b
+  since="$(grep '"status":"closed"' "$ledger" 2>/dev/null | tail -1 \
+    | grep -oE '"commit_shas":\["[0-9a-f]+"' | grep -oE '[0-9a-f]+' | head -1 || true)"
+  if [ -n "$since" ] && git rev-parse --verify -q "$since" >/dev/null 2>&1; then
+    range="$since..HEAD"
   else
-    range="HEAD~1..HEAD"
+    base=""
+    for b in origin/main main origin/master master; do
+      if git rev-parse --verify -q "$b" >/dev/null 2>&1; then base="$b"; break; fi
+    done
+    if [ -n "$base" ] && [ "$(git rev-parse -q "$base" 2>/dev/null)" != "$(git rev-parse -q HEAD 2>/dev/null)" ]; then
+      range="$base..HEAD"
+    else
+      range="HEAD~1..HEAD"
+    fi
   fi
 
   local shas
