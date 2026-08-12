@@ -49,10 +49,15 @@ field_num() { printf '%s' "$1" | grep -oE "\"$2\":-?[0-9]+" | head -1 | sed -E "
 total="$(grep -c . "$ledger" 2>/dev/null || echo 0)"
 n=0
 viol=0
+first_kind=""
+any_code=0
 while IFS= read -r line; do
   [ -n "$line" ] || continue
   n=$((n + 1))
-  [ "$(field_str "$line" kind)" = "code" ] || continue   # doc batches: no delivery credit
+  kind="$(field_str "$line" kind)"
+  [ "$n" -eq 1 ] && first_kind="$kind"
+  [ "$kind" = "code" ] || continue   # doc batches: no delivery credit
+  any_code=1
   id="$(field_str "$line" id)"; [ -n "$id" ] || id="#$n"
   status="$(field_str "$line" status)"
   if [ "$status" = "closed" ]; then
@@ -68,6 +73,15 @@ while IFS= read -r line; do
     viol=$((viol + 1))
   fi
 done < "$ledger"
+
+# first-batch-must-be-code: a run that delivers ANY code must open with code, not
+# docs. Front-loading the easy-to-write documents while the load-bearing code waits
+# is the ordering failure this guards. (A docs-only run — no code batch at all — is
+# a different thing and is left alone.)
+if [ "$any_code" -eq 1 ] && [ "$first_kind" = "doc" ]; then
+  echo "  ORDERING: first batch is kind:doc while the run delivers code later — a delivery run must open with the load-bearing code, not documentation." >&2
+  viol=$((viol + 1))
+fi
 
 if [ "$viol" -gt 0 ]; then
   echo "check-delivery: $viol unearned closure(s) in $ledger — closure is earned by a pipeline run + code delta, not by assertion." >&2

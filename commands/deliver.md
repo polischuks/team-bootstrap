@@ -66,6 +66,14 @@ slicing is what produces an endpoint with no consumer — dead code that each bu
 done. Only split a slice across batches when a genuine dependency forces it, and then name the
 cross-batch wiring explicitly.
 
+**Order batches by load-bearing risk, not by ease of writing.** The first batch is the code that
+most reduces irreversible risk or run-rate — the thing that stops the bleeding — never the document
+that explains why the bleeding can be stopped. Doc-only batches (ADRs, doctrine, notes) go **last**
+and mark themselves `kind:doc` in the ledger; they earn no delivery credit and `check-delivery.sh`
+**rejects a run whose first batch is `kind:doc` while code batches wait behind it**. Writing the
+easy-to-write documents first while the load-bearing code waits is the ordering failure this enforces
+against — put the metre before the cut only where a cut genuinely depends on it.
+
 Then, for **each batch, one at a time**:
 
 1. **Announce** the batch: which task IDs, which files, the verification gate, and the commit
