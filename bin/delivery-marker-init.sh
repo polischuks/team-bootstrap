@@ -47,9 +47,16 @@ run="$(printf '%s' "$spec" | sed -E 's#specs/([^/]+)/.*#\1#')"
 marker=".runs/$run/RUN"
 [ -f "$marker" ] && exit 0                      # idempotent: never clobber baseline_sha
 mkdir -p ".runs/$run" 2>/dev/null || exit 0
-base="$(git rev-parse --short HEAD 2>/dev/null || printf 'unknown')"
+base="$(git rev-parse --short HEAD 2>/dev/null || true)"
 feat="${spec:-unknown}"
-printf '{"run":"%s","pipeline":"%s","source":"harness","feature":"%s","intends_code":true,"baseline_sha":"%s","precond":{"exit":0,"items":[],"ack":false}}\n' \
-  "$run" "$pipeline" "$feat" "$base" > "$marker" 2>/dev/null || true
+# Write baseline_sha only when HEAD resolves. A bogus "unknown" would silently disarm the
+# predate check (R-3); omitting it is honest — reachable-from-HEAD (R-2) still anchors closure.
+if [ -n "$base" ]; then
+  printf '{"run":"%s","pipeline":"%s","source":"harness","feature":"%s","intends_code":true,"baseline_sha":"%s","precond":{"exit":0,"items":[],"ack":false}}\n' \
+    "$run" "$pipeline" "$feat" "$base" > "$marker" 2>/dev/null || true
+else
+  printf '{"run":"%s","pipeline":"%s","source":"harness","feature":"%s","intends_code":true,"precond":{"exit":0,"items":[],"ack":false}}\n' \
+    "$run" "$pipeline" "$feat" > "$marker" 2>/dev/null || true
+fi
 printf 'delivery-marker-init: wrote harness RUN marker %s (run=%s pipeline=%s)\n' "$marker" "$run" "$pipeline" >&2
 exit 0

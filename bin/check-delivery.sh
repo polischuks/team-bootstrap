@@ -80,6 +80,25 @@ if [ "${1:-}" = "--self-test" ]; then
     '{"id":"C1","kind":"code","status":"closed","commit_shas":["e6bba5d"],"code_delta":5,"risk_rank":"feature"}' \
     '{"id":"C2","kind":"code","status":"closed","commit_shas":["a9b9a8b"],"code_delta":5,"risk_rank":"irreversible"}' > .runs/_st_ac9/batches.jsonl
   _expect _st_ac9 1 "AC-9 — a higher-rank code batch closing after a lower-rank one → rejected"
+  # R-2 — a resolvable but UNREACHABLE-from-HEAD commit (dangling / sibling) must not close
+  dangling="$(git commit-tree "HEAD^{tree}" -m "dangling probe" 2>/dev/null || true)"
+  if [ -n "$dangling" ]; then
+    mkdir -p .runs/_st_r2
+    printf '%s\n' '{"run":"_st_r2","intends_code":true,"source":"harness","baseline_sha":"f104f0b"}' > .runs/_st_r2/RUN
+    printf '%s\n' "{\"id\":\"C1\",\"kind\":\"code\",\"status\":\"closed\",\"commit_shas\":[\"$dangling\"],\"code_delta\":1}" > .runs/_st_r2/batches.jsonl
+    _expect _st_r2 1 "R-2 — commit unreachable from HEAD rejected (sibling/discarded)"
+    rm -rf .runs/_st_r2
+  else
+    echo "  SKIP  R-2 — could not create a dangling commit (gate-integrity: sanctioned — git commit-tree unavailable)"
+  fi
+  # R-1 — a marker-less run must report WEAK verification, not "git-verified"
+  mkdir -p .runs/_st_r1
+  printf '%s\n' '{"id":"C1","kind":"code","status":"closed","commit_shas":["e6bba5d"],"code_delta":1}' > .runs/_st_r1/batches.jsonl
+  case "$(TEAM_BOOTSTRAP_RUN=_st_r1 "$0" "$st_root" 2>/dev/null || true)" in
+    *MARKER-LESS*) echo "  PASS (msg) R-1 — marker-less run reports weak verification, not git-verified" ;;
+    *) echo "  FAIL R-1 — marker-less success did not flag weak verification" >&2; fail=$((fail + 1)) ;;
+  esac
+  rm -rf .runs/_st_r1
   for d in $_dirs; do rm -rf ".runs/$d"; done
   if [ "$fail" -eq 0 ]; then echo "check-delivery --self-test: OK"; exit 0; fi
   echo "check-delivery --self-test: $fail case(s) FAILED" >&2; exit 1
@@ -101,6 +120,12 @@ if [ -n "$marker" ] && [ -f "$marker" ]; then
   baseline="$(field_str "$mk" baseline_sha)"
   precond_exit="$(field_num "$mk" exit)"     # precond.exit (only "exit" key in the marker)
   precond_ack="$(field_bool "$mk" ack)"      # precond.ack  (only "ack" key in the marker)
+  # R-3: an active marker whose baseline_sha does not resolve (e.g. "unknown", written
+  # when HEAD was unavailable) has its predate check silently disarmed — flag it loudly.
+  # Reachable-from-HEAD (R-2) still holds, so this is a warning, not a free pass.
+  if [ "$intends" = "true" ] && [ -n "$baseline" ] && [ -z "$(resolve_sha "$baseline")" ]; then
+    echo "check-delivery: WARN — active run baseline_sha='$baseline' does not resolve; predate-baseline protection (F-2 iii) is degraded (reachable-from-HEAD still enforced)." >&2
+  fi
 fi
 
 ledger="$(resolve_ledger)"
@@ -167,12 +192,21 @@ while IFS= read -r line; do
       for s in $shas; do
         [ -n "$s" ] || continue
         sfull="$(resolve_sha "$s")"
+        # (i) no commit may be credited to more than one closed batch
         case " $seen_shas " in
           *" $sfull "*)
             echo "  FORGED: batch '$id' reuses commit $s already credited to an earlier closed batch — one commit cannot earn N closures (F-2)." >&2
             viol=$((viol + 1)) ;;
         esac
         seen_shas="$seen_shas $sfull"
+        # (ii) commits must be REACHABLE FROM HEAD — on this run's delivered history,
+        # not a sibling/discarded/cherry-pick-source branch (R-2). This is the primary
+        # "earned by THIS run's commits" guarantee; it holds even if baseline is unknown.
+        if [ -n "$sfull" ] && ! git merge-base --is-ancestor "$sfull" HEAD 2>/dev/null; then
+          echo "  FORGED: batch '$id' cites commit $s not reachable from HEAD — closure must be earned by commits on this run's delivered history, not a sibling or discarded branch (F-2/R-2)." >&2
+          viol=$((viol + 1))
+        fi
+        # (iii) and must post-date the run baseline (secondary anchor)
         if [ -n "$baseline" ]; then
           bfull="$(resolve_sha "$baseline")"
           if [ -n "$bfull" ] && git merge-base --is-ancestor "$sfull" "$bfull" 2>/dev/null; then
@@ -237,5 +271,12 @@ if [ "$viol" -gt 0 ]; then
   echo "check-delivery: $viol unearned/forged closure(s) in $ledger — closure is earned by real commits + a git-verified delta, not by assertion." >&2
   exit 1
 fi
-echo "check-delivery: all kind:code batches earned closure (git-verified) ($ledger)."
+# R-1 — report truth: distinguish a GOVERNED run (marker active: F-2 binding + fail-closed
+# actually enforced) from a MARKER-LESS check that only ran the basic git existence/delta
+# tests. "git-verified" must not be claimed when the marker-gated protections did not run.
+if [ "$intends" = "true" ]; then
+  echo "check-delivery: all kind:code batches earned closure — GIT-VERIFIED under an active run (F-2 binding + fail-closed enforced) ($ledger)."
+else
+  echo "check-delivery: kind:code closures pass the basic git existence/delta checks, but this is a MARKER-LESS run — F-2 binding and fail-closed are NOT enforced (weak verification; not a governed delivery run) ($ledger)."
+fi
 exit 0

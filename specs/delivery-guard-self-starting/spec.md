@@ -99,6 +99,27 @@ branch from skip to fail without nagging non-delivery sessions.
   invented. Committing a redacted ledger for CI is deferred (OQ-2).
 - The code-clean gates (orphans/architecture/gate-integrity) — already fail closed, unchanged.
 
+## Post-delivery review (v2.12.0, execution-grounded)
+
+An independent execution-grounded review after B1–B5 confirmed the headline fixes hold (deadbeef forge
+rejected; 10/10 gate self-tests; historical ledger not falsely failed; shared delta lib) and surfaced
+four residuals. **B6** resolved the correctness/honesty ones; two are recorded characterizations.
+
+- **R-1 (fixed, B6)** — a marker-less `check-delivery` run silently ran only the weak checks yet reported
+  "git-verified". Now it reports **"MARKER-LESS run — F-2 binding and fail-closed are NOT enforced"** (P6).
+- **R-2 (fixed, B6)** — commit binding did not require cited commits to be **reachable from HEAD**, so a
+  sibling/discarded/cherry-pick-source commit could earn closure. Now each cited commit must be an
+  ancestor of HEAD (this run's delivered history) — the primary "earned by THIS run's commits" guarantee.
+- **R-3 (fixed, B6)** — `baseline_sha:"unknown"` disarmed the predate check while fail-closed stayed on.
+  The marker writer no longer emits `"unknown"` (omits baseline when HEAD is unresolvable), and
+  `check-delivery` warns loudly when an active baseline does not resolve.
+- **R-4 (recorded)** — AC-7's blocking ack has a *presence* dependency, not just the honesty one already
+  listed: it only bites if `check-preconditions.sh` actually recorded `precond.exit==2`. If that probe is
+  never run, nothing is recorded and nothing blocks. Documented in `enforcement.md` and `deliver.md`.
+- **CI-scope (recorded)** — F-2 binding + fail-closed are marker-gated ⇒ **in-session only**; CI cannot
+  see the gitignored marker/ledger, so the delivery-occurred layer does not run in CI. The "fail-closed
+  delivery gate" holds in-session; committing a redacted summary for CI stays deferred (OQ-2).
+
 ## User stories
 
 - **US1** — As the founder, I want a hand-written `closed` entry to be **rejected unless git proves the
