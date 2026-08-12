@@ -22,6 +22,14 @@ push without auth"). If that path is unavailable, follow the same 6-step discipl
 Run each step by invoking the matching skill via the Skill tool. Do not stop between steps
 unless a step reports a hard blocker.
 
+0. **Run marker (enrichment).** The harness `UserPromptSubmit` hook
+   (`${CLAUDE_PLUGIN_ROOT}/bin/delivery-marker-init.sh`) already wrote `.runs/<run>/RUN`
+   (`intends_code:true`, `baseline_sha`) when this `/deliver` was submitted — that marker is the
+   machine fact "a delivery run is active", and it is what makes every gate fail-**closed** instead of
+   skipping (`check-delivery.sh`, the Stop hook). **Do not rely on writing it yourself** — it is
+   harness-owned so skipping a step cannot disable the gate (see `references/enforcement.md`). Here you
+   only *enrich* it: confirm/append `pipeline`, `feature`, and (after step 8's precondition) `precond`.
+   If the marker is somehow absent (older harness without the hook), create it now so Phase B is gated.
 1. **Skill `speckit-constitution`** — establish/verify project principles. Record the
    version-bump verdict (Step 1).
 2. **Skill `speckit-specify`** with `FEATURE` — draft the spec (Step 2).
