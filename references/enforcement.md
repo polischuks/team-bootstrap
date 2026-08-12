@@ -30,12 +30,36 @@ The orchestrator writes a ledger entry at Announce (`.runs/<run>/batches.jsonl`,
 Only `verify-batch.sh`, on a passing batch, flips it to `closed` and stamps `commit_shas` + a
 `code_delta` computed over non-doc files. `check-delivery.sh` then fails the run if any prior
 `kind:code` batch sits `announced` (announced, never delivered) or `closed` with zero code delta.
-**The orchestrator's prose cannot flip a batch to closed** — that is the whole point.
 
-Honest reach: `.runs/` is gitignored, so the ledger is per-run *local* state. This layer bites
-**in-session** (the batch cannot be reported closed without the stamp) and reproduces in CI **only
-when a run commits its ledger**. It does not weaken the code-clean layers, which remain non-bypassable
-in CI regardless.
+**Closure is a function of repository state git can prove, not a self-declared field** (v2.12.0, F-A).
+An earlier design trusted the stamped numbers — a hand-written
+`{"status":"closed","commit_shas":["deadbeef"],"code_delta":137}` passed, because nothing checked that
+the SHA existed or that the delta was real. It no longer does. `check-delivery.sh`:
+
+- `git rev-parse`/`cat-file` **each `commit_sha`** — a SHA git cannot resolve fails the run (AC-1);
+- **recomputes** the non-doc delta from those commits (shared `nondoc_delta_of_shas` in
+  [`../bin/delivery-lib.sh`](../bin/delivery-lib.sh), the same function `verify-batch.sh` stamps with, so
+  stamp == recompute by construction) and fails if the stamped `code_delta` **exceeds** it (AC-2);
+- under an active run **binds each commit to one batch** — no cross-batch SHA reuse, and every commit
+  must post-date the run baseline (F-2), so closure cannot be earned from arbitrary pre-existing history.
+
+So a forged `closed` line — prose **or** JSON — is inexpressible: it must name real, batch-owned,
+post-baseline commits whose non-doc delta backs the stamp. That is the whole point.
+
+**Self-starting + fail-closed** (F-B): a harness `UserPromptSubmit` hook
+([`../bin/delivery-marker-init.sh`](../bin/delivery-marker-init.sh)) writes `.runs/<run>/RUN`
+(`intends_code:true`, `baseline_sha`) when `/deliver` is invoked — so "a delivery run is active" is a
+**machine fact the harness owns**, not an orchestrator courtesy. Under that marker, `check-delivery.sh`
+inverts its absent-input branch from *skip* to *fail*: no ledger, or zero closed `kind:code`, is a
+failure — an agent cannot finish Phase A, skip Phase B, and report closure. Without a marker
+(non-delivery session) the exit-0 skip stays, so nothing nags docs-only or WIP work. A delivery-aware
+Stop hook ([`../bin/delivery-stop-hook.sh`](../bin/delivery-stop-hook.sh)) blocks completion (exit 2)
+while a marked run still has code work announced-but-unclosed.
+
+Honest reach: `.runs/` is gitignored, so the ledger/marker are per-run *local* state. This layer bites
+**in-session** — via the git-derived gate AND the harness marker, which the orchestrator cannot skip its
+way past — and reproduces in CI **only when a run commits its ledger**. It does not weaken the
+code-clean layers, which remain non-bypassable in CI regardless.
 
 The batch gate is the same script CI runs, so a batch whose local run skipped `integration-verifier`
 or `code-reviewer` still fails at merge. That is the point: **CI is the layer the orchestrator cannot
