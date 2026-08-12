@@ -2,6 +2,37 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.12.0] - 2026-08-12
+
+### Added
+
+- **Delivery gate: unforgeable, self-starting, fail-closed (F-A–F-E)** ([references/enforcement.md](references/enforcement.md),
+  [docs/adr/0002-closure-from-git-state.md](docs/adr/0002-closure-from-git-state.md)). A running review of
+  v2.11.0's mechanism (not its commit names) found the delivery-occurred layer did not yet achieve its own
+  goal: closure had moved from prose to a **forgeable JSON line**, the gate **failed open** when no ledger
+  existed, and no hook invoked it. This milestone closes that:
+  - **`bin/delivery-lib.sh`** (new) — one shared definition of ledger/marker resolution, SHA resolution,
+    the `risk_rank` enum, and `nondoc_delta_of_shas` (the non-doc code delta). `check-delivery.sh`
+    recomputes with it; `verify-batch.sh` stamps with it — so stamp == recompute by construction.
+  - **F-A unforgeable closure** — `check-delivery.sh` `git rev-parse`s every `commit_sha` (missing →
+    fail), recomputes the non-doc delta and fails if the stamped `code_delta` **exceeds** it, and (under
+    an active run) **binds commits to one batch** (no cross-batch reuse; must post-date `baseline_sha`).
+    A hand-written `closed` line citing `deadbeef` or an inflated delta now fails.
+  - **F-B self-starting + fail-closed** — a harness `UserPromptSubmit` hook
+    (**`bin/delivery-marker-init.sh`**, new) writes `.runs/<run>/RUN` on `/deliver`, so "delivery active"
+    is a machine fact the harness owns; under that marker, no ledger or zero closed `kind:code` → **exit 1**.
+    No marker keeps the exit-0 skip (non-delivery sessions are not nagged).
+  - **F-C delivery-aware Stop hook** (**`bin/delivery-stop-hook.sh`**, new) — blocks completion (exit 2)
+    while a marked run has code work announced-but-unclosed; no-op without a marker. On `Stop` only (not
+    `SubagentStop`, which would deadlock batch-closing subagents).
+  - **F-D recorded, blocking deliverability ack** — `check-preconditions.sh` records an exit-2 advisory
+    into the marker; `check-delivery.sh` blocks Phase B until `precond.ack:true`.
+  - **F-E declared `risk_rank`** — `check-delivery.sh` rejects a higher-rank `kind:code` batch closing
+    after a lower-rank one (order by load-bearing risk, bleeding-stopper first).
+  - Disable the delivery hooks for a session with `TEAM_BOOTSTRAP_DELIVERY_GATE=off`. The historical
+    `deliver-delivery-guard` ledger still passes unchanged (regression-pinned). Honesty of `risk_rank`
+    and `precond.ack` is out of scope (enum/flag-constrained + logged, not proven).
+
 ## [2.11.0] - 2026-08-12
 
 ### Added

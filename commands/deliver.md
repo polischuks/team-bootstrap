@@ -22,6 +22,14 @@ push without auth"). If that path is unavailable, follow the same 6-step discipl
 Run each step by invoking the matching skill via the Skill tool. Do not stop between steps
 unless a step reports a hard blocker.
 
+0. **Run marker (enrichment).** The harness `UserPromptSubmit` hook
+   (`${CLAUDE_PLUGIN_ROOT}/bin/delivery-marker-init.sh`) already wrote `.runs/<run>/RUN`
+   (`intends_code:true`, `baseline_sha`) when this `/deliver` was submitted — that marker is the
+   machine fact "a delivery run is active", and it is what makes every gate fail-**closed** instead of
+   skipping (`check-delivery.sh`, the Stop hook). **Do not rely on writing it yourself** — it is
+   harness-owned so skipping a step cannot disable the gate (see `references/enforcement.md`). Here you
+   only *enrich* it: confirm/append `pipeline`, `feature`, and (after step 8's precondition) `precond`.
+   If the marker is somehow absent (older harness without the hook), create it now so Phase B is gated.
 1. **Skill `speckit-constitution`** — establish/verify project principles. Record the
    version-bump verdict (Step 1).
 2. **Skill `speckit-specify`** with `FEATURE` — draft the spec (Step 2).
@@ -59,6 +67,13 @@ before any batch. **Exit 2 (advisory)** must be **surfaced and acknowledged** be
 deploy builds from `main` and this branch isn't pushed"). Do not plan a route into a wall and walk to
 the wall.
 
+`check-preconditions.sh` **records** an exit-2 advisory into the run marker
+(`precond:{exit:2,items:[…],ack:false}`). This is a **blocking machine fact**, not a spoken note:
+`check-delivery.sh` fails any run that has announced a batch while `precond.exit==2 && precond.ack!=true`.
+To acknowledge, surface the advisory to the human and, on their go-ahead, set `precond.ack:true` in
+`.runs/<run>/RUN` — then Phase B may announce batch 1. (Presence of the ack is enforced; its *honesty*
+is the human's, logged not proven — parity with `risk_rank`.)
+
 ---
 
 ## Phase B — Implementation, batch-by-batch (step-by-step, human-paced)
@@ -82,8 +97,11 @@ Then, for **each batch, one at a time**:
 
 1. **Announce** the batch: which task IDs, which files, the verification gate, and the commit
    format. Then **write the announced ledger entry** to `.runs/<run>/batches.jsonl` — one compact
-   JSON object: `{"id","scope","task_ids","files","gate","kind":"code|doc","status":"announced"}`.
-   This is the *record* of intent, not closure: only `verify-batch.sh` can flip it to `closed`
+   JSON object:
+   `{"id","scope","task_ids","files","gate","kind":"code|doc","risk_rank":"irreversible|run-rate|feature|doc","status":"announced"}`.
+   `risk_rank` declares the batch's load-bearing rank; `check-delivery.sh` rejects a higher-rank
+   `kind:code` batch closing **after** a lower-rank one (order by risk, bleeding-stopper first). This
+   is the *record* of intent, not closure: only `verify-batch.sh` can flip it to `closed`
    (see [../references/enforcement.md](../references/enforcement.md), delivery-occurred layer).
 2. **WAIT** for the user to confirm (e.g. "fire" / "continue"). Do **not** auto-run the next
    batch — this is step-by-step by design.
