@@ -9,13 +9,33 @@ enforcement of the **outcomes** off the LLM and onto the **harness**: roles *rea
 *enforces they held* ([The Verification Gap](https://codemyspec.com/blog/agentic-qa-verification);
 deterministic control flow, [Building Effective Agents](https://www.anthropic.com/engineering/building-effective-agents)).
 
-## Three enforcement layers (defense in depth)
+## Enforcement layers (defense in depth)
+
+The first three layers enforce that the delivered **code is clean**. The fourth enforces that
+**delivery actually happened** — a distinct class of failure the code-quality gates are blind to: a
+batch declared "closed" in prose while no pipeline ran and no code changed. All three code gates pass
+a docs-only or never-run batch (nothing to typecheck, no orphans, no drift), so "closed" stayed a
+claim. The delivery-occurred layer makes it a recorded machine fact instead.
 
 | Layer | Mechanism | Catches | Bypassable? |
 |---|---|---|---|
 | **Always-on** | Stop hook → [`../bin/quality-gate.sh`](../bin/quality-gate.sh) | typecheck + lint red on completion | no (harness) |
 | **Batch gate** | [`../bin/verify-batch.sh`](../bin/verify-batch.sh) at each batch close | dead code (orphans), drift, green-by-skip | LLM-invoked (see CI) |
+| **Delivery-occurred** | [`../bin/check-delivery.sh`](../bin/check-delivery.sh) inside `verify-batch.sh` + the ledger stamp | a `kind:code` batch announced but **never closed** by a pipeline run; a closure with zero code delta | in-session: **no**; CI: only if the run's ledger is committed (`.runs/` is gitignored by default) |
 | **Independent backstop** | **CI** runs `verify-batch.sh` on every PR/push | everything above, from scratch, regardless of what the local run did | **no** — the merge blocks |
+
+### How closure becomes a fact (delivery-occurred layer)
+
+The orchestrator writes a ledger entry at Announce (`.runs/<run>/batches.jsonl`, `status:announced`).
+Only `verify-batch.sh`, on a passing batch, flips it to `closed` and stamps `commit_shas` + a
+`code_delta` computed over non-doc files. `check-delivery.sh` then fails the run if any prior
+`kind:code` batch sits `announced` (announced, never delivered) or `closed` with zero code delta.
+**The orchestrator's prose cannot flip a batch to closed** — that is the whole point.
+
+Honest reach: `.runs/` is gitignored, so the ledger is per-run *local* state. This layer bites
+**in-session** (the batch cannot be reported closed without the stamp) and reproduces in CI **only
+when a run commits its ledger**. It does not weaken the code-clean layers, which remain non-bypassable
+in CI regardless.
 
 The batch gate is the same script CI runs, so a batch whose local run skipped `integration-verifier`
 or `code-reviewer` still fails at merge. That is the point: **CI is the layer the orchestrator cannot
