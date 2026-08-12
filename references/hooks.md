@@ -20,6 +20,28 @@ the agent cannot stop over red checks.
 - It **no-ops** (exit 0) when there is no `AGENTS.md`/`CLAUDE.md` (a non-team-bootstrap session)
   or when a command is `N/A`, so it is safe to have active globally.
 
+### Delivery-run hooks (v2.12.0)
+
+Two more hooks make the delivery-occurred gate ([enforcement.md](enforcement.md)) **self-starting** and
+**fail-closed** without nagging non-delivery sessions. Both key on the run marker `.runs/<run>/RUN` and
+**no-op (exit 0) whenever no active marker is present** — the same on-by-default-safe property as
+`quality-gate.sh` without an `AGENTS.md`.
+
+- **`UserPromptSubmit` → [`../bin/delivery-marker-init.sh`](../bin/delivery-marker-init.sh)** — when a
+  prompt invokes `/deliver` (an `mvp`/`full` pipeline + a spec path), it writes the run marker
+  (`intends_code:true`, `baseline_sha`) **before any Skill/tool runs**. This makes "a delivery run is
+  active" a harness-owned machine fact, so an orchestrator that skips the batch protocol cannot make the
+  gate no-op (the marker exists regardless). It detects the invocation by scanning the whole stdin
+  payload, so it is agnostic to the exact prompt-field name, and it always exits 0 (never blocks a
+  prompt). On any non-`/deliver` prompt it no-ops.
+- **`Stop` → [`../bin/delivery-stop-hook.sh`](../bin/delivery-stop-hook.sh)** — while a marked run still
+  has a `kind:code` batch announced-but-unclosed (or has delivered no code), it **blocks completion
+  (exit 2)** with an actionable message; it allows the stop (exit 0) once all code batches are closed or
+  no marker is present. It is deliberately **not** on `SubagentStop`: worker subagents
+  (integration-verifier, reviewers) finish *before* `verify-batch.sh` stamps the batch closed, so
+  blocking their `SubagentStop` on an unclosed batch would deadlock the step that closes it — the
+  premature-completion this guards is the **main orchestrator's** (`Stop`).
+
 ## Layering (which gate runs where)
 
 | Gate | Where | Enforces |
@@ -32,7 +54,8 @@ the agent cannot stop over red checks.
 
 ## Controls
 
-- Disable the gate for a session: `TEAM_BOOTSTRAP_QUALITY_GATE=off`.
+- Disable the quality gate for a session: `TEAM_BOOTSTRAP_QUALITY_GATE=off`.
+- Disable the delivery hooks (marker writer + Stop) for a session: `TEAM_BOOTSTRAP_DELIVERY_GATE=off`.
 - Optional hardening (not shipped on by default): a **PreToolUse** hook can block destructive Bash
   ahead of the [irreversibility](irreversibility.md) taxonomy — add it in project
   `.claude/settings.json` if you want belt-and-suspenders on top of `tool_surface`.

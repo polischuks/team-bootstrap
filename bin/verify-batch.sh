@@ -26,6 +26,8 @@ set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 root="${1:-.}"
 cd "$root" 2>/dev/null || { echo "verify-batch: bad dir '$root'" >&2; exit 64; }
+# shellcheck source=bin/delivery-lib.sh
+. "$here/delivery-lib.sh"
 
 fails=0
 gate() {
@@ -44,12 +46,7 @@ gate() {
 # code_delta that earned it. No ledger / nothing in flight -> no-op. This is the half
 # the orchestrator cannot do in prose: closure becomes a recorded fact.
 stamp_batch_closed() {
-  local ledger=""
-  if [ -n "${TEAM_BOOTSTRAP_RUN:-}" ] && [ -f ".runs/${TEAM_BOOTSTRAP_RUN}/batches.jsonl" ]; then
-    ledger=".runs/${TEAM_BOOTSTRAP_RUN}/batches.jsonl"
-  else
-    ledger="$(ls -t .runs/*/batches.jsonl 2>/dev/null | head -1 || true)"
-  fi
+  local ledger; ledger="$(resolve_ledger)"
   [ -n "$ledger" ] && [ -f "$ledger" ] || return 0
 
   local target
@@ -76,20 +73,18 @@ stamp_batch_closed() {
     fi
   fi
 
-  local shas
-  shas="$(git log --format=%h "$range" 2>/dev/null | head -50 | paste -sd',' - 2>/dev/null || true)"
+  # the batch's commits, space-separated (for the shared delta fn) and comma-joined
+  # (for the ledger JSON). One list, two renderings.
+  local shas_list shas
+  shas_list="$(git log --format=%h "$range" 2>/dev/null | head -50 | tr '\n' ' ' || true)"
+  shas="$(printf '%s' "$shas_list" | sed 's/[[:space:]]*$//;s/  */,/g')"
 
-  # code_delta = added+deleted lines on NON-doc files across the range
-  local delta=0 add del path
-  while IFS="$(printf '\t')" read -r add del path; do
-    [ -n "${path:-}" ] || continue
-    case "$path" in
-      *.md|*.mdx|*.txt|docs/*|references/*|LICENSE|CHANGELOG*) continue ;;
-    esac
-    case "$add" in ''|*[!0-9]*) add=0 ;; esac
-    case "$del" in ''|*[!0-9]*) del=0 ;; esac
-    delta=$((delta + add + del))
-  done < <(git diff --numstat "$range" 2>/dev/null || true)
+  # code_delta from the SAME shared function check-delivery.sh recomputes with
+  # (delivery-lib.sh nondoc_delta_of_shas) — per-commit non-doc sum over exactly the
+  # stamped SHAs. Sharing this makes stamp == recompute by construction (spec R1),
+  # so a batch this script closes always survives the check-delivery recompute.
+  local delta
+  delta="$(nondoc_delta_of_shas "$shas_list")"; case "$delta" in ''|*[!0-9]*) delta=0 ;; esac
 
   local shas_json="[]"
   [ -n "$shas" ] && shas_json="[\"$(printf '%s' "$shas" | sed 's/,/","/g')\"]"

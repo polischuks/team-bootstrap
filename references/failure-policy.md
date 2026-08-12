@@ -11,6 +11,13 @@ in the batch ledger ([enforcement.md](enforcement.md), delivery-occurred layer).
 delivery" gets no canonical stop reason; it gets a code delta or it did not happen. Deep analysis is
 **pulled per-batch** by the work in front of it, not front-loaded ahead of all delivery.
 
+Since v2.12.0 this binds **even if the orchestrator never writes a ledger**: the harness
+`UserPromptSubmit` hook marks the run active on `/deliver` (`intends_code:true`), and `check-delivery.sh`
+then **fails closed** on a run with no ledger or zero closed `kind:code` batch. A delivery command
+answered with analysis therefore cannot reach a clean completion — the Stop hook blocks it, and the
+gate fails — rather than relying on the orchestrator to self-report the violation. The stamped
+`code_delta` is itself git-derived (recomputed from the batch's commits), so it cannot be faked.
+
 ## Statuses
 
 - `completed`: role finished and produced the required output shape
