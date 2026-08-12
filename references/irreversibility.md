@@ -78,8 +78,18 @@ The boolean flag is retained as a deprecated fallback: if `manual_approval_reque
 - **Treating MCP servers as uniformly safe.** A GitHub MCP server's `create_issue` is `stateful_remote`; `delete_repository` is `irreversible`. Class is per-tool.
 - **Hiding the target from the approval prompt.** "Confirm push" is not enough; the prompt must show the branch and remote.
 
+## Deliverability is discovered at Phase A, not after the files are written
+
+Publication and push are `irreversible` (and a build-from-git deploy makes them so implicitly — a
+merge or push *is* the deploy). The `/deliver` Phase-A gate runs
+[`../bin/check-preconditions.sh`](../bin/check-preconditions.sh) to surface that path up front: is the
+remote reachable, is the branch it deploys from actually pushed, does publication need authorization.
+Learning "the deploy builds from `main` and this branch was never pushed" belongs at the plan (a
+ten-second `git ls-remote`), not at the end of a route that dead-ends at a wall.
+
 ## See also
 
 - [failure-policy.md](failure-policy.md) — manual-approval semantics, stop reasons, retry rules
 - [tracing.md](tracing.md) — how irreversibility classification is recorded per call
 - [mcp-integration.md](mcp-integration.md) — MCP server tool-class declaration
+- [../bin/check-preconditions.sh](../bin/check-preconditions.sh) — the Phase-A deliverability gate

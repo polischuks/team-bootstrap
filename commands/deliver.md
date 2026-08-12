@@ -47,6 +47,14 @@ CRITICAL inconsistency, any question is still open, or `architecture-reviewer` r
 `architecture_sound: false` — fix the plan before any batch fires. Do not enter Phase B with
 unresolved blockers.
 
+**Deliverability precondition (hard).** Run `${CLAUDE_PLUGIN_ROOT}/bin/check-preconditions.sh` — the
+ten-second `git ls-remote` that belongs at the plan, not after the files are written: remote reachable,
+current branch on the remote / diverged, a build-from-git deploy source and which branch it builds,
+and whether publication needs authorization. **Exit 1 (hard) STOPS** — delivery cannot land, fix it
+before any batch. **Exit 2 (advisory)** must be **surfaced and acknowledged** before Phase B (e.g. "the
+deploy builds from `main` and this branch isn't pushed"). Do not plan a route into a wall and walk to
+the wall.
+
 ---
 
 ## Phase B — Implementation, batch-by-batch (step-by-step, human-paced)
