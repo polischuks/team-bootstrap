@@ -12,7 +12,7 @@ Research **once per domain** a milestone touches and reuse the result across eve
 domain — not once per task. Auth practices are researched once and cited by all auth tasks; a
 per-task sweep would re-pay the cost N times and re-create the fan-out token burn.
 
-## Four moves that keep it cheap
+## Five moves that keep it cheap
 
 1. **Per-domain, cached.** Produce one `best-practices brief` per domain, cache it on the shared
    blackboard; downstream tasks cite it, they don't re-research.
@@ -25,6 +25,12 @@ per-task sweep would re-pay the cost N times and re-create the fan-out token bur
 4. **Distill.** The brief is a compact, cited summary (the recommended patterns + the pitfalls to
    avoid + source links), not the raw pages — distilled returns keep every downstream role's context
    clean ([Effective context engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents)).
+5. **Pull per-batch, don't front-load.** Produce a domain's brief when the **first batch that touches
+   that domain fires** — not all briefs up front before any delivery. Front-loading 100% of analysis
+   before 0% of delivery is the failure mode where a run produces documents and no shipped code;
+   research is *pulled* by the work in front of it. A brief is still cached once and reused, so
+   per-batch pull costs nothing extra over front-loading — it only moves the cost next to the code it
+   serves. **Delivery-first:** the load-bearing code leads, the analysis it needs arrives with it.
 
 ## The brief (what a domain research pass produces)
 
