@@ -119,6 +119,14 @@ four residuals. **B6** resolved the correctness/honesty ones; two are recorded c
 - **CI-scope (recorded)** — F-2 binding + fail-closed are marker-gated ⇒ **in-session only**; CI cannot
   see the gitignored marker/ledger, so the delivery-occurred layer does not run in CI. The "fail-closed
   delivery gate" holds in-session; committing a redacted summary for CI stays deferred (OQ-2).
+- **N-1 → the class fix (B7)** — a second review saw that F-B (no ledger), R-1 (no marker) and N-1 (no
+  baseline) are **one bug at three scales**: a protection silently disabling on absent input while the
+  summary still reads "verified". Rather than a third point-patch, `check-delivery.sh`'s success line now
+  **enumerates which anchors actually fired** —
+  `GIT-VERIFIED [marker=active reuse=ON reachability=ON predate=ON|OFF fail-closed=ON]`, or
+  `WEAK [marker=absent: … ALL OFF]`. "GIT-VERIFIED" can never mean more than what ran; a degraded anchor
+  (e.g. `predate=OFF(no-baseline)`) is stated inline and warned on stderr. This is the durable invariant,
+  not another instance fix (P10 — do not close a class in one place and leave it open in another).
 
 ## User stories
 

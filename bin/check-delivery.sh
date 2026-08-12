@@ -91,14 +91,24 @@ if [ "${1:-}" = "--self-test" ]; then
   else
     echo "  SKIP  R-2 — could not create a dangling commit (gate-integrity: sanctioned — git commit-tree unavailable)"
   fi
-  # R-1 — a marker-less run must report WEAK verification, not "git-verified"
+  # R-1 — a marker-less run must report WEAK (marker=absent), not "git-verified"
   mkdir -p .runs/_st_r1
   printf '%s\n' '{"id":"C1","kind":"code","status":"closed","commit_shas":["e6bba5d"],"code_delta":1}' > .runs/_st_r1/batches.jsonl
   case "$(TEAM_BOOTSTRAP_RUN=_st_r1 "$0" "$st_root" 2>/dev/null || true)" in
-    *MARKER-LESS*) echo "  PASS (msg) R-1 — marker-less run reports weak verification, not git-verified" ;;
-    *) echo "  FAIL R-1 — marker-less success did not flag weak verification" >&2; fail=$((fail + 1)) ;;
+    *"marker=absent"*) echo "  PASS (msg) R-1 — marker-less run reports WEAK [marker=absent], not git-verified" ;;
+    *) echo "  FAIL R-1 — marker-less success did not enumerate marker=absent" >&2; fail=$((fail + 1)) ;;
   esac
   rm -rf .runs/_st_r1
+  # N-1 — active marker with NO baseline: must pass (reachable-from-HEAD) but the success
+  # line must enumerate predate=OFF — never claim full F-2 when the predate anchor did not run.
+  mkdir -p .runs/_st_n1
+  printf '%s\n' '{"run":"_st_n1","intends_code":true,"source":"harness"}' > .runs/_st_n1/RUN
+  printf '%s\n' '{"id":"C1","kind":"code","status":"closed","commit_shas":["e6bba5d"],"code_delta":1,"risk_rank":"feature"}' > .runs/_st_n1/batches.jsonl
+  case "$(TEAM_BOOTSTRAP_RUN=_st_n1 "$0" "$st_root" 2>/dev/null || true)" in
+    *"predate=OFF"*) echo "  PASS (msg) N-1 — active-marker-no-baseline reports predate=OFF (not full F-2)" ;;
+    *) echo "  FAIL N-1 — success line claimed more than was enforced" >&2; fail=$((fail + 1)) ;;
+  esac
+  rm -rf .runs/_st_n1
   for d in $_dirs; do rm -rf ".runs/$d"; done
   if [ "$fail" -eq 0 ]; then echo "check-delivery --self-test: OK"; exit 0; fi
   echo "check-delivery --self-test: $fail case(s) FAILED" >&2; exit 1
@@ -120,11 +130,11 @@ if [ -n "$marker" ] && [ -f "$marker" ]; then
   baseline="$(field_str "$mk" baseline_sha)"
   precond_exit="$(field_num "$mk" exit)"     # precond.exit (only "exit" key in the marker)
   precond_ack="$(field_bool "$mk" ack)"      # precond.ack  (only "ack" key in the marker)
-  # R-3: an active marker whose baseline_sha does not resolve (e.g. "unknown", written
-  # when HEAD was unavailable) has its predate check silently disarmed — flag it loudly.
-  # Reachable-from-HEAD (R-2) still holds, so this is a warning, not a free pass.
-  if [ "$intends" = "true" ] && [ -n "$baseline" ] && [ -z "$(resolve_sha "$baseline")" ]; then
-    echo "check-delivery: WARN — active run baseline_sha='$baseline' does not resolve; predate-baseline protection (F-2 iii) is degraded (reachable-from-HEAD still enforced)." >&2
+  # R-3 + N-1: an active run whose baseline does not resolve — whether ABSENT or a bogus
+  # value — has its predate check silently disarmed. Flag it loudly for BOTH cases (the
+  # success line also enumerates predate=OFF; reachable-from-HEAD still holds regardless).
+  if [ "$intends" = "true" ] && [ -z "$(resolve_sha "${baseline:-}")" ]; then
+    echo "check-delivery: WARN — active run has no resolvable baseline_sha (predate protection F-2 iii OFF; reachable-from-HEAD still enforced)." >&2
   fi
 fi
 
@@ -271,12 +281,16 @@ if [ "$viol" -gt 0 ]; then
   echo "check-delivery: $viol unearned/forged closure(s) in $ledger — closure is earned by real commits + a git-verified delta, not by assertion." >&2
   exit 1
 fi
-# R-1 — report truth: distinguish a GOVERNED run (marker active: F-2 binding + fail-closed
-# actually enforced) from a MARKER-LESS check that only ran the basic git existence/delta
-# tests. "git-verified" must not be claimed when the marker-gated protections did not run.
-if [ "$intends" = "true" ]; then
-  echo "check-delivery: all kind:code batches earned closure — GIT-VERIFIED under an active run (F-2 binding + fail-closed enforced) ($ledger)."
+# Report truth by ENUMERATING which anchors actually fired — never claim more than ran.
+# F-B (no ledger), R-1 (no marker) and N-1 (no baseline) are one class: a protection that
+# silently disables on absent input while the summary still reads "verified". The cure is a
+# single invariant — the success line lists each anchor's real state (marker / reuse /
+# reachability / predate / fail-closed), so "GIT-VERIFIED" can never mean more than enforced.
+if [ -n "$marker" ]; then
+  if [ -n "$baseline" ] && [ -n "$(resolve_sha "$baseline")" ]; then predate="predate=ON"; else predate="predate=OFF(no-baseline)"; fi
+  if [ "$intends" = "true" ]; then fc="fail-closed=ON"; else fc="fail-closed=OFF(intends!=true)"; fi
+  echo "check-delivery: closures GIT-VERIFIED [marker=active reuse=ON reachability=ON $predate $fc] ($ledger)."
 else
-  echo "check-delivery: kind:code closures pass the basic git existence/delta checks, but this is a MARKER-LESS run — F-2 binding and fail-closed are NOT enforced (weak verification; not a governed delivery run) ($ledger)."
+  echo "check-delivery: closures pass basic SHA-exists+delta only — WEAK [marker=absent: reuse/reachability/predate/fail-closed ALL OFF; not a governed delivery run] ($ledger)."
 fi
 exit 0
