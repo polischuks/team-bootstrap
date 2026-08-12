@@ -1,48 +1,69 @@
 # Installation
 
-team-bootstrap is a Claude Code skill. Three install methods, in order of preference.
+team-bootstrap ships as a Claude Code **plugin** — skills, commands, and the delivery-gate
+**hooks** (`hooks/hooks.json`). Install it *as a plugin* so the harness registers those hooks.
+A bare `git clone` into `~/.claude/plugins/` is **not** a plugin install — Claude Code may surface
+the commands it finds, but it never registers the plugin or its hooks, and `${CLAUDE_PLUGIN_ROOT}`
+is never set. Use one of the methods below.
 
-## Method 1: Claude Code plugin
+## Method 1 (recommended): Marketplace
 
-If using Claude Code's plugin system, install the bundled plugin:
+This repository is its own [marketplace](.claude-plugin/marketplace.json). In the Claude Code CLI:
 
-```bash
-git clone https://github.com/polischuks/team-bootstrap ~/.claude/plugins/team-bootstrap
+```text
+/plugin marketplace add polischuks/team-bootstrap
+/plugin install team-bootstrap@team-bootstrap
 ```
 
-Plugin manifest: [.claude-plugin/plugin.json](.claude-plugin/plugin.json).
+No `/plugin` panel (CI, scripts, or an embedded client)? Use the non-interactive subcommands:
 
-Verify in Claude Code:
+```bash
+claude plugin marketplace add polischuks/team-bootstrap
+claude plugin install team-bootstrap@team-bootstrap
+```
+
+This registers the commands, skills, **and** `hooks/hooks.json` (the delivery gate). Update later
+with `/plugin marketplace update team-bootstrap`; remove with `/plugin uninstall team-bootstrap@team-bootstrap`.
+
+## Method 2: Skills-directory auto-load (no marketplace)
+
+Claude Code auto-loads any directory under your skills dir that carries a `.claude-plugin/plugin.json`
+as a plugin (`team-bootstrap@skills-dir`), hooks included — no install step:
+
+```bash
+git clone https://github.com/polischuks/team-bootstrap ~/.claude/skills/team-bootstrap
+```
+
+Restart Claude Code (or `/reload-plugins`). Project-local variant — clone into
+`<your-repo>/.claude/skills/team-bootstrap` (available only in that repo, and only after you trust
+the folder).
+
+## Method 3: Direct load (development)
+
+Point Claude Code at a local checkout for the current session — best while editing the plugin itself:
+
+```bash
+git clone https://github.com/polischuks/team-bootstrap
+claude --plugin-dir ./team-bootstrap
+```
+
+Run `/reload-plugins` to pick up edits without restarting.
+
+## Verify the install
 
 ```text
 /team-bootstrap role product-ba "Stub: write a one-line requirement for a no-op endpoint"
 ```
 
-If you see a structured handoff with `status: completed`, the install is correct.
+A structured handoff with `status: completed` means the plugin loaded. To confirm the **hooks**
+registered too: run `/plugin` and check team-bootstrap lists its hooks, or start a `/deliver` run
+and confirm `.runs/<run>/RUN` appears with `"source":"harness"` (only the `UserPromptSubmit` hook
+writes that).
 
-## Method 2: User-level skill (no plugin system)
-
-Copy the directory to your user skills:
-
-```bash
-git clone https://github.com/polischuks/team-bootstrap /tmp/team-bootstrap
-mkdir -p ~/.claude/skills
-cp -r /tmp/team-bootstrap ~/.claude/skills/team-bootstrap
-```
-
-The skill becomes available in any Claude Code session as `/team-bootstrap`.
-
-## Method 3: Project-local skill
-
-For a single repository:
-
-```bash
-git clone https://github.com/polischuks/team-bootstrap /tmp/team-bootstrap
-mkdir -p .claude/skills
-cp -r /tmp/team-bootstrap .claude/skills/team-bootstrap
-```
-
-The skill is then available only in that repository's Claude Code sessions.
+> **Hooks need a client that runs plugin hooks.** The Claude Code CLI does. Some embedded/agent
+> surfaces load a plugin's skills and commands but do **not** execute its hooks; there the delivery
+> gate still runs via the explicit steps in `/deliver` (`bin/verify-batch.sh` / `bin/check-delivery.sh`)
+> and the CI backstop — you just don't get the automatic `UserPromptSubmit`/`Stop` enforcement.
 
 ## Project setup
 
