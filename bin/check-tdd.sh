@@ -38,6 +38,8 @@ _test_cmd() {
 
 # _oldest_sha LINE → the batch's oldest commit_sha (commit_shas is stored newest-first).
 _oldest_sha() { shas_of_line "$1" | awk '{print $NF}'; }
+# _newest_sha LINE → the batch's newest commit_sha (first token, newest-first).
+_newest_sha() { shas_of_line "$1" | awk '{print $1}'; }
 
 # _find_red BATCH_ID('' = any) ANCHOR_FULL BASE_FULL USED → echo a valid, unused red_full or return 1.
 # Valid = record (matching batch id, if given) whose red_sha resolves, is a PROPER ANCESTOR of ANCHOR
@@ -62,6 +64,8 @@ _find_red() {
 _evaluate() {
   local marker mk baseline ledger tcmd hd bfull run total n line status id anchor r
   local viol=0 used="" any_code_batch=0
+  local tglobs prev_tip newest   # F1 (red-touches-tests): per-batch red-window test-path check
+  tglobs="$(read_test_globs)"
   marker="$(resolve_marker)"
   [ -n "$marker" ] && [ -f "$marker" ] || { echo "check-tdd: no active delivery run — skipping (TDD governs armed runs)."; return 0; }
   mk="$(cat "$marker" 2>/dev/null || true)"
@@ -71,6 +75,7 @@ _evaluate() {
   [ -n "$tcmd" ] || { echo "check-tdd: WARN — no runnable Test: command in AGENTS.md; red→green cannot be machine-verified (P9 unenforced for this project)." >&2; return 0; }
   hd="$(git rev-parse HEAD 2>/dev/null || true)"
   bfull="$(resolve_sha "${baseline:-}")"
+  prev_tip="$bfull"   # window-start for the first code batch's red window (F1)
   run="$(printf '%s' "$marker" | sed -E 's#^.*\.runs/([^/]+)/RUN$#\1#')"
   tdd=".runs/$run/tdd.jsonl"
 
@@ -92,13 +97,24 @@ _evaluate() {
         r="$(_find_red "$id" "$anchor" "$bfull" "$used")" || r=""
         if [ -z "$r" ]; then
           echo "  FAIL-CLOSED: code batch '$id' has no red step before its own commits — each code batch must be red-first (P9, per-batch)." >&2; viol=$((viol + 1))
-        else used="$used $r"; fi
+        else
+          used="$used $r"
+          if ! window_touches_test "$prev_tip" "$r" "$tglobs"; then
+            echo "  FAIL-CLOSED: code batch '$id' red window changed no test file — a red must touch a test path (F1, red-touches-tests). TestGlobs: extends the default set." >&2; viol=$((viol + 1))
+          fi
+        fi
+        newest="$(resolve_sha "$(_newest_sha "$line")")"; [ -n "$newest" ] && prev_tip="$newest"
       elif [ "$n" -eq "$total" ]; then
         any_code_batch=1   # in-flight batch being closed now: its code is up to HEAD, not yet stamped
         r="$(_find_red "$id" "$hd" "$bfull" "$used")" || r=""
         if [ -z "$r" ]; then
           echo "  FAIL-CLOSED: in-flight code batch '$id' has no red step before HEAD — run bin/tdd-red.sh --batch $id before implementing (P9, per-batch)." >&2; viol=$((viol + 1))
-        else used="$used $r"; fi
+        else
+          used="$used $r"
+          if ! window_touches_test "$prev_tip" "$r" "$tglobs"; then
+            echo "  FAIL-CLOSED: in-flight code batch '$id' red window changed no test file — a red must touch a test path (F1, red-touches-tests)." >&2; viol=$((viol + 1))
+          fi
+        fi
       fi
     done < "$ledger"
   fi
@@ -108,6 +124,8 @@ _evaluate() {
       r="$(_find_red "" "$hd" "$bfull" "")" || r=""
       if [ -z "$r" ]; then
         echo "  FAIL-CLOSED: code shipped (direct run) with no observed red step before HEAD (P9). Run bin/tdd-red.sh before implementing." >&2; viol=$((viol + 1))
+      elif ! window_touches_test "$bfull" "$r" "$tglobs"; then
+        echo "  FAIL-CLOSED: code shipped (direct run) but the red window changed no test file — a red must touch a test path (F1)." >&2; viol=$((viol + 1))
       fi
     else
       echo "check-tdd: no code delivered yet — nothing to require a red step for."; return 0
@@ -131,9 +149,10 @@ if [ "${1:-}" = "--self-test" ]; then
   ( cd "$T" && git init -q && git config user.email t@t && git config user.name t
     printf '# AGENTS\n\n- Test: `test -f .green`\n' > AGENTS.md && git add . && git commit -qm baseline ) >/dev/null 2>&1
   base="$(git_t git rev-parse --short HEAD)"
-  git_t git commit -q --allow-empty -m "redA (B1 red step)" >/dev/null 2>&1;  rA="$(git_t git rev-parse --short HEAD)"
+  git_t git commit -q --allow-empty -m "empty (non-test red)" >/dev/null 2>&1;  eA="$(git_t git rev-parse --short HEAD)"
+  ( cd "$T" && echo 't' > f1_test.sh && git add f1_test.sh && git commit -qm "redA (B1 failing test)" ) >/dev/null 2>&1; rA="$(git_t git rev-parse --short HEAD)"
   ( cd "$T" && echo 1 > f1 && git add f1 && git commit -qm "B1 code" ) >/dev/null 2>&1; c1="$(git_t git rev-parse --short HEAD)"
-  git_t git commit -q --allow-empty -m "redB (B2 red step)" >/dev/null 2>&1;  rB="$(git_t git rev-parse --short HEAD)"
+  ( cd "$T" && echo 't' > f2_test.sh && git add f2_test.sh && git commit -qm "redB (B2 failing test)" ) >/dev/null 2>&1; rB="$(git_t git rev-parse --short HEAD)"
   ( cd "$T" && : > .green && echo 2 > f2 && git add . && git commit -qm "B2 code (green)" ) >/dev/null 2>&1; c2="$(git_t git rev-parse --short HEAD)"
   mkdir -p "$T/.runs/r"
   printf '{"run":"r","intends_code":true,"source":"harness","baseline_sha":"%s"}\n' "$base" > "$T/.runs/r/RUN"
@@ -143,11 +162,16 @@ if [ "${1:-}" = "--self-test" ]; then
   _run() { ( cd "$T" && TEAM_BOOTSTRAP_RUN=r "$here/check-tdd.sh" . >/dev/null 2>&1 ); echo $?; }
   _chk() { local got; got="$(_run)"; if [ "$got" = "$2" ]; then echo "  PASS (exit $got) $1"; else echo "  FAIL (exit $got, want $2) $1" >&2; fail=$((fail + 1)); fi; }
 
-  # both batches have their own red → pass
+  # both batches have their own test-touching red → pass
   printf '%s\n%s\n' \
     "{\"batch\":\"B1\",\"red_sha\":\"$rA\",\"observed\":\"red\"}" \
     "{\"batch\":\"B2\",\"red_sha\":\"$rB\",\"observed\":\"red\"}" > "$T/.runs/r/tdd.jsonl"
-  _chk "two code batches, each red-first + green HEAD → pass" 0
+  _chk "two code batches, each red-first (test-touching) + green HEAD → pass" 0
+  # B1's red window touches no test file (empty commit) → F1 fail
+  printf '%s\n%s\n' \
+    "{\"batch\":\"B1\",\"red_sha\":\"$eA\",\"observed\":\"red\"}" \
+    "{\"batch\":\"B2\",\"red_sha\":\"$rB\",\"observed\":\"red\"}" > "$T/.runs/r/tdd.jsonl"
+  _chk "B1 red window changed no test file → fail (F1, red-touches-tests)" 1
   # B2's red missing → fail-closed
   printf '%s\n' "{\"batch\":\"B1\",\"red_sha\":\"$rA\",\"observed\":\"red\"}" > "$T/.runs/r/tdd.jsonl"
   _chk "B2 has no red step → fail-closed (per-batch)" 1
