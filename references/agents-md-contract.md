@@ -50,6 +50,10 @@ convention as `Test:`/`Typecheck:`; the framework declares the *contract*, the p
 - **`CoverageFile:`** (F2) — optional path the `Coverage:` command writes LCOV to (else stdout is parsed).
 - **`CoverageThreshold:`** (F2) — minimum percent of the batch's changed non-doc lines that must be
   covered. Default **80**.
+- **`CoverageStrict:`** (F2) — `true` counts changed lines the report never measured as **misses**
+  (denominator = all changed non-doc lines), so a non-cover-all report fails instead of passing over its
+  subset. Default (unset/false): pass over the measured subset but emit a **loud WARN** — a partial report
+  never passes silently.
 - **`Mutation:`** (F3) — a command running the project's mutation tool **scoped to changed files**, emitting
   a final `mutation_score: <float>` (0–100) **or** `killed:<k>` + `total:<t>` line. Adapters: Stryker
   (JS/TS), mutmut (Py), PIT (JVM), cargo-mutants (Rust) — documented, not parsed natively.
