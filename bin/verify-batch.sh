@@ -76,7 +76,7 @@ stamp_batch_closed() {
 
   local shas_json="[]"
   [ -n "$shas" ] && shas_json="[\"$(printf '%s' "$shas" | sed 's/,/","/g')\"]"
-  local gates="quality-gate=ok;orphans=ok;architecture=ok;gate-integrity=ok;tdd=ok;diff-coverage=ok;delivery=ok"
+  local gates="quality-gate=ok;orphans=ok;architecture=ok;gate-integrity=ok;tdd=ok;diff-coverage=ok;mutation=ok;delivery=ok"
 
   local newline
   newline="$(printf '%s' "$target" \
@@ -96,6 +96,7 @@ gate "architecture (drift vs baseline)"      "$here/check-architecture.sh" .
 gate "gate-integrity (no skip / disabled)"   "$here/check-gate-integrity.sh" .
 gate "tdd (red→green observed, P9)"          "$here/check-tdd.sh" .
 gate "diff-coverage (changed-line breadth, F2)" "$here/check-diff-coverage.sh" .
+gate "mutation (assertion strength, F3)"     "$here/check-mutation.sh" .
 gate "delivery (no unearned closure)"        "$here/check-delivery.sh" .
 
 if [ "$fails" -gt 0 ]; then
