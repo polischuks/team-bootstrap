@@ -53,25 +53,13 @@ stamp_batch_closed() {
   target="$(grep -n '"status":"announced"' "$ledger" 2>/dev/null | tail -1 | sed -E 's/^[0-9]+://')"
   [ -n "$target" ] || return 0   # nothing in flight to close
 
-  # per-batch commit range: since the PREVIOUS closed batch's newest commit (so each
-  # batch's code_delta counts only its own work, not the cumulative run). Falls back
-  # to base..HEAD for the first batch, else the last commit.
-  local since range base b
-  since="$(grep '"status":"closed"' "$ledger" 2>/dev/null | tail -1 \
-    | sed -nE 's/.*"commit_shas":\["([0-9a-f]+)".*/\1/p')"
-  if [ -n "$since" ] && git rev-parse --verify -q "$since" >/dev/null 2>&1; then
-    range="$since..HEAD"
-  else
-    base=""
-    for b in origin/main main origin/master master; do
-      if git rev-parse --verify -q "$b" >/dev/null 2>&1; then base="$b"; break; fi
-    done
-    if [ -n "$base" ] && [ "$(git rev-parse -q "$base" 2>/dev/null)" != "$(git rev-parse -q HEAD 2>/dev/null)" ]; then
-      range="$base..HEAD"
-    else
-      range="HEAD~1..HEAD"
-    fi
-  fi
+  # per-batch commit range: since the PREVIOUS closed batch's newest commit (so each batch's
+  # code_delta counts only its own work, not the cumulative run). The base is computed by the
+  # shared delivery-lib current_batch_base — the SAME window F2 (check-diff-coverage) measures, so
+  # "the batch's changed lines" is one definition and cannot drift (spec R1). Falls back to
+  # main..HEAD for the first batch, else HEAD~1..HEAD.
+  local range
+  range="$(current_batch_base)..HEAD"
 
   # the batch's commits, space-separated (for the shared delta fn) and comma-joined
   # (for the ledger JSON). One list, two renderings.
@@ -88,7 +76,7 @@ stamp_batch_closed() {
 
   local shas_json="[]"
   [ -n "$shas" ] && shas_json="[\"$(printf '%s' "$shas" | sed 's/,/","/g')\"]"
-  local gates="quality-gate=ok;orphans=ok;architecture=ok;gate-integrity=ok;delivery=ok"
+  local gates="quality-gate=ok;orphans=ok;architecture=ok;gate-integrity=ok;tdd=ok;diff-coverage=ok;delivery=ok"
 
   local newline
   newline="$(printf '%s' "$target" \
@@ -107,6 +95,7 @@ gate "orphans (dead code / not wired)"       "$here/check-orphans.sh"
 gate "architecture (drift vs baseline)"      "$here/check-architecture.sh" .
 gate "gate-integrity (no skip / disabled)"   "$here/check-gate-integrity.sh" .
 gate "tdd (red→green observed, P9)"          "$here/check-tdd.sh" .
+gate "diff-coverage (changed-line breadth, F2)" "$here/check-diff-coverage.sh" .
 gate "delivery (no unearned closure)"        "$here/check-delivery.sh" .
 
 if [ "$fails" -gt 0 ]; then
