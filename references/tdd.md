@@ -19,7 +19,16 @@ treats it as the default implementation discipline for `mvp`, `full`, and the im
    **Per batch:** run `tdd-red.sh --batch <id>` at the red step of **each** code batch — every code
    batch must be red-first in its own window (`… < redₖ < codeₖ`), and one red record credits at most
    one batch, so you cannot cover B2 with B1's red.
-3. **Commit the failing tests** as a checkpoint.
+   **A red must change a test file (F1, v2.17.0).** `tdd-red` refuses a red whose committed change since
+   the baseline touched **no** test-path file (rejects an `--allow-empty` red and a non-test-only red;
+   exit 4). So **commit the failing test *before* recording red** — the failing-test commit *is* the
+   `red_sha`. `check-tdd` then requires each code batch's red window `<prev-code-tip‖baseline>..red_sha`
+   to have changed ≥1 test path. Test-path set = a default glob set (`*_test.*`, `*.spec.*`, `test_*.*`,
+   paths under `test/ tests/ spec/ __tests__/`, …) ∪ AGENTS.md `TestGlobs:` (extends, never shrinks).
+   Inline-test layouts (Rust `#[cfg(test)]`, doctests) widen `TestGlobs:` to their source globs, making
+   F1 advisory-by-contract for that project. Like the base red gate this is marker-gated ⇒ in-session,
+   and needs a runnable `Test:` command (absent ⇒ WARN, unenforceable).
+3. **Commit the failing tests first** as the red checkpoint (F1: this commit is the `red_sha`).
 4. **Implement until green** — iterate against the test output, not against intention.
 5. **Do not modify the tests to make them pass.** If a test is wrong, fix it deliberately and say
    so in the handoff; never quietly weaken a test to go green.

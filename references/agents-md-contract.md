@@ -34,6 +34,29 @@ A `## Testing` section detailing:
 - Coverage target (`Coverage target:`)
 - Fixture/setup commands
 
+### Test-quality gate fields (v2.17.0 — all optional; absence ⇒ the gate skips+warns, never a false block)
+
+Consumed by the F1/F2/F3 `verify-batch` gates ([enforcement.md](enforcement.md)). Same backtick/bare
+convention as `Test:`/`Typecheck:`; the framework declares the *contract*, the project supplies the runner
+(no bundled coverage/mutation tooling — P7):
+
+- **`TestGlobs:`** (F1) — extra test-path globs, space/comma-separated, that **extend** the built-in set
+  (`*_test.*`, `*.test.*`, `test_*.*`, `*.spec.*`, `*Test.*`, `*_spec.rb`, and any path under
+  `test/ tests/ spec/ __tests__/`). Extends only — a project can widen the "what counts as a test" set,
+  never shrink it. Inline-test layouts (Rust `#[cfg(test)]`, doctests) set this to their source globs.
+- **`Coverage:`** (F2) — a command emitting an **LCOV** tracefile to stdout (or to the `CoverageFile:`
+  path). It must cover **all changed files** (cover-all / `--include`) so an untested changed file appears
+  as `DA` misses, not as an absence. Emitted natively by coverage.py, lcov, nyc, tarpaulin, …
+- **`CoverageFile:`** (F2) — optional path the `Coverage:` command writes LCOV to (else stdout is parsed).
+- **`CoverageThreshold:`** (F2) — minimum percent of the batch's changed non-doc lines that must be
+  covered. Default **80**.
+- **`Mutation:`** (F3) — a command running the project's mutation tool **scoped to changed files**, emitting
+  a final `mutation_score: <float>` (0–100) **or** `killed:<k>` + `total:<t>` line. Adapters: Stryker
+  (JS/TS), mutmut (Py), PIT (JVM), cargo-mutants (Rust) — documented, not parsed natively.
+- **`MutationThreshold:`** (F3) — minimum mutation score to pass under enforce. Default **60**.
+- **`MutationMode:`** (F3) — `enforce` (hard gate) or `advisory` (report only). Default **advisory** —
+  mutation is opt-in by contract, not by pipeline tier.
+
 A `## PR Conventions` section with:
 
 - Commit message format (e.g., Conventional Commits)
