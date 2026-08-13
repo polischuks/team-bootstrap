@@ -16,6 +16,9 @@ treats it as the default implementation discipline for `mvp`, `full`, and the im
    fact**, not the self-declared `tests_failed_first` boolean: [`../bin/check-tdd.sh`](../bin/check-tdd.sh)
    (run inside `verify-batch`) **fails the batch** if a code-shipping run has no red record whose
    `red_sha` sits between the run baseline and HEAD, or if the suite isn't green at HEAD.
+   **Per batch:** run `tdd-red.sh --batch <id>` at the red step of **each** code batch — every code
+   batch must be red-first in its own window (`… < redₖ < codeₖ`), and one red record credits at most
+   one batch, so you cannot cover B2 with B1's red.
 3. **Commit the failing tests** as a checkpoint.
 4. **Implement until green** — iterate against the test output, not against intention.
 5. **Do not modify the tests to make them pass.** If a test is wrong, fix it deliberately and say

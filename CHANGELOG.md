@@ -2,6 +2,20 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.16.0] - 2026-08-13
+
+### Changed
+
+- **The TDD red gate is now per-batch.** v2.15.0 required one observed red *anywhere* on the run — a
+  multi-batch run could satisfy it with a single red step. [`bin/check-tdd.sh`](bin/check-tdd.sh) now
+  requires **each** `kind:code` batch to have its own red record (`tdd-red.sh --batch <id>`) whose
+  `red_sha` is a **descendant of the run baseline and a proper ancestor of that batch's own commits**,
+  with **one red record crediting at most one batch** — so `baseline < red₁ < code₁`, `code₁ < red₂ <
+  code₂`, … Every code batch is red-first in its own window; you cannot cover B2 with B1's red. A direct
+  pipeline run (no ledger) keeps the single run-level red. `check-tdd --self-test` 5 cases (incl.
+  red-reuse rejection); `shellcheck` clean; [deliver.md](commands/deliver.md), [tdd.md](references/tdd.md),
+  [enforcement.md](references/enforcement.md) updated.
+
 ## [2.15.0] - 2026-08-13
 
 ### Added
