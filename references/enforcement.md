@@ -68,6 +68,27 @@ pipeline and shipped nothing. A delivery-aware Stop hook
 ([`../bin/delivery-stop-hook.sh`](../bin/delivery-stop-hook.sh)) blocks completion (exit 2) on the same
 condition (or an announced-but-unclosed batch), so no code pipeline can finish having delivered nothing.
 
+### Red→green is a git fact, not a boolean (P9)
+
+P9 requires tests **written first, run and seen to fail**, then implemented to green. That was prose plus
+a self-declared `tests_failed_first` boolean — the schema never required it and no gate checked it, so an
+agent could write code and rubber-stamp tests after, or skip them, and still report `completed`. Now the
+red step is git-grounded:
+
+- [`../bin/tdd-red.sh`](../bin/tdd-red.sh), run at the red step, executes the project's `Test:` command,
+  **requires** a non-zero (red) result — it refuses to record a green suite — and stamps the observed red
+  (`red_sha` = HEAD) into `.runs/<run>/tdd.jsonl`. The record can only exist because the tests actually ran
+  red; prose cannot fabricate it.
+- [`../bin/check-tdd.sh`](../bin/check-tdd.sh) (a `verify-batch` gate) fails a code-shipping armed run unless
+  a red record exists whose `red_sha` is a **descendant of the run baseline and a proper ancestor of HEAD**
+  (red observed on this run's work, before the code) **and** the suite is **green at HEAD** now. No red
+  record ⇒ fail-closed: the red step was skipped.
+
+Honest reach: it enforces that *a* genuine red→green happened on the run, on a project that declares a
+runnable `Test:` command (no command ⇒ warns, unenforceable). It does **not** judge whether the test asserts
+the *right* behavior — a wrong-but-failing test still counts; test quality stays with `qa-test-engineer` and
+review. And, like the delivery layer, it is marker-gated ⇒ in-session (CI has no marker).
+
 Honest reach: `.runs/` is gitignored, so the ledger/marker are per-run *local* state. This layer bites
 **in-session** — via the git-derived gate AND the harness marker, which the orchestrator cannot skip its
 way past — and reproduces in CI **only when a run commits its ledger**. It does not weaken the

@@ -9,8 +9,13 @@ treats it as the default implementation discipline for `mvp`, `full`, and the im
 ## The loop (do not skip a step)
 
 1. **Write the tests first** from the acceptance criteria — before any implementation.
-2. **Run them and confirm they FAIL** (red). A test that passes before you wrote the code tests
-   nothing. Record this: engineer handoffs set `tests_failed_first: true`.
+2. **Run them and confirm they FAIL** (red) via [`../bin/tdd-red.sh`](../bin/tdd-red.sh) — it runs the
+   project's `Test:` command, **requires** a non-zero (red) result, and records the observed red
+   (`red_sha` = current HEAD) to `.runs/<run>/tdd.jsonl`. A test that passes before you wrote the code
+   tests nothing — `tdd-red` refuses to record a green suite. This makes "seen to fail" a **git-grounded
+   fact**, not the self-declared `tests_failed_first` boolean: [`../bin/check-tdd.sh`](../bin/check-tdd.sh)
+   (run inside `verify-batch`) **fails the batch** if a code-shipping run has no red record whose
+   `red_sha` sits between the run baseline and HEAD, or if the suite isn't green at HEAD.
 3. **Commit the failing tests** as a checkpoint.
 4. **Implement until green** — iterate against the test output, not against intention.
 5. **Do not modify the tests to make them pass.** If a test is wrong, fix it deliberately and say

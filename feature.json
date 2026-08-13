@@ -2,7 +2,7 @@
   "active_spec": "specs/delivery-guard-self-starting",
   "specs_dir": "specs",
   "constitution": "constitution.md",
-  "constitution_version": "1.0.0",
+  "constitution_version": "1.0.1",
   "adr_dir": "docs/adr",
   "milestone_version_scheme": "semver",
   "_comment": "Pointer file for the pre-implementation flow. Set active_spec to the current milestone directory (e.g. specs/001-my-milestone) when one is in flight; null means no milestone is active."
