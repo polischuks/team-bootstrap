@@ -5,7 +5,7 @@
     "url": "https://github.com/polischuks"
   },
   "metadata": {
-    "version": "2.14.0",
+    "version": "2.15.0",
     "description": "Role-based AI delivery framework for Claude Code with harness-enforced delivery gates (unforgeable, self-starting, fail-closed)."
   },
   "plugins": [
@@ -16,7 +16,7 @@
         "url": "https://github.com/polischuks/team-bootstrap.git"
       },
       "description": "Run software-engineering tasks through Product, Architecture, Implementation, Review, and Release roles with structured handoffs, validation, observability, and harness-enforced delivery gates. Ships UserPromptSubmit + Stop hooks that arm a run marker and block premature completion.",
-      "version": "2.14.0",
+      "version": "2.15.0",
       "keywords": ["claude-code", "agents", "orchestration", "multi-role", "software-engineering", "autonomous-coding"]
     }
   ]

@@ -163,7 +163,7 @@
           "properties": {
             "role": { "const": "backend-engineer" },
             "verification_evidence": { "type": "string", "minLength": 1, "description": "Real command output excerpt (typecheck/lint/test) proving the change works — evidence, not assertion. Required when status=completed. See references/trace-evals.md." },
-            "tests_failed_first": { "type": "boolean", "description": "TDD red step: new tests were run and observed to FAIL before implementation. See references/tdd.md." }
+            "tests_failed_first": { "type": "boolean", "description": "TDD red step. Enforcement is git-grounded, NOT this self-declared boolean: bin/tdd-red.sh records the observed red (red_sha) to .runs/<run>/tdd.jsonl, and bin/check-tdd.sh (in verify-batch) fails any code-shipping run with no valid red record. See references/tdd.md." }
           }
         },
         {
@@ -181,7 +181,7 @@
             "role": { "const": "frontend-engineer" },
             "frontend_required": { "type": "boolean" },
             "verification_evidence": { "type": "string", "minLength": 1, "description": "Real command output excerpt (typecheck/lint/test) proving the change works — evidence, not assertion. Required when status=completed. See references/trace-evals.md." },
-            "tests_failed_first": { "type": "boolean", "description": "TDD red step: new tests were run and observed to FAIL before implementation. See references/tdd.md." }
+            "tests_failed_first": { "type": "boolean", "description": "TDD red step. Enforcement is git-grounded, NOT this self-declared boolean: bin/tdd-red.sh records the observed red (red_sha) to .runs/<run>/tdd.jsonl, and bin/check-tdd.sh (in verify-batch) fails any code-shipping run with no valid red record. See references/tdd.md." }
           },
           "required": ["frontend_required"]
         },

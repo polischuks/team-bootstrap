@@ -2,6 +2,33 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.0] - 2026-08-13
+
+### Added
+
+- **P9's red step is now harness-enforced, not a self-declared boolean.** P9 mandates "tests written
+  first, run and *seen to fail*," but nothing checked it: `tests_failed_first` was an optional boolean the
+  schema never required and no gate read — an agent could write code, add rubber-stamp tests (or none), and
+  still report `completed`. Closed with a git-grounded red→green gate:
+  - **[`bin/tdd-red.sh`](bin/tdd-red.sh)** (run at the red step) runs the project's AGENTS.md `Test:`
+    command, **requires** a non-zero (red) result — it refuses to record a green suite — and stamps the
+    observed red (`red_sha` = HEAD) into `.runs/<run>/tdd.jsonl`. The record exists only because the tests
+    actually ran red; prose cannot fabricate it.
+  - **[`bin/check-tdd.sh`](bin/check-tdd.sh)** (a `verify-batch` gate) fails a code-shipping armed run unless
+    a red record exists whose `red_sha` is a **descendant of the run baseline and a proper ancestor of HEAD**
+    (red observed on this run's work, before the code) **and** the suite is **green at HEAD** now. No red
+    record → fail-closed: the red step was skipped.
+  - Honest reach: enforces that a genuine red→green happened, on a project that declares a runnable `Test:`
+    command (none → warns, unenforceable); does **not** judge whether the test asserts the *right* behavior
+    (that stays with `qa-test-engineer`/review); marker-gated ⇒ in-session. `check-tdd --self-test` 5 cases;
+    `shellcheck` clean.
+
+### Changed
+
+- **P9 clarified** to name its enforcement (constitution **1.0.0 → 1.0.1**, PATCH — the invariant is
+  unchanged, now actually enforced). The `tests_failed_first` schema field is re-described: the git-anchored
+  red record is the enforcement, not the boolean.
+
 ## [2.14.0] - 2026-08-13
 
 ### Changed

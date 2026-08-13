@@ -1,6 +1,6 @@
 # team-bootstrap Constitution
 
-**Version: 1.0.0** · Governs the invariants every milestone and role change must respect.
+**Version: 1.0.1** · Governs the invariants every milestone and role change must respect.
 This is the `principles` document referenced by
 [references/speckit-preimpl-flow.md](references/speckit-preimpl-flow.md) Step 1. It distills
 the doctrine already stated across [ARCHITECTURE.md](ARCHITECTURE.md),
@@ -64,9 +64,12 @@ behavioral regression — before it lands.
 Implementation follows TDD: tests are written first, **run and seen to fail**, then implemented to
 green, and never weakened to pass ([references/tdd.md](references/tdd.md)). A `completed`
 engineering/QA handoff must carry `verification_evidence` — real command output, not a claim —
-and fast checks are harness-enforced by the Stop hook ([references/hooks.md](references/hooks.md)).
-Wiring is proven end-to-end by [integration-verifier](references/roles/integration-verifier.md),
-not by self-report. This operationalizes P6 (report truth) for code.
+and fast checks are harness-enforced by the Stop hook ([references/hooks.md](references/hooks.md)). The
+**red step itself** is harness-enforced, not self-declared: `bin/tdd-red.sh` records a git-anchored red
+(`red_sha`), and `bin/check-tdd.sh` (in `verify-batch`) fails a code-shipping run with no valid red record
+([references/enforcement.md](references/enforcement.md)). Wiring is proven end-to-end by
+[integration-verifier](references/roles/integration-verifier.md), not by self-report. This operationalizes
+P6 (report truth) for code.
 
 ### P10 — Verification is cumulative and fail-closed
 A closure holds only if its invariant holds **across all workflows now**, not "for the workflow that
