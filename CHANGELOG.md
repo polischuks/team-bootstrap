@@ -2,6 +2,26 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.14.0] - 2026-08-13
+
+### Changed
+
+- **The delivery guard now fires across *all* code pipelines, not just `/deliver`.** Previously the
+  `UserPromptSubmit` hook armed the run marker only on a `/deliver` invocation, so a direct
+  `/team-bootstrap:team-bootstrap single-thread|mvp|full …` run (which `deliver.md` recommends for small
+  changes) escaped the guard entirely — no marker, no gates. Closed:
+  - **[`bin/delivery-marker-init.sh`](bin/delivery-marker-init.sh)** arms on any team-bootstrap
+    code-pipeline invocation — the `/deliver` command *or* a direct `/team-bootstrap:` pipeline run — and
+    recognizes `single-thread` alongside `mvp`/`full`. Analysis pipelines (`audit`/`audit-dd`/`l2p`) ship
+    no code and never arm.
+  - **Delivery is now satisfied two git-grounded ways** ([`bin/delivery-lib.sh`](bin/delivery-lib.sh),
+    `code_since_baseline`): a `verify-batch`-stamped ledger closure (the `/deliver` path) **or** real
+    non-doc code committed since `baseline_sha`, reachable from HEAD (the direct-pipeline path, which
+    writes no ledger). Neither is forgeable by prose. `check-delivery.sh` and `delivery-stop-hook.sh`
+    accept either; an armed run with **neither** is fail-closed — it ran a pipeline and shipped nothing.
+  - Self-tests extended: `check-delivery --self-test` 14 cases, `delivery-stop-hook --self-test` 5 cases;
+    `shellcheck --severity=error` clean; [enforcement.md](references/enforcement.md) updated.
+
 ## [2.13.0] - 2026-08-13
 
 ### Added

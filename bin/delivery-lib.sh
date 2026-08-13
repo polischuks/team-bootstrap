@@ -68,6 +68,25 @@ _is_doc_path() {
   esac
 }
 
+# code_since_baseline BASELINE → rc 0 if there is > 0 non-doc code delta on commits
+# reachable from HEAD since BASELINE, else rc 1 (incl. unresolvable/empty baseline).
+#
+# The direct-pipeline delivery signal. `/deliver` writes a batch ledger and closes it with
+# verify-batch; but a direct pipeline run (`/team-bootstrap single-thread …`, which deliver.md
+# itself recommends for small changes) writes NO ledger. Such a run still proves delivery the
+# same git-grounded way: real code committed since the run baseline, reachable from HEAD —
+# unforgeable by prose. The guard accepts EITHER a git-verified ledger closure OR this signal.
+# Uses the same shared nondoc_delta_of_shas, so "code" means the same thing everywhere.
+code_since_baseline() {
+  local bfull shas d
+  bfull="$(resolve_sha "${1:-}")" || bfull=""
+  [ -n "$bfull" ] || return 1
+  shas="$(git log --format=%h "${bfull}..HEAD" 2>/dev/null | head -200 | tr '\n' ' ')"
+  [ -n "$shas" ] || return 1
+  d="$(nondoc_delta_of_shas "$shas")"; case "$d" in ''|*[!0-9]*) d=0 ;; esac
+  [ "$d" -gt 0 ]
+}
+
 # nondoc_delta_of_shas "sha1 sha2 …" → Σ (added+deleted) lines on NON-doc files
 # across the commits, counted PER COMMIT (self-contained; does not drift with later
 # history — OQ-4). Unresolvable SHAs contribute 0; callers enforce existence

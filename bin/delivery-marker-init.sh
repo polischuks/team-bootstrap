@@ -28,16 +28,27 @@ set -uo pipefail
 payload="$(cat 2>/dev/null || true)"
 [ -n "$payload" ] || exit 0
 
-# Detect a /deliver invocation. The bundled command is /team-bootstrap:commands:deliver
-# (so "commands:deliver" is the reliable signature); also accept a bare "/deliver".
-printf '%s' "$payload" | grep -qE 'commands:deliver|(^|[^A-Za-z])/deliver([^A-Za-z]|$)|:deliver' || exit 0
+# Arm on ANY team-bootstrap delivery invocation — not just /deliver. Two entry points ship
+# code and must be guarded equally:
+#   - the orchestrated command:  /team-bootstrap:deliver <pipeline> …   (signature: :deliver)
+#   - a direct pipeline run:      /team-bootstrap:team-bootstrap <pipeline> …  (any /team-bootstrap: cmd)
+# Reliable signature = a "/team-bootstrap:" slash command, or a bare /deliver (back-compat).
+is_deliver=0
+printf '%s' "$payload" | grep -qE 'commands:deliver|:deliver|(^|[^A-Za-z])/deliver([^A-Za-z]|$)' && is_deliver=1
+if [ "$is_deliver" -eq 0 ]; then
+  printf '%s' "$payload" | grep -qE '(^|[^A-Za-z])/team-bootstrap:' || exit 0
+fi
 
-# Require an explicit pipeline token, so an incidental mention of the word "deliver"
-# in some other prompt does not spuriously arm a delivery run.
+# Require an explicit CODE-pipeline token (single-thread|mvp|full). This confirms a real delivery
+# run and excludes analysis pipelines (audit/audit-dd/l2p) that ship no code — arming those with
+# intends_code:true would falsely demand a code closure. /deliver with no token defaults to full.
 pipeline=""
-printf '%s' "$payload" | grep -qE '(^|[^A-Za-z])full([^A-Za-z]|$)' && pipeline="full"
-printf '%s' "$payload" | grep -qE '(^|[^A-Za-z])mvp([^A-Za-z]|$)'  && pipeline="${pipeline:-mvp}"
-[ -n "$pipeline" ] || exit 0
+printf '%s' "$payload" | grep -qE '(^|[^A-Za-z])single-thread([^A-Za-z]|$)' && pipeline="single-thread"
+printf '%s' "$payload" | grep -qE '(^|[^A-Za-z])full([^A-Za-z]|$)'          && pipeline="${pipeline:-full}"
+printf '%s' "$payload" | grep -qE '(^|[^A-Za-z])mvp([^A-Za-z]|$)'           && pipeline="${pipeline:-mvp}"
+if [ -z "$pipeline" ]; then
+  [ "$is_deliver" -eq 1 ] && pipeline="full" || exit 0   # /deliver defaults to full; bare skill needs a token
+fi
 
 # Derive the run name from a specs/<slug>/… path in the prompt; else a stable fallback.
 spec="$(printf '%s' "$payload" | grep -oE 'specs/[A-Za-z0-9._-]+/[A-Za-z0-9._/-]*' | head -1)"

@@ -47,7 +47,15 @@ if [ "${1:-}" = "--self-test" ]; then
   _expect "${d}_closed" 0 "allow — active run + all kind:code closed → exit 0"
   # allow: no marker at all (the on-by-default-safe / omitted-marker path)
   _expect "${d}_nomarker" 0 "allow — no active marker → exit 0 (no-op)"
-  rm -rf ".runs/${d}_block" ".runs/${d}_closed" ".runs/${d}_nomarker"
+  # allow: direct run (no ledger) that committed real code since baseline → delivered
+  mkdir -p ".runs/${d}_direct"
+  printf '%s\n' '{"run":"dr","intends_code":true,"source":"harness","baseline_sha":"f104f0b"}' > ".runs/${d}_direct/RUN"
+  _expect "${d}_direct" 0 "allow — direct run, no ledger, code since baseline → exit 0"
+  # block: armed run that delivered nothing (no ledger, no code since baseline=HEAD)
+  mkdir -p ".runs/${d}_empty"
+  printf '%s\n' "{\"run\":\"e\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$(git rev-parse --short HEAD 2>/dev/null)\"}" > ".runs/${d}_empty/RUN"
+  _expect "${d}_empty" 2 "block — armed run, no ledger, no code since baseline → exit 2"
+  rm -rf ".runs/${d}_block" ".runs/${d}_closed" ".runs/${d}_nomarker" ".runs/${d}_direct" ".runs/${d}_empty"
   if [ "$fail" -eq 0 ]; then echo "delivery-stop-hook --self-test: OK"; exit 0; fi
   echo "delivery-stop-hook --self-test: $fail case(s) FAILED" >&2; exit 1
 fi
@@ -59,6 +67,11 @@ marker="$(resolve_marker)"
 [ -n "$marker" ] && [ -f "$marker" ] || exit 0     # not a delivery run → allow
 mk="$(cat "$marker" 2>/dev/null || true)"
 [ "$(field_bool "$mk" intends_code)" = "true" ] || exit 0
+
+# direct-pipeline delivery signal — a run that delivers without the batch ledger
+# (`/team-bootstrap single-thread …`) proves delivery by real code committed since baseline.
+csb=0
+code_since_baseline "$(field_str "$mk" baseline_sha)" && csb=1
 
 ledger="$(resolve_ledger)"
 announced_code=0
@@ -74,15 +87,16 @@ if [ -n "$ledger" ] && [ -f "$ledger" ]; then
   done < "$ledger"
 fi
 
-if [ "$announced_code" -gt 0 ] || [ "$closed_code" -eq 0 ]; then
+if [ "$announced_code" -gt 0 ] || { [ "$closed_code" -eq 0 ] && [ "$csb" -eq 0 ]; }; then
   run="$(field_str "$mk" run)"
   {
     echo "delivery-stop-hook: BLOCKED — active delivery run '${run:-?}' has unfinished code delivery"
-    echo "  (announced-but-unclosed kind:code batches: $announced_code; earned closures: $closed_code)."
-    echo "  Finish it: run the batch through the pipeline and close it with bin/verify-batch.sh"
-    echo "  (a real commit + code_delta). If the run is genuinely finished or abandoned, end it by"
-    echo "  removing its marker (.runs/${run:-<run>}/RUN). A delivery run may not stop with code"
-    echo "  work announced-but-undelivered (constitution P6/P9)."
+    echo "  (announced-but-unclosed kind:code batches: $announced_code; earned closures: $closed_code;"
+    echo "   code committed since baseline: $([ "$csb" -eq 1 ] && echo yes || echo no))."
+    echo "  Finish it: close a batch with bin/verify-batch.sh (a real commit + code_delta), OR — for a"
+    echo "  direct pipeline run with no ledger — commit real code (the guard accepts code committed since"
+    echo "  the run baseline). If the run is genuinely finished or abandoned, end it by removing its marker"
+    echo "  (.runs/${run:-<run>}/RUN). A delivery run may not stop with code work undelivered (P6/P9)."
   } >&2
   exit 2
 fi
