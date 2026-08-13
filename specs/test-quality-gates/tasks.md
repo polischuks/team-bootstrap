@@ -91,7 +91,7 @@ them fail against current `bin/` (P9 red). No implementation task starts green.
 
 ## Batch B3 — F3 mutation (opt-in)  (risk_rank: feature · kind:code · US3/US4)
 
-- [ ] **T008** [US3,US4] Create `bin/check-mutation.sh` (marker-gated skip, AC-6): read `Mutation:` /
+- [x] **T008** [US3,US4] Create `bin/check-mutation.sh` (marker-gated skip, AC-6): read `Mutation:` /
   `MutationMode:` (`enforce|advisory`, default advisory) / `MutationThreshold:` (default
   `DEFAULT_MUTATION_THRESHOLD=60`). No `Mutation:` → skip+WARN exit 0 (AC-5). Else run it, parse the **last**
   `mutation_score:<float>` or `killed:<k>`+`total:<t>` line. **Guard `total==0` / empty / NaN → pass-with-note
@@ -99,7 +99,7 @@ them fail against current `bin/` (P9 red). No implementation task starts green.
   mutable code). `enforce` + score<thr → exit 1; `enforce` + score≥thr → 0; advisory/absent-mode → "(advisory)"
   exit 0; unparseable score → WARN exit 0.
   — (infra · P1,P6,P10) · AC-5,6 · **precedent: bin/check-diff-coverage.sh (T006) skeleton** · depends: T006 (skeleton parity)
-- [ ] **T009** [US3,US4] `--self-test` for `check-mutation.sh` via a stub `Mutation:` command (`cat` a fixture score
+- [x] **T009** [US3,US4] `--self-test` for `check-mutation.sh` via a stub `Mutation:` command (`cat` a fixture score
   line): enforce + below → exit 1; enforce + above → exit 0; advisory → exit 0; absent `Mutation:` → skip exit 0;
   marker-less → skip; unparseable → WARN exit 0; **`total:0` (no mutable code) → pass exit 0, no crash** (AC-5, AC-6).
   Wire the F3 `gate` line into `bin/verify-batch.sh` and extend the `gates` string. Confirm `verify-batch .` still
