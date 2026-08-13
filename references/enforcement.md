@@ -20,7 +20,7 @@ claim. The delivery-occurred layer makes it a recorded machine fact instead.
 | Layer | Mechanism | Catches | Bypassable? |
 |---|---|---|---|
 | **Always-on** | Stop hook → [`../bin/quality-gate.sh`](../bin/quality-gate.sh) | typecheck + lint red on completion | no (harness) |
-| **Batch gate** | [`../bin/verify-batch.sh`](../bin/verify-batch.sh) at each batch close | dead code (orphans), drift, green-by-skip | LLM-invoked (see CI) |
+| **Batch gate** | [`../bin/verify-batch.sh`](../bin/verify-batch.sh) at each batch close | dead code (orphans), drift, green-by-skip, red-not-touching-tests (F1), under-covered change (F2), weak assertions (F3, opt-in) | LLM-invoked (see CI) |
 | **Delivery-occurred** | [`../bin/check-delivery.sh`](../bin/check-delivery.sh) inside `verify-batch.sh` + the ledger stamp | a `kind:code` batch announced but **never closed** by a pipeline run; a closure with zero code delta | in-session: **no**; CI: only if the run's ledger is committed (`.runs/` is gitignored by default) |
 | **Independent backstop** | **CI** runs `verify-batch.sh` on every PR/push | everything above, from scratch, regardless of what the local run did | **no** — the merge blocks |
 
@@ -91,6 +91,29 @@ Honest reach: it enforces that each code batch had *a* genuine red→green, on a
 runnable `Test:` command (no command ⇒ warns, unenforceable). It does **not** judge whether the test asserts
 the *right* behavior — a wrong-but-failing test still counts; test quality stays with `qa-test-engineer` and
 review. And, like the delivery layer, it is marker-gated ⇒ in-session (CI has no marker).
+
+### Test-quality gates — the floor, not the ceiling (P9/P10, v2.17.0)
+
+Three `verify-batch` gates raise what the harness mechanically guarantees about a batch's *tests*, each
+marker-gated, git-grounded, project-declared-by-command, and **skip+warn when the project declares no
+tooling** (never a false block):
+
+- **F1 red-touches-tests** ([`../bin/tdd-red.sh`](../bin/tdd-red.sh) + [`../bin/check-tdd.sh`](../bin/check-tdd.sh)) —
+  a recorded red must be caused by a **committed test-file change**, not an `--allow-empty` or unrelated
+  red. Closes the narrow forge the base red gate left open ([tdd.md](tdd.md)).
+- **F2 diff-coverage** ([`../bin/check-diff-coverage.sh`](../bin/check-diff-coverage.sh)) — after green, the
+  batch's **changed non-doc lines** must be covered ≥ `CoverageThreshold:` (default 80), measured from the
+  project's LCOV over the same `current_batch_base` window the `code_delta` stamp uses. Enforces *breadth*
+  — catches "one trivial test for a 200-line change".
+- **F3 mutation** ([`../bin/check-mutation.sh`](../bin/check-mutation.sh)) — the only automated judge of
+  **assertion strength**: mutate the changed code, require score ≥ `MutationThreshold:`. **Opt-in/advisory
+  by default** (cost); enforces only under `MutationMode: enforce`.
+
+**Floor, not ceiling.** None of these certifies a *good* test suite — they eliminate the worst failures (no
+test, fake red, under-coverage, vacuous asserts) mechanically. Whether a test asserts the **intended**
+behavior stays with `test-designer`/`qa-test-engineer`/review — stated, logged, not proven (ADR-0003).
+Contract fields live in [agents-md-contract.md](agents-md-contract.md); all three carry `--self-test` and
+are `shellcheck`-clean (P8/P10).
 
 Honest reach: `.runs/` is gitignored, so the ledger/marker are per-run *local* state. This layer bites
 **in-session** — via the git-derived gate AND the harness marker, which the orchestrator cannot skip its
