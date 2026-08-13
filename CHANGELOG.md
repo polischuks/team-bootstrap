@@ -2,6 +2,23 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.13.0] - 2026-08-13
+
+### Added
+
+- **Advisory pipeline selector — [`bin/select-pipeline.sh`](bin/select-pipeline.sh).** Pipeline choice
+  (`single-thread` / `mvp` / `full`) is the one high-leverage decision the delivery gate leaves entirely
+  to the operator — and the same "just ship it" pressure that skips review also picks the *lighter*
+  pipeline. Nothing else in the flow catches an under-sized choice; this does. It sizes the change's diff
+  (file count, non-doc lines, distinct top-level layers) and scans for **risk touches** — security/auth,
+  data/schema/migrations, infra/deploy, public API/contract, dependency manifests — where any single risk
+  touch lifts the recommendation to `full` (the sanctioned multi-role + audit-trail tier, P1). With
+  `--chosen <pipeline>` it exits **2** when the choice is *lighter* than recommended (e.g. `single-thread`
+  on a change that touches auth across layers → recommends `full`). It is a **visible nudge, not a block**
+  — the operator still decides (constitution P1); a hard gate here would only relocate the same soft call.
+  Wired into `/deliver`'s Phase-A gate as an advisory. Counts untracked files (which `git diff` omits) and
+  ships `--self-test` (11 cases); `shellcheck --severity=error` clean.
+
 ## [2.12.2] - 2026-08-12
 
 ### Fixed
