@@ -87,6 +87,59 @@ code_since_baseline() {
   [ "$d" -gt 0 ]
 }
 
+# --- F1 (red-touches-tests) test-path detection --------------------------------
+# is_test_path PATH [EXTRA_GLOBS] → rc 0 if PATH is a test file, else rc 1.
+# Default set (OQ-1): basename matches *_test.* *.test.* test_*.* *.spec.* *Test.* *_spec.rb,
+# OR any path segment ∈ {test, tests, spec, __tests__}. EXTRA_GLOBS (space/comma-separated,
+# from AGENTS.md TestGlobs:) EXTENDS the default set — a project can widen the check, never
+# shrink it. Extra globs are matched against BOTH the full path and the basename.
+is_test_path() {
+  local p="$1" extra="${2:-}" base glob
+  base="${p##*/}"
+  case "$base" in
+    *_test.*|*.test.*|test_*.*|*.spec.*|*Test.*|*_spec.rb) return 0 ;;
+  esac
+  case "/$p/" in
+    */test/*|*/tests/*|*/spec/*|*/__tests__/*) return 0 ;;
+  esac
+  if [ -n "$extra" ]; then
+    extra="${extra//,/ }"
+    for glob in $extra; do
+      [ -n "$glob" ] || continue
+      # shellcheck disable=SC2254  # unquoted on purpose: $glob is a glob pattern to match
+      case "$p" in $glob) return 0 ;; esac
+      # shellcheck disable=SC2254
+      case "$base" in $glob) return 0 ;; esac
+    done
+  fi
+  return 1
+}
+
+# read_test_globs [DOC] → echo the space-separated globs on a `TestGlobs:` line in
+# AGENTS.md/CLAUDE.md (empty if none). Values may be backticked or bare, comma- or
+# space-separated. Extends is_test_path's default set; never replaces it.
+read_test_globs() {
+  local doc="${1:-}" f rest
+  if [ -z "$doc" ]; then for f in AGENTS.md CLAUDE.md; do [ -f "$f" ] && { doc="$f"; break; }; done; fi
+  [ -n "$doc" ] && [ -f "$doc" ] || return 0
+  rest="$(grep -iE "^[[:space:]]*[-*]?[[:space:]]*TestGlobs:" "$doc" 2>/dev/null | head -1 | sed -E 's/^[^:]*://')"
+  [ -n "$rest" ] || return 0
+  printf '%s' "$rest" | tr -d '`' | tr ',' ' ' | xargs 2>/dev/null || true
+}
+
+# window_touches_test BASE TIP [EXTRA_GLOBS] → rc 0 if the diff BASE..TIP changes ≥1 test path.
+# BASE empty ⇒ compare against the canonical empty tree (TIP's whole content). Used by check-tdd
+# (F1) to require a code batch's red window to have changed a test file.
+window_touches_test() {
+  local base="$1" tip="$2" extra="${3:-}" p
+  [ -n "$base" ] || base="4b825dc642cb6eb9a060e54bf8d69288fbee4904"  # git empty tree
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    is_test_path "$p" "$extra" && return 0
+  done < <(git diff --name-only "$base" "$tip" 2>/dev/null)
+  return 1
+}
+
 # nondoc_delta_of_shas "sha1 sha2 …" → Σ (added+deleted) lines on NON-doc files
 # across the commits, counted PER COMMIT (self-contained; does not drift with later
 # history — OQ-4). Unresolvable SHAs contribute 0; callers enforce existence
@@ -108,4 +161,56 @@ nondoc_delta_of_shas() {
     done < <(git show --numstat --format= "$full" 2>/dev/null)
   done
   printf '%s' "$total"
+}
+
+# --- F2 (diff-coverage) batch window ------------------------------------------
+# current_batch_base — echo the base ref/sha for the IN-FLIGHT batch's diff, using the EXACT
+# chain verify-batch.sh's stamp uses: newest commit of the last `closed` ledger entry → the first
+# existing of origin/main|main|origin/master|master (if it differs from HEAD) → HEAD~1. F2 and the
+# code_delta stamp both take their window from HERE, so "the batch's changed lines" is one definition
+# and cannot drift (spec R1). Echoes a usable base (empty only in a repo with no HEAD~1).
+current_batch_base() {
+  local ledger since base b
+  ledger="$(resolve_ledger)"
+  if [ -n "$ledger" ] && [ -f "$ledger" ]; then
+    since="$(grep '"status":"closed"' "$ledger" 2>/dev/null | tail -1 \
+      | sed -nE 's/.*"commit_shas":\["([0-9a-fA-F]+)".*/\1/p')"
+    if [ -n "$since" ] && git rev-parse --verify -q "$since^{commit}" >/dev/null 2>&1; then
+      printf '%s' "$since"; return 0
+    fi
+  fi
+  base=""
+  for b in origin/main main origin/master master; do
+    if git rev-parse --verify -q "$b^{commit}" >/dev/null 2>&1; then base="$b"; break; fi
+  done
+  if [ -n "$base" ] && [ "$(git rev-parse -q "$base" 2>/dev/null)" != "$(git rev-parse -q HEAD 2>/dev/null)" ]; then
+    printf '%s' "$base"; return 0
+  fi
+  git rev-parse --verify -q 'HEAD~1^{commit}' >/dev/null 2>&1 && printf 'HEAD~1'
+  return 0
+}
+
+# changed_nondoc_lines BASE → emit "path:line" for each added/changed NON-doc line in BASE..HEAD
+# (git diff --unified=0, new-side hunk ranges). Doc paths (_is_doc_path) are filtered out. Pure
+# deletions (new-side count 0) contribute nothing. Used by F2 as the denominator's source set.
+changed_nondoc_lines() {
+  local base="$1" path="" line plus start cnt i
+  [ -n "$base" ] || return 0
+  while IFS= read -r line; do
+    case "$line" in
+      "+++ b/"*) path="${line#+++ b/}" ;;
+      "+++ "*)   path="" ;;
+      "@@ "*)
+        [ -n "$path" ] || continue
+        _is_doc_path "$path" && continue
+        plus="$(printf '%s' "$line" | sed -nE 's/^@@ [^+]*\+([0-9]+)(,([0-9]+))? @@.*/\1 \3/p')"
+        [ -n "$plus" ] || continue
+        start="${plus%% *}"; cnt="${plus##* }"
+        case "$cnt" in ''|*[!0-9]*) cnt=1 ;; esac
+        [ "$cnt" -eq 0 ] && continue
+        i=0
+        while [ "$i" -lt "$cnt" ]; do printf '%s:%s\n' "$path" "$((start + i))"; i=$((i + 1)); done
+        ;;
+    esac
+  done < <(git diff --unified=0 "$base" HEAD 2>/dev/null)
 }

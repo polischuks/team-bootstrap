@@ -2,6 +2,49 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.17.0] - 2026-08-13
+
+### Added
+
+- **Three test-quality `verify-batch` gates — the floor, not the ceiling.** v2.15/2.16 made "a test was
+  written and seen to fail" a git fact; these raise what the harness guarantees about the tests themselves,
+  each marker-gated (in-session), git-grounded, declared by an AGENTS.md command, and **skip+warn when the
+  project declares no tooling** (never a false block). See [ADR-0003](docs/adr/0003-test-quality-gates.md),
+  [enforcement.md](references/enforcement.md), [tdd.md](references/tdd.md),
+  [agents-md-contract.md](references/agents-md-contract.md).
+  - **F1 red-touches-tests** — [`bin/tdd-red.sh`](bin/tdd-red.sh) refuses a red whose committed change
+    since baseline touched **no** test-path file (rejects `--allow-empty` and non-test-only reds; exit 4),
+    and [`bin/check-tdd.sh`](bin/check-tdd.sh) requires each code batch's red window
+    `<prev-code-tip‖baseline>..red_sha` to change ≥1 test path. Test-path set = a default glob set ∪
+    AGENTS.md `TestGlobs:` (extends, never shrinks; inline-test layouts widen it to their source globs).
+    Commit the failing test **before** recording red — that commit is the `red_sha`.
+  - **F2 diff-coverage** — new [`bin/check-diff-coverage.sh`](bin/check-diff-coverage.sh): the batch's
+    changed non-doc lines must be covered ≥ `CoverageThreshold:` (default 80), parsed from the project's
+    **LCOV** over the same `current_batch_base` window the `code_delta` stamp uses (shared definition —
+    `stamp_batch_closed` refactored to call it, so F2 and the stamp cannot drift). `measured=0` with
+    changed lines WARNs loudly (not a silent pass); separator-anchored `SF:` path match.
+  - **F3 mutation** — new [`bin/check-mutation.sh`](bin/check-mutation.sh): mutate the changed code, require
+    score ≥ `MutationThreshold:` (default 60). **Opt-in/advisory by default**; enforces only under
+    `MutationMode: enforce`. Parses a normalized `mutation_score:`/`killed:total:` line (adapters for
+    Stryker/mutmut/PIT/cargo-mutants are docs, not per-tool parsers); `total:0` passes (no divide-by-zero).
+  - New AGENTS.md contract fields: `TestGlobs`, `Coverage`, `CoverageFile`, `CoverageThreshold`,
+    `Mutation`, `MutationThreshold`, `MutationMode`. Shared helpers `is_test_path`, `read_test_globs`,
+    `window_touches_test`, `current_batch_base`, `changed_nondoc_lines` in
+    [`bin/delivery-lib.sh`](bin/delivery-lib.sh). F2/F3 wired into [`bin/verify-batch.sh`](bin/verify-batch.sh).
+    Each new/changed script ships `--self-test`; `shellcheck --severity=error bin/*.sh` clean; existing
+    gate self-tests unregressed. Delivered via `/deliver` (batches B1–B4). No constitution bump.
+
+### Fixed
+
+- **F2 partial-coverage vacuous pass (post-delivery review, batch B5).** A review probe found
+  `check-diff-coverage.sh` computed `covered ÷ measured`, not `covered ÷ changed`: when the `Coverage:`
+  command was **not** cover-all and omitted some changed lines, those lines silently dropped from the
+  denominator and the gate reported a confident "100% OK" over the measured subset — a silent vacuous pass
+  (it only warned when *zero* lines were measured, not when *some* were). Now a partial report emits a
+  **loud WARN** naming the unmeasured lines by default, and the new `CoverageStrict: true` counts unmeasured
+  changed lines as misses (denominator = all changed non-doc lines) so a non-cover-all report **fails**.
+  Self-test extended (partial→WARN, partial+strict→fail).
+
 ## [2.16.0] - 2026-08-13
 
 ### Changed
