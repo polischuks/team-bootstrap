@@ -162,3 +162,55 @@ nondoc_delta_of_shas() {
   done
   printf '%s' "$total"
 }
+
+# --- F2 (diff-coverage) batch window ------------------------------------------
+# current_batch_base — echo the base ref/sha for the IN-FLIGHT batch's diff, using the EXACT
+# chain verify-batch.sh's stamp uses: newest commit of the last `closed` ledger entry → the first
+# existing of origin/main|main|origin/master|master (if it differs from HEAD) → HEAD~1. F2 and the
+# code_delta stamp both take their window from HERE, so "the batch's changed lines" is one definition
+# and cannot drift (spec R1). Echoes a usable base (empty only in a repo with no HEAD~1).
+current_batch_base() {
+  local ledger since base b
+  ledger="$(resolve_ledger)"
+  if [ -n "$ledger" ] && [ -f "$ledger" ]; then
+    since="$(grep '"status":"closed"' "$ledger" 2>/dev/null | tail -1 \
+      | sed -nE 's/.*"commit_shas":\["([0-9a-fA-F]+)".*/\1/p')"
+    if [ -n "$since" ] && git rev-parse --verify -q "$since^{commit}" >/dev/null 2>&1; then
+      printf '%s' "$since"; return 0
+    fi
+  fi
+  base=""
+  for b in origin/main main origin/master master; do
+    if git rev-parse --verify -q "$b^{commit}" >/dev/null 2>&1; then base="$b"; break; fi
+  done
+  if [ -n "$base" ] && [ "$(git rev-parse -q "$base" 2>/dev/null)" != "$(git rev-parse -q HEAD 2>/dev/null)" ]; then
+    printf '%s' "$base"; return 0
+  fi
+  git rev-parse --verify -q 'HEAD~1^{commit}' >/dev/null 2>&1 && printf 'HEAD~1'
+  return 0
+}
+
+# changed_nondoc_lines BASE → emit "path:line" for each added/changed NON-doc line in BASE..HEAD
+# (git diff --unified=0, new-side hunk ranges). Doc paths (_is_doc_path) are filtered out. Pure
+# deletions (new-side count 0) contribute nothing. Used by F2 as the denominator's source set.
+changed_nondoc_lines() {
+  local base="$1" path="" line plus start cnt i
+  [ -n "$base" ] || return 0
+  while IFS= read -r line; do
+    case "$line" in
+      "+++ b/"*) path="${line#+++ b/}" ;;
+      "+++ "*)   path="" ;;
+      "@@ "*)
+        [ -n "$path" ] || continue
+        _is_doc_path "$path" && continue
+        plus="$(printf '%s' "$line" | sed -nE 's/^@@ [^+]*\+([0-9]+)(,([0-9]+))? @@.*/\1 \3/p')"
+        [ -n "$plus" ] || continue
+        start="${plus%% *}"; cnt="${plus##* }"
+        case "$cnt" in ''|*[!0-9]*) cnt=1 ;; esac
+        [ "$cnt" -eq 0 ] && continue
+        i=0
+        while [ "$i" -lt "$cnt" ]; do printf '%s:%s\n' "$path" "$((start + i))"; i=$((i + 1)); done
+        ;;
+    esac
+  done < <(git diff --unified=0 "$base" HEAD 2>/dev/null)
+}
