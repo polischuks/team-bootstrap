@@ -74,6 +74,15 @@ To acknowledge, surface the advisory to the human and, on their go-ahead, set `p
 `.runs/<run>/RUN` — then Phase B may announce batch 1. (Presence of the ack is enforced; its *honesty*
 is the human's, logged not proven — parity with `risk_rank`.)
 
+**Right-sizing (advisory).** Pipeline choice is the one high-leverage call left to the operator, and the
+same "just ship it" pressure that skips review also picks the *lighter* pipeline. Run
+`${CLAUDE_PLUGIN_ROOT}/bin/select-pipeline.sh --chosen PIPELINE` against the change scope (it sizes the
+diff — files, non-doc lines, layers, and risk touches: security/auth, data/schema, infra/deploy,
+API/contract, deps). **Exit 2** means the diff is heavier than `PIPELINE` (e.g. you chose `single-thread`
+but it touches auth across layers → recommends `full`): **surface the recommendation**. This is a
+**visible nudge, not a block** — the operator still decides (constitution P1). No diff yet (fresh run) →
+it recommends the lightest tier and stays silent; re-run it as batches land, or against `<base>..HEAD`.
+
 ---
 
 ## Phase B — Implementation, batch-by-batch (step-by-step, human-paced)
