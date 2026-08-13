@@ -1,28 +1,33 @@
 #!/usr/bin/env bash
-# check-tdd.sh — harness gate for P9's red→green: tests written first, run and SEEN to fail,
-# then implemented to green. A git-grounded fact, not a self-declared `tests_failed_first` boolean.
+# check-tdd.sh — harness gate for P9's red→green: tests written first, run and SEEN to fail, then
+# implemented to green. A git-grounded fact, not a self-declared `tests_failed_first` boolean.
 #
-# For an ACTIVE delivery run (marker intends_code:true) that shipped code, require:
-#   1. a RED RECORD — .runs/<run>/tdd.jsonl, written by tdd-red.sh, which can only exist because
-#      the suite actually ran red — whose red_sha resolves, is a DESCENDANT of the run baseline and
-#      a PROPER ANCESTOR of HEAD (red observed on this run's work, before the implementation);
-#   2. the suite is GREEN at HEAD now (re-run the AGENTS.md `Test:` command).
-# An armed run that shipped code with NO valid red record is fail-closed — the red step was skipped
-# (prose "tests_failed_first: true" is not accepted; only the git-anchored record is).
+# PER-BATCH (v2.16.0): every code batch must have its OWN red step, observed before that batch's own
+# commits. For an ACTIVE delivery run (marker intends_code:true):
+#   - Ledger flow — for each kind:code batch (closed, using its commit_shas; and the in-flight last
+#     announced one, using HEAD), require a red record (.runs/<run>/tdd.jsonl, written by tdd-red.sh)
+#     bearing that batch's id, whose red_sha resolves, is a DESCENDANT of the run baseline and a PROPER
+#     ANCESTOR of that batch's code. One red record credits at most one batch (no reuse).
+#   - Direct flow (no ledger, but code since baseline) — require one red record whose red_sha is
+#     post-baseline and a proper ancestor of HEAD.
+# Plus: the suite must be GREEN at HEAD now. Any code batch without its own valid red → fail-closed.
 #
-# Graceful skips (exit 0): not an active delivery run (no marker), no code shipped yet, or no
-# runnable `Test:` command (red→green not machine-verifiable — warns). In-session only: CI has no
-# marker (.runs/ is gitignored), same reach as check-delivery.
+# A red record exists only because tdd-red.sh actually ran the tests red — prose cannot fabricate it.
+#
+# Graceful skips (exit 0): no active marker, no code delivered, or no runnable AGENTS.md `Test:`
+# command (warns — unenforceable). Marker-gated ⇒ in-session (CI has no marker), like check-delivery.
 #
 # Usage: bin/check-tdd.sh [project-dir]  ·  bin/check-tdd.sh --self-test
-# Exit:  0 pass / skip · 1 red step missing, mis-ordered, or HEAD not green · 64 bad usage
+# Exit:  0 pass / skip · 1 a code batch lacks its red step, mis-ordered, or HEAD not green · 64 bad usage
 set -uo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=bin/delivery-lib.sh
 . "$here/delivery-lib.sh"
 
-_test_cmd() { # echo the AGENTS.md/CLAUDE.md `Test:` command (empty if none/N/A)
+tdd=""   # path to the run's tdd.jsonl (set in _evaluate; read by _find_red)
+
+_test_cmd() {
   local doc="" f c
   for f in AGENTS.md CLAUDE.md; do [ -f "$f" ] && { doc="$f"; break; }; done
   [ -n "$doc" ] || return 0
@@ -31,67 +36,90 @@ _test_cmd() { # echo the AGENTS.md/CLAUDE.md `Test:` command (empty if none/N/A)
   printf '%s' "$c"
 }
 
-# evaluate a project dir; echo nothing, return exit code (0 pass/skip, 1 fail)
+# _oldest_sha LINE → the batch's oldest commit_sha (commit_shas is stored newest-first).
+_oldest_sha() { shas_of_line "$1" | awk '{print $NF}'; }
+
+# _find_red BATCH_ID('' = any) ANCHOR_FULL BASE_FULL USED → echo a valid, unused red_full or return 1.
+# Valid = record (matching batch id, if given) whose red_sha resolves, is a PROPER ANCESTOR of ANCHOR
+# (red before the code) and a DESCENDANT of BASE (red on this run's work), and not already USED.
+_find_red() {
+  local id="$1" anchor="$2" bfull="$3" used="$4" line rs rfull
+  [ -n "$tdd" ] && [ -f "$tdd" ] || return 1
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    [ -z "$id" ] || [ "$(field_str "$line" batch)" = "$id" ] || continue
+    rs="$(field_str "$line" red_sha)"; rfull="$(resolve_sha "$rs")" || rfull=""
+    [ -n "$rfull" ] || continue
+    case " $used " in *" $rfull "*) continue ;; esac
+    [ "$rfull" != "$anchor" ] || continue
+    git merge-base --is-ancestor "$rfull" "$anchor" 2>/dev/null || continue
+    [ -z "$bfull" ] || git merge-base --is-ancestor "$bfull" "$rfull" 2>/dev/null || continue
+    printf '%s' "$rfull"; return 0
+  done < "$tdd"
+  return 1
+}
+
 _evaluate() {
-  local marker mk intends baseline ledger closed_code=0 csb=0 delivered=0 tcmd
+  local marker mk baseline ledger tcmd hd bfull run total n line status id anchor r
+  local viol=0 used="" any_code_batch=0
   marker="$(resolve_marker)"
   [ -n "$marker" ] && [ -f "$marker" ] || { echo "check-tdd: no active delivery run — skipping (TDD governs armed runs)."; return 0; }
   mk="$(cat "$marker" 2>/dev/null || true)"
-  intends="$(field_bool "$mk" intends_code)"
-  [ "$intends" = "true" ] || { echo "check-tdd: marker not intends_code — skipping."; return 0; }
+  [ "$(field_bool "$mk" intends_code)" = "true" ] || { echo "check-tdd: marker not intends_code — skipping."; return 0; }
   baseline="$(field_str "$mk" baseline_sha)"
-
-  # did this run ship code? (a closed kind:code batch OR real code since baseline)
-  ledger="$(resolve_ledger)"
-  if [ -n "$ledger" ] && [ -f "$ledger" ]; then
-    local line
-    while IFS= read -r line; do
-      [ -n "$line" ] || continue
-      [ "$(field_str "$line" kind)" = "code" ] || continue
-      [ "$(field_str "$line" status)" = "closed" ] && closed_code=$((closed_code + 1))
-    done < "$ledger"
-  fi
-  code_since_baseline "${baseline:-}" && csb=1
-  { [ "$closed_code" -gt 0 ] || [ "$csb" -eq 1 ]; } && delivered=1
-  [ "$delivered" -eq 1 ] || { echo "check-tdd: no code delivered yet — nothing to require a red step for."; return 0; }
-
   tcmd="$(_test_cmd)"
   [ -n "$tcmd" ] || { echo "check-tdd: WARN — no runnable Test: command in AGENTS.md; red→green cannot be machine-verified (P9 unenforced for this project)." >&2; return 0; }
-
-  # require a valid red record
-  local run tdd
+  hd="$(git rev-parse HEAD 2>/dev/null || true)"
+  bfull="$(resolve_sha "${baseline:-}")"
   run="$(printf '%s' "$marker" | sed -E 's#^.*\.runs/([^/]+)/RUN$#\1#')"
   tdd=".runs/$run/tdd.jsonl"
-  if [ ! -f "$tdd" ] || ! grep -q '"observed":"red"' "$tdd" 2>/dev/null; then
-    echo "  FAIL-CLOSED: code shipped but NO observed red step (.runs/$run/tdd.jsonl) — P9 requires tests written first and SEEN to fail. Run bin/tdd-red.sh before implementing." >&2
-    return 1
-  fi
-  local hd; hd="$(git rev-parse HEAD 2>/dev/null || true)"
-  local bfull; bfull="$(resolve_sha "${baseline:-}")"
-  local valid=0 line rs rfull
-  while IFS= read -r line; do
-    [ -n "$line" ] || continue
-    rs="$(field_str "$line" red_sha)"; [ -n "$rs" ] || continue
-    rfull="$(resolve_sha "$rs")" || rfull=""
-    [ -n "$rfull" ] || continue                                       # red_sha must resolve
-    [ "$rfull" != "$hd" ] || continue                                 # red must precede the code (proper ancestor)
-    git merge-base --is-ancestor "$rfull" "$hd" 2>/dev/null || continue
-    if [ -n "$bfull" ]; then
-      git merge-base --is-ancestor "$bfull" "$rfull" 2>/dev/null || continue   # red on this run's work (post-baseline)
-    fi
-    valid=1; break
-  done < "$tdd"
-  if [ "$valid" -eq 0 ]; then
-    echo "  FAIL-CLOSED: red record(s) exist but none is a post-baseline, pre-HEAD commit — the red step was not observed before the code (P9)." >&2
-    return 1
+
+  ledger="$(resolve_ledger)"
+  if [ -n "$ledger" ] && [ -f "$ledger" ]; then
+    total="$(grep -c . "$ledger" 2>/dev/null || echo 0)"; n=0
+    while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      n=$((n + 1))
+      [ "$(field_str "$line" kind)" = "code" ] || continue
+      status="$(field_str "$line" status)"
+      id="$(field_str "$line" id)"; [ -n "$id" ] || id="#$n"
+      if [ "$status" = "closed" ]; then
+        any_code_batch=1
+        anchor="$(resolve_sha "$(_oldest_sha "$line")")"
+        if [ -z "$anchor" ]; then
+          echo "  FAIL: code batch '$id' commit_shas do not resolve — cannot verify red ordering." >&2; viol=$((viol + 1)); continue
+        fi
+        r="$(_find_red "$id" "$anchor" "$bfull" "$used")" || r=""
+        if [ -z "$r" ]; then
+          echo "  FAIL-CLOSED: code batch '$id' has no red step before its own commits — each code batch must be red-first (P9, per-batch)." >&2; viol=$((viol + 1))
+        else used="$used $r"; fi
+      elif [ "$n" -eq "$total" ]; then
+        any_code_batch=1   # in-flight batch being closed now: its code is up to HEAD, not yet stamped
+        r="$(_find_red "$id" "$hd" "$bfull" "$used")" || r=""
+        if [ -z "$r" ]; then
+          echo "  FAIL-CLOSED: in-flight code batch '$id' has no red step before HEAD — run bin/tdd-red.sh --batch $id before implementing (P9, per-batch)." >&2; viol=$((viol + 1))
+        else used="$used $r"; fi
+      fi
+    done < "$ledger"
   fi
 
-  # green now
-  if ! eval "$tcmd" >/dev/null 2>&1; then
-    echo "  FAIL: suite is RED at HEAD (\`$tcmd\`) — red→green not reached; implement to green before closing (P9)." >&2
-    return 1
+  if [ "$any_code_batch" -eq 0 ]; then
+    if code_since_baseline "${baseline:-}"; then          # direct run (no ledger): run-level red
+      r="$(_find_red "" "$hd" "$bfull" "")" || r=""
+      if [ -z "$r" ]; then
+        echo "  FAIL-CLOSED: code shipped (direct run) with no observed red step before HEAD (P9). Run bin/tdd-red.sh before implementing." >&2; viol=$((viol + 1))
+      fi
+    else
+      echo "check-tdd: no code delivered yet — nothing to require a red step for."; return 0
+    fi
   fi
-  echo "check-tdd: red→green verified — a test was observed to fail before the code, and the suite is green at HEAD."
+
+  [ "$viol" -eq 0 ] || return 1
+
+  if ! eval "$tcmd" >/dev/null 2>&1; then
+    echo "  FAIL: suite is RED at HEAD (\`$tcmd\`) — implement to green before closing (P9)." >&2; return 1
+  fi
+  echo "check-tdd: per-batch red→green verified — every code batch had its own red step before its code, and the suite is green at HEAD."
   return 0
 }
 
@@ -99,30 +127,42 @@ _evaluate() {
 if [ "${1:-}" = "--self-test" ]; then
   fail=0
   T="$(mktemp -d)"
+  git_t() { ( cd "$T" && "$@" ); }
   ( cd "$T" && git init -q && git config user.email t@t && git config user.name t
-    printf '# AGENTS\n\n- Test: `test -f .green`\n' > AGENTS.md
-    git add AGENTS.md && git commit -qm baseline ) >/dev/null 2>&1
-  base="$(cd "$T" && git rev-parse --short HEAD)"
+    printf '# AGENTS\n\n- Test: `test -f .green`\n' > AGENTS.md && git add . && git commit -qm baseline ) >/dev/null 2>&1
+  base="$(git_t git rev-parse --short HEAD)"
+  git_t git commit -q --allow-empty -m "redA (B1 red step)" >/dev/null 2>&1;  rA="$(git_t git rev-parse --short HEAD)"
+  ( cd "$T" && echo 1 > f1 && git add f1 && git commit -qm "B1 code" ) >/dev/null 2>&1; c1="$(git_t git rev-parse --short HEAD)"
+  git_t git commit -q --allow-empty -m "redB (B2 red step)" >/dev/null 2>&1;  rB="$(git_t git rev-parse --short HEAD)"
+  ( cd "$T" && : > .green && echo 2 > f2 && git add . && git commit -qm "B2 code (green)" ) >/dev/null 2>&1; c2="$(git_t git rev-parse --short HEAD)"
   mkdir -p "$T/.runs/r"
   printf '{"run":"r","intends_code":true,"source":"harness","baseline_sha":"%s"}\n' "$base" > "$T/.runs/r/RUN"
-  ( cd "$T" && echo t > testfile && git add testfile && git commit -qm "failing test (red)" ) >/dev/null 2>&1
-  red="$(cd "$T" && git rev-parse --short HEAD)"
-  ( cd "$T" && : > .green && git add .green && git commit -qm "impl to green" ) >/dev/null 2>&1
+  printf '%s\n%s\n' \
+    "{\"id\":\"B1\",\"kind\":\"code\",\"status\":\"closed\",\"commit_shas\":[\"$c1\"],\"code_delta\":5}" \
+    "{\"id\":\"B2\",\"kind\":\"code\",\"status\":\"closed\",\"commit_shas\":[\"$c2\"],\"code_delta\":5}" > "$T/.runs/r/batches.jsonl"
   _run() { ( cd "$T" && TEAM_BOOTSTRAP_RUN=r "$here/check-tdd.sh" . >/dev/null 2>&1 ); echo $?; }
   _chk() { local got; got="$(_run)"; if [ "$got" = "$2" ]; then echo "  PASS (exit $got) $1"; else echo "  FAIL (exit $got, want $2) $1" >&2; fail=$((fail + 1)); fi; }
 
-  _chk "code shipped, NO red record → fail-closed" 1
-  printf '{"batch":"B1","red_sha":"%s","test_cmd":"test -f .green","observed":"red"}\n' "$red" > "$T/.runs/r/tdd.jsonl"
-  _chk "valid red record (post-baseline, pre-HEAD) + green HEAD → pass" 0
-  # red_sha == HEAD (no impl after red) → invalid
-  hd="$(cd "$T" && git rev-parse --short HEAD)"
-  printf '{"batch":"B1","red_sha":"%s","test_cmd":"test -f .green","observed":"red"}\n' "$hd" > "$T/.runs/r/tdd.jsonl"
-  _chk "red_sha == HEAD (no code after red) → fail" 1
-  # restore valid record, then break green at HEAD
-  printf '{"batch":"B1","red_sha":"%s","test_cmd":"test -f .green","observed":"red"}\n' "$red" > "$T/.runs/r/tdd.jsonl"
-  ( cd "$T" && rm -f .green && git commit -qam "regress: remove green" ) >/dev/null 2>&1
-  _chk "valid red record but HEAD is RED → fail" 1
-  ( cd "$T" && : > .green && git add .green && git commit -qm "re-green" ) >/dev/null 2>&1
+  # both batches have their own red → pass
+  printf '%s\n%s\n' \
+    "{\"batch\":\"B1\",\"red_sha\":\"$rA\",\"observed\":\"red\"}" \
+    "{\"batch\":\"B2\",\"red_sha\":\"$rB\",\"observed\":\"red\"}" > "$T/.runs/r/tdd.jsonl"
+  _chk "two code batches, each red-first + green HEAD → pass" 0
+  # B2's red missing → fail-closed
+  printf '%s\n' "{\"batch\":\"B1\",\"red_sha\":\"$rA\",\"observed\":\"red\"}" > "$T/.runs/r/tdd.jsonl"
+  _chk "B2 has no red step → fail-closed (per-batch)" 1
+  # B2 tries to reuse B1's red (mislabelled) → still fail (rA is not an ancestor-only-of B2; and reuse)
+  printf '%s\n%s\n' \
+    "{\"batch\":\"B1\",\"red_sha\":\"$rA\",\"observed\":\"red\"}" \
+    "{\"batch\":\"B2\",\"red_sha\":\"$rA\",\"observed\":\"red\"}" > "$T/.runs/r/tdd.jsonl"
+  _chk "B2 reuses B1's red_sha → fail (one red, one batch)" 1
+  # both present again but HEAD red (remove .green) → fail
+  printf '%s\n%s\n' \
+    "{\"batch\":\"B1\",\"red_sha\":\"$rA\",\"observed\":\"red\"}" \
+    "{\"batch\":\"B2\",\"red_sha\":\"$rB\",\"observed\":\"red\"}" > "$T/.runs/r/tdd.jsonl"
+  ( cd "$T" && rm -f .green && git commit -qam "regress" ) >/dev/null 2>&1
+  _chk "both reds present but HEAD is RED → fail" 1
+  ( cd "$T" && : > .green && git add .green && git commit -qm regreen ) >/dev/null 2>&1
   # marker-less → skip
   ( cd "$T" && rm -f .runs/r/RUN )
   _chk "no active marker → skip (exit 0)" 0

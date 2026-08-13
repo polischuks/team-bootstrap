@@ -123,6 +123,11 @@ Then, for **each batch, one at a time**:
    next batch cannot be announced until this one is closed by a real run.
 4. Subagents **commit locally only**. Never `git push` or deploy without explicit per-call
    authorization (constitution P5 / irreversibility).
+   **Red-first, per batch (P9).** At this batch's red step — after writing the failing test(s), before
+   implementing — run `${CLAUDE_PLUGIN_ROOT}/bin/tdd-red.sh --batch <this batch id>`; it requires the
+   `Test:` suite to actually fail and records the observed red. `check-tdd.sh` (in `verify-batch`, below)
+   fails the batch if this code batch has no red recorded before its own commits — every code batch must
+   be red-first in its own window (see [../references/tdd.md](../references/tdd.md)).
 5. **Integration gate (hard).** The pipeline's `integration-verifier` runs after the builders,
    with a clean context: it executes the E2E command from `AGENTS.md` and scans for orphans
    (any endpoint/component the batch produced with no live consumer). **Do not mark the batch

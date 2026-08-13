@@ -79,12 +79,15 @@ red step is git-grounded:
   **requires** a non-zero (red) result — it refuses to record a green suite — and stamps the observed red
   (`red_sha` = HEAD) into `.runs/<run>/tdd.jsonl`. The record can only exist because the tests actually ran
   red; prose cannot fabricate it.
-- [`../bin/check-tdd.sh`](../bin/check-tdd.sh) (a `verify-batch` gate) fails a code-shipping armed run unless
-  a red record exists whose `red_sha` is a **descendant of the run baseline and a proper ancestor of HEAD**
-  (red observed on this run's work, before the code) **and** the suite is **green at HEAD** now. No red
-  record ⇒ fail-closed: the red step was skipped.
+- [`../bin/check-tdd.sh`](../bin/check-tdd.sh) (a `verify-batch` gate) enforces this **per code batch**:
+  for **each** `kind:code` batch (closed → against its own `commit_shas`; the in-flight one → against HEAD),
+  a red record bearing that batch's id must exist whose `red_sha` is a **descendant of the run baseline and
+  a proper ancestor of that batch's code**. One red record credits **at most one batch** (no reuse across
+  batches), so `baseline < red₁ < code₁`, `code₁ < red₂ < code₂`, … — every batch is red-first in its own
+  window. The suite must also be **green at HEAD**. Any code batch with no valid red ⇒ fail-closed. (A
+  direct pipeline run with no ledger falls back to one run-level red before HEAD.)
 
-Honest reach: it enforces that *a* genuine red→green happened on the run, on a project that declares a
+Honest reach: it enforces that each code batch had *a* genuine red→green, on a project that declares a
 runnable `Test:` command (no command ⇒ warns, unenforceable). It does **not** judge whether the test asserts
 the *right* behavior — a wrong-but-failing test still counts; test quality stays with `qa-test-engineer` and
 review. And, like the delivery layer, it is marker-gated ⇒ in-session (CI has no marker).
