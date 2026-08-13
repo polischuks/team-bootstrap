@@ -87,6 +87,59 @@ code_since_baseline() {
   [ "$d" -gt 0 ]
 }
 
+# --- F1 (red-touches-tests) test-path detection --------------------------------
+# is_test_path PATH [EXTRA_GLOBS] → rc 0 if PATH is a test file, else rc 1.
+# Default set (OQ-1): basename matches *_test.* *.test.* test_*.* *.spec.* *Test.* *_spec.rb,
+# OR any path segment ∈ {test, tests, spec, __tests__}. EXTRA_GLOBS (space/comma-separated,
+# from AGENTS.md TestGlobs:) EXTENDS the default set — a project can widen the check, never
+# shrink it. Extra globs are matched against BOTH the full path and the basename.
+is_test_path() {
+  local p="$1" extra="${2:-}" base glob
+  base="${p##*/}"
+  case "$base" in
+    *_test.*|*.test.*|test_*.*|*.spec.*|*Test.*|*_spec.rb) return 0 ;;
+  esac
+  case "/$p/" in
+    */test/*|*/tests/*|*/spec/*|*/__tests__/*) return 0 ;;
+  esac
+  if [ -n "$extra" ]; then
+    extra="${extra//,/ }"
+    for glob in $extra; do
+      [ -n "$glob" ] || continue
+      # shellcheck disable=SC2254  # unquoted on purpose: $glob is a glob pattern to match
+      case "$p" in $glob) return 0 ;; esac
+      # shellcheck disable=SC2254
+      case "$base" in $glob) return 0 ;; esac
+    done
+  fi
+  return 1
+}
+
+# read_test_globs [DOC] → echo the space-separated globs on a `TestGlobs:` line in
+# AGENTS.md/CLAUDE.md (empty if none). Values may be backticked or bare, comma- or
+# space-separated. Extends is_test_path's default set; never replaces it.
+read_test_globs() {
+  local doc="${1:-}" f rest
+  if [ -z "$doc" ]; then for f in AGENTS.md CLAUDE.md; do [ -f "$f" ] && { doc="$f"; break; }; done; fi
+  [ -n "$doc" ] && [ -f "$doc" ] || return 0
+  rest="$(grep -iE "^[[:space:]]*[-*]?[[:space:]]*TestGlobs:" "$doc" 2>/dev/null | head -1 | sed -E 's/^[^:]*://')"
+  [ -n "$rest" ] || return 0
+  printf '%s' "$rest" | tr -d '`' | tr ',' ' ' | xargs 2>/dev/null || true
+}
+
+# window_touches_test BASE TIP [EXTRA_GLOBS] → rc 0 if the diff BASE..TIP changes ≥1 test path.
+# BASE empty ⇒ compare against the canonical empty tree (TIP's whole content). Used by check-tdd
+# (F1) to require a code batch's red window to have changed a test file.
+window_touches_test() {
+  local base="$1" tip="$2" extra="${3:-}" p
+  [ -n "$base" ] || base="4b825dc642cb6eb9a060e54bf8d69288fbee4904"  # git empty tree
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    is_test_path "$p" "$extra" && return 0
+  done < <(git diff --name-only "$base" "$tip" 2>/dev/null)
+  return 1
+}
+
 # nondoc_delta_of_shas "sha1 sha2 …" → Σ (added+deleted) lines on NON-doc files
 # across the commits, counted PER COMMIT (self-contained; does not drift with later
 # history — OQ-4). Unresolvable SHAs contribute 0; callers enforce existence
