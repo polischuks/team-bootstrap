@@ -34,6 +34,17 @@ All notable changes to team-bootstrap. Format follows [Keep a Changelog](https:/
     Each new/changed script ships `--self-test`; `shellcheck --severity=error bin/*.sh` clean; existing
     gate self-tests unregressed. Delivered via `/deliver` (batches B1–B4). No constitution bump.
 
+### Fixed
+
+- **F2 partial-coverage vacuous pass (post-delivery review, batch B5).** A review probe found
+  `check-diff-coverage.sh` computed `covered ÷ measured`, not `covered ÷ changed`: when the `Coverage:`
+  command was **not** cover-all and omitted some changed lines, those lines silently dropped from the
+  denominator and the gate reported a confident "100% OK" over the measured subset — a silent vacuous pass
+  (it only warned when *zero* lines were measured, not when *some* were). Now a partial report emits a
+  **loud WARN** naming the unmeasured lines by default, and the new `CoverageStrict: true` counts unmeasured
+  changed lines as misses (denominator = all changed non-doc lines) so a non-cover-all report **fails**.
+  Self-test extended (partial→WARN, partial+strict→fail).
+
 ## [2.16.0] - 2026-08-13
 
 ### Changed

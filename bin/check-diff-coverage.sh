@@ -10,6 +10,10 @@
 #     changed file shows up as DA misses, not as an absence (else its lines are unmeasured).
 #   - `CoverageThreshold:` — percent on changed lines (default 80).
 #   - `CoverageFile:` — optional path the Coverage command writes LCOV to (else stdout is parsed).
+#   - `CoverageStrict:` — `true` makes unmeasured changed lines count as MISSES (denominator = ALL
+#     changed non-doc lines), so a non-cover-all report fails instead of passing over its subset.
+#     Default (unset/false): pass over the measured subset but emit a LOUD WARN naming the unmeasured
+#     lines — a partial report never passes silently (B5).
 #
 # LCOV grammar consumed: `SF:<path>` opens a file section, `DA:<line>,<count>` per instrumented line
 # (count 0 = miss, >0 = hit), `end_of_record` closes. A changed `path:line` is *measured* if some SF
@@ -100,21 +104,36 @@ _evaluate() {
 
   rm -f "$changed" "$lcov" "$measured" "$covered"
 
-  if [ "$m" -eq 0 ]; then
-    if [ "$changed_n" -gt 0 ]; then
-      echo "check-diff-coverage: WARN — $changed_n changed non-doc line(s) are not present in the coverage report; the Coverage: command may be omitting untested files (require cover-all/--include). Cannot enforce breadth on this batch." >&2
-    else
-      echo "check-diff-coverage: no changed non-doc lines to measure — pass."
+  # B5 — a PARTIAL coverage report (measured < changed: the Coverage command is not cover-all) must
+  # never pass silently over the measured subset. Default: loud WARN + measure over `m`. Strict
+  # (`CoverageStrict: true`): unmeasured changed lines count as MISSES (denominator = all changed).
+  local strict; strict="$(_val CoverageStrict "$doc")"
+  case "$strict" in true|True|TRUE|yes|Yes|1) strict=1 ;; *) strict=0 ;; esac
+  local unmeasured=$(( changed_n - m )); [ "$unmeasured" -ge 0 ] || unmeasured=0
+  local denom="$m"
+
+  if [ "$strict" -eq 1 ]; then
+    if [ "$changed_n" -eq 0 ]; then echo "check-diff-coverage: no changed non-doc lines to measure — pass."; return 0; fi
+    [ "$unmeasured" -gt 0 ] && echo "check-diff-coverage: strict — ${unmeasured} of ${changed_n} changed non-doc line(s) unmeasured, counted as MISSES (CoverageStrict: true)." >&2
+    denom="$changed_n"
+  else
+    if [ "$m" -eq 0 ]; then
+      if [ "$changed_n" -gt 0 ]; then
+        echo "check-diff-coverage: WARN — none of the ${changed_n} changed non-doc line(s) are in the coverage report; the Coverage: command may be omitting untested files (require cover-all/--include). Cannot enforce breadth on this batch — set CoverageStrict: true to count unmeasured as misses." >&2
+      else
+        echo "check-diff-coverage: no changed non-doc lines to measure — pass."
+      fi
+      return 0
     fi
-    return 0
+    [ "$unmeasured" -gt 0 ] && echo "check-diff-coverage: WARN — ${unmeasured} of ${changed_n} changed non-doc line(s) are NOT in the coverage report; the percentage below is over the measured ${m} only. Declare a cover-all Coverage: command, or set CoverageStrict: true to count unmeasured as misses." >&2
   fi
 
-  local pct; pct=$(( 100 * c / m ))
+  local pct; pct=$(( 100 * c / denom ))
   if [ "$pct" -lt "$thr" ]; then
-    echo "  FAIL: changed-line coverage ${pct}% (${c}/${m}) < threshold ${thr}% — add tests exercising the changed lines (F2, breadth)." >&2
+    echo "  FAIL: changed-line coverage ${pct}% (${c}/${denom}) < threshold ${thr}% — add tests exercising the changed lines (F2, breadth)." >&2
     return 1
   fi
-  echo "check-diff-coverage: changed-line coverage ${pct}% (${c}/${m}) ≥ ${thr}% — OK."
+  echo "check-diff-coverage: changed-line coverage ${pct}% (${c}/${denom}) ≥ ${thr}% — OK."
   return 0
 }
 
@@ -139,6 +158,16 @@ if [ "${1:-}" = "--self-test" ]; then
   # 5/5 covered = 100% ≥ 80 → pass
   printf 'SF:app.sh\nDA:2,1\nDA:3,1\nDA:4,1\nDA:5,2\nDA:6,1\nend_of_record\n' > "$T/cov.lcov"
   _chk "changed-line coverage 100%% ≥ 80%% → pass" "$(_run)" 0
+  # [B5] PARTIAL: only 2 of 5 changed lines measured (both hit) — default passes over measured but MUST warn loudly
+  printf 'SF:app.sh\nDA:2,1\nDA:3,1\nend_of_record\n' > "$T/cov.lcov"
+  out="$( cd "$T" && TEAM_BOOTSTRAP_RUN=r "$here/check-diff-coverage.sh" . 2>&1 )"; rc=$?
+  if [ "$rc" = 0 ] && printf '%s' "$out" | grep -q "NOT in the coverage report"; then
+    echo "  PASS (exit 0 + loud WARN) partial measurement (2/5) no longer passes silently [B5]"
+  else echo "  FAIL [B5] partial measurement did not warn (rc=$rc)" >&2; fail=$((fail + 1)); fi
+  # [B5] same partial + CoverageStrict:true → unmeasured=misses → 2/5=40% < 80 → fail
+  ( cd "$T" && printf '# AGENTS\n\n- Coverage: `cat cov.lcov`\n- CoverageThreshold: 80\n- CoverageStrict: true\n' > AGENTS.md )
+  _chk "partial + CoverageStrict:true → 40%% < 80%% → fail [B5]" "$(_run)" 1
+  ( cd "$T" && printf '# AGENTS\n\n- Coverage: `cat cov.lcov`\n- CoverageThreshold: 80\n' > AGENTS.md )   # reset non-strict
   # separator-anchored path: SF:src/app.sh must NOT satisfy a changed app.sh → measured=0 → WARN pass
   printf 'SF:src/app.sh\nDA:2,1\nDA:3,1\nDA:4,1\nDA:5,1\nDA:6,1\nend_of_record\n' > "$T/cov.lcov"
   _chk "unanchored SF (src/app.sh) does not cover app.sh → measured=0 WARN → exit 0" "$(_run)" 0
