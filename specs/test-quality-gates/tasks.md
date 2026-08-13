@@ -64,14 +64,14 @@ them fail against current `bin/` (P9 red). No implementation task starts green.
 
 ## Batch B2 — F2 diff-coverage  (risk_rank: feature · kind:code · US2/US4)
 
-- [ ] **T005** [US2] Add to `bin/delivery-lib.sh`: `current_batch_base` mirroring the **exact** chain
+- [x] **T005** [US2] Add to `bin/delivery-lib.sh`: `current_batch_base` mirroring the **exact** chain
   `stamp_batch_closed` uses today (last `closed` entry's newest commit → `origin/main‖main‖origin/master‖master`
   → `HEAD~1`; **no `baseline_sha` tier**) and `changed_nondoc_lines BASE` (emit `path:line` for each added/changed
   non-doc line in `git diff --unified=0 BASE..HEAD`, parsing `@@ +start,count @@`, `_is_doc_path`-filtered).
   **Refactor `bin/verify-batch.sh` `stamp_batch_closed` to call `current_batch_base`** (drop its inline `since`/
   `range`) so F2's window and the `code_delta` stamp share one definition and cannot drift (Step-7 R1 fix).
   — (foundation · P10) · AC-3 · **precedent: bin/verify-batch.sh `stamp_batch_closed` range logic; delivery-lib `_is_doc_path`** · depends: —
-- [ ] **T006** [US2,US4] Create `bin/check-diff-coverage.sh` (marker-gated skip, AC-6): read `Coverage:` /
+- [x] **T006** [US2,US4] Create `bin/check-diff-coverage.sh` (marker-gated skip, AC-6): read `Coverage:` /
   `CoverageThreshold:` (default `DEFAULT_COVERAGE_THRESHOLD=80`) / `CoverageFile:`. Absent `Coverage:` → WARN +
   exit 0 (AC-4). Else run `Coverage:`, parse LCOV (`SF:`→path, `DA:line,count` measured/covered, `end_of_record`),
   intersect with `changed_nondoc_lines "$(current_batch_base)"`; `|measured|=0` **with** changed non-doc lines →
@@ -79,7 +79,7 @@ them fail against current `bin/` (P9 red). No implementation task starts green.
   `|measured|=0` with no changed lines → silent pass; else `pct<threshold` → exit 1, `≥` → exit 0.
   **Separator-anchored** `SF:` match (path equals, or ends with `/<changed-path>` — never bare suffix; Step-7 minor).
   — (infra · P9,P10,P6) · AC-3,4,6 · **precedent: bin/check-tdd.sh marker guard + `_test_cmd`** · depends: T005 · ⚠ (parser correctness)
-- [ ] **T007** [US2,US4] `--self-test` for `check-diff-coverage.sh` via a stub `Coverage:` command (`cat` a fixture
+- [x] **T007** [US2,US4] `--self-test` for `check-diff-coverage.sh` via a stub `Coverage:` command (`cat` a fixture
   LCOV): below-threshold → exit 1, at/above → exit 0 (AC-3); no `Coverage:` → WARN exit 0 (AC-4); marker-less → skip
   (AC-6); measured=0-with-changes → WARN exit 0; no changed lines → pass; separator-anchored path-match case. Wire
   the F2 `gate` line into `bin/verify-batch.sh` (after `check-tdd`) and extend `stamp_batch_closed`'s `gates`
