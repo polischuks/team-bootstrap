@@ -37,24 +37,24 @@ them fail against current `bin/` (P9 red). No implementation task starts green.
 
 ## Batch B1 — F1 red-touches-tests  (risk_rank: feature · kind:code · US1)
 
-- [ ] **T001** [US1] Add to `bin/delivery-lib.sh`: `is_test_path PATH [EXTRA_GLOBS]` (default set — basename
+- [x] **T001** [US1] Add to `bin/delivery-lib.sh`: `is_test_path PATH [EXTRA_GLOBS]` (default set — basename
   `*_test.* *.test.* test_*.* *.spec.* *Test.* *_spec.rb`, or path segment ∈ `{test,tests,spec,__tests__}`;
   `EXTRA_GLOBS` extends, never replaces) and `read_test_globs [DOC]` (extract `TestGlobs:` via the shared
   backtick/bare `extract` convention). Pure, side-effect-free.
   — (foundation · P11) · AC-1,2 · **precedent: bin/quality-gate.sh `extract()`; bin/delivery-lib.sh `_is_doc_path`** · depends: —
-- [ ] **T002** [US1] `bin/tdd-red.sh`: after observing red, check the **committed** change set
+- [x] **T002** [US1] `bin/tdd-red.sh`: after observing red, check the **committed** change set
   `git diff --name-only <baseline_sha>..HEAD`; if no path is a test path (`is_test_path` + `read_test_globs`) →
   refuse, write **no** record, exit **4** with an actionable message ("commit your failing test first so the
   red is git-anchored, then re-run; inline-test projects: widen `TestGlobs:` to your source globs"). Rejects
   `--allow-empty`, non-test-only, and worktree-only (uncommitted) reds — one contract with check-tdd's
   `…red_sha` window (Step-7 blocker fix).
   — (foundation · P9,P11) · AC-1 · **precedent: bin/tdd-red.sh record block** · depends: T001 · ⚠ (forge surface)
-- [ ] **T003** [US1] `bin/check-tdd.sh`: per code batch, require the red window `<prev-code-tip‖baseline>..<red_sha>`
+- [x] **T003** [US1] `bin/check-tdd.sh`: per code batch, require the red window `<prev-code-tip‖baseline>..<red_sha>`
   to change ≥1 test path (`_window_touches_test BASE RED` = `git diff --name-only BASE RED` filtered by
   `is_test_path`). Track `prev_tip` across the ledger loop; in-flight window = `prev_tip..red_sha`; direct-run
   fallback `baseline..red_sha`. Preserve existing ordering/reuse/HEAD-green logic and the `_test_cmd`-absent WARN skip.
   — (foundation · P9,P11) · AC-2 · **precedent: bin/check-tdd.sh `_find_red`/`_evaluate`** · depends: T001
-- [ ] **T004** [US1] Self-tests + `--self-test` for `tdd-red.sh` (empty/allow-empty red → exit 4; non-test-only
+- [x] **T004** [US1] Self-tests + `--self-test` for `tdd-red.sh` (empty/allow-empty red → exit 4; non-test-only
   committed red → exit 4; worktree-only test → exit 4; **committed** test-touching red → record, exit 0; no
   `Test:` cmd → exit 3). Update `check-tdd.sh --self-test`: red commits now carry a **committed** test-path change
   (preserving ordering/reuse/HEAD-green cases) **plus** an empty-red-window → fail case (AC-2) and the marker-less →
