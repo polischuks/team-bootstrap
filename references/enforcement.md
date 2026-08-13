@@ -48,13 +48,25 @@ post-baseline commits whose non-doc delta backs the stamp. That is the whole poi
 
 **Self-starting + fail-closed** (F-B): a harness `UserPromptSubmit` hook
 ([`../bin/delivery-marker-init.sh`](../bin/delivery-marker-init.sh)) writes `.runs/<run>/RUN`
-(`intends_code:true`, `baseline_sha`) when `/deliver` is invoked — so "a delivery run is active" is a
-**machine fact the harness owns**, not an orchestrator courtesy. Under that marker, `check-delivery.sh`
-inverts its absent-input branch from *skip* to *fail*: no ledger, or zero closed `kind:code`, is a
-failure — an agent cannot finish Phase A, skip Phase B, and report closure. Without a marker
-(non-delivery session) the exit-0 skip stays, so nothing nags docs-only or WIP work. A delivery-aware
-Stop hook ([`../bin/delivery-stop-hook.sh`](../bin/delivery-stop-hook.sh)) blocks completion (exit 2)
-while a marked run still has code work announced-but-unclosed.
+(`intends_code:true`, `baseline_sha`) — so "a delivery run is active" is a **machine fact the harness
+owns**, not an orchestrator courtesy. It arms on **every code pipeline**, not just `/deliver`: the
+orchestrated `/deliver` command *and* a direct `/team-bootstrap:team-bootstrap single-thread|mvp|full …`
+run both ship code and are guarded equally. Analysis pipelines (`audit`, `audit-dd`, `l2p`) ship no code
+and never arm. Under a marker, `check-delivery.sh` inverts its absent-input branch from *skip* to *fail*.
+Without a marker (non-delivery session) the exit-0 skip stays, so nothing nags docs-only or WIP work.
+
+**Delivery is satisfied two git-grounded ways** — neither forgeable by prose:
+
+1. **Ledger closure** — a `verify-batch`-stamped `kind:code` batch (the `/deliver` Phase-B path, above).
+2. **Baseline delta** — real non-doc code committed since `baseline_sha`, reachable from HEAD
+   (`code_since_baseline` in [`../bin/delivery-lib.sh`](../bin/delivery-lib.sh)). This is the **direct
+   pipeline** path: `/team-bootstrap single-thread …` writes no batch ledger (deliver.md itself
+   recommends it for small changes), yet must still prove delivery by real commits.
+
+An armed run with **neither** — no closed batch and no code since baseline — is fail-closed: it ran a
+pipeline and shipped nothing. A delivery-aware Stop hook
+([`../bin/delivery-stop-hook.sh`](../bin/delivery-stop-hook.sh)) blocks completion (exit 2) on the same
+condition (or an announced-but-unclosed batch), so no code pipeline can finish having delivered nothing.
 
 Honest reach: `.runs/` is gitignored, so the ledger/marker are per-run *local* state. This layer bites
 **in-session** — via the git-derived gate AND the harness marker, which the orchestrator cannot skip its

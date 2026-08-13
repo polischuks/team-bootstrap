@@ -109,6 +109,17 @@ if [ "${1:-}" = "--self-test" ]; then
     *) echo "  FAIL N-1 — success line claimed more than was enforced" >&2; fail=$((fail + 1)) ;;
   esac
   rm -rf .runs/_st_n1
+  # Direct-pipeline delivery: an armed run with NO ledger but real code committed since a
+  # resolvable baseline is delivery (git-grounded), not fail-closed — this makes the guard fire
+  # uniformly for `/team-bootstrap single-thread …`, which writes no batch ledger.
+  mkdir -p .runs/_st_dr1
+  printf '%s\n' '{"run":"_st_dr1","intends_code":true,"source":"harness","baseline_sha":"f104f0b"}' > .runs/_st_dr1/RUN
+  _expect _st_dr1 0 "direct-run — armed, no ledger, code since baseline → delivered (exit 0)"
+  rm -rf .runs/_st_dr1
+  mkdir -p .runs/_st_dr2
+  printf '%s\n' "{\"run\":\"_st_dr2\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$(git rev-parse --short HEAD 2>/dev/null)\"}" > .runs/_st_dr2/RUN
+  _expect _st_dr2 1 "direct-run — armed, no ledger, no code since baseline → fail-closed (exit 1)"
+  rm -rf .runs/_st_dr2
   for d in $_dirs; do rm -rf ".runs/$d"; done
   if [ "$fail" -eq 0 ]; then echo "check-delivery --self-test: OK"; exit 0; fi
   echo "check-delivery --self-test: $fail case(s) FAILED" >&2; exit 1
@@ -138,10 +149,20 @@ if [ -n "$marker" ] && [ -f "$marker" ]; then
   fi
 fi
 
+# direct-pipeline delivery signal — a run may deliver without the /deliver batch ledger
+# (deliver.md recommends `/team-bootstrap single-thread` directly for small changes). Such a
+# run writes no ledger but commits real code; code_since_baseline proves it, git-grounded.
+csb=0
+[ "$intends" = "true" ] && code_since_baseline "${baseline:-}" && csb=1
+
 ledger="$(resolve_ledger)"
 if [ -z "$ledger" ] || [ ! -f "$ledger" ]; then
   if [ "$intends" = "true" ]; then
-    echo "  FAIL-CLOSED: active delivery run (marker intends_code:true) but NO batch ledger — delivery did not occur; an agent cannot finish Phase A, skip Phase B, and report closure (AC-4)." >&2
+    if [ "$csb" -eq 1 ]; then
+      echo "check-delivery: no batch ledger, but real non-doc code was committed since baseline '${baseline}' — direct-pipeline delivery (git-verified), allowed."
+      exit 0
+    fi
+    echo "  FAIL-CLOSED: active delivery run (intends_code:true) with NO batch ledger AND no code committed since baseline — no delivery occurred (AC-4)." >&2
     echo "check-delivery: fail-closed under an active run — no delivery." >&2
     exit 1
   fi
@@ -262,8 +283,8 @@ fi
 # earned code closure and nothing in flight — e.g. only kind:doc closures. A run that
 # intends code but delivered none is a failure, not a pass. Bootstrap-safe: a single
 # code batch legitimately in flight (inflight_code) is NOT penalised.
-if [ "$intends" = "true" ] && [ "$closed_code" -eq 0 ] && [ "$inflight_code" -eq 0 ]; then
-  echo "  FAIL-CLOSED: active delivery run (intends_code:true) with zero earned kind:code closures and nothing in flight — no delivery occurred (AC-4)." >&2
+if [ "$intends" = "true" ] && [ "$closed_code" -eq 0 ] && [ "$inflight_code" -eq 0 ] && [ "$csb" -eq 0 ]; then
+  echo "  FAIL-CLOSED: active delivery run (intends_code:true) with zero earned kind:code closures, nothing in flight, and no code committed since baseline — no delivery occurred (AC-4)." >&2
   viol=$((viol + 1))
 fi
 
