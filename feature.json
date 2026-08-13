@@ -1,5 +1,5 @@
 {
-  "active_spec": "specs/delivery-guard-self-starting",
+  "active_spec": "specs/test-quality-gates",
   "specs_dir": "specs",
   "constitution": "constitution.md",
   "constitution_version": "1.0.1",
