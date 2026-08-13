@@ -109,20 +109,20 @@ them fail against current `bin/` (P9 red). No implementation task starts green.
 
 ## Batch B4 — docs + version + ADR  (risk_rank: doc · kind:doc)
 
-- [ ] **T010** [docs] `references/agents-md-contract.md`: document the six new `## Testing` fields —
+- [x] **T010** [docs] `references/agents-md-contract.md`: document the six new `## Testing` fields —
   `TestGlobs`, `Coverage`, `CoverageThreshold`, `CoverageFile`, `Mutation`, `MutationThreshold`, `MutationMode`
   — with the LCOV / normalized-score contracts and the skip+warn-when-absent rule.
   — (docs · P7) · AC-7 · **precedent: references/agents-md-contract.md** · depends: B1B2B3
-- [ ] **T011** [docs] `references/tdd.md`: add F1 (a red must change a test file) to the red-step section.
+- [x] **T011** [docs] `references/tdd.md`: add F1 (a red must change a test file) to the red-step section.
   — (docs · P9) · AC-7 · depends: B1
-- [ ] **T012** [docs] `references/enforcement.md`: add F2/F3 to the `verify-batch` gate list + the floor-not-ceiling
+- [x] **T012** [docs] `references/enforcement.md`: add F2/F3 to the `verify-batch` gate list + the floor-not-ceiling
   honest-reach paragraph (intent stays with review; marker-gated ⇒ in-session).
   — (docs · P10) · AC-7 · depends: B1B2B3
-- [ ] **T013** [docs] `docs/adr/0003-test-quality-gates.md` — ADR-0003 (plan §5).
+- [x] **T013** [docs] `docs/adr/0003-test-quality-gates.md` — ADR-0003 (plan §5).
   — (docs · P8) · AC-7 · **precedent: docs/adr/0002-closure-from-git-state.md** · depends: B1B2B3
-- [ ] **T014** [docs] `VERSION` → `2.17.0`; `CHANGELOG.md` `[2.17.0]` section (F1/F2/F3, contract fields, ADR-0003).
+- [x] **T014** [docs] `VERSION` → `2.17.0`; `CHANGELOG.md` `[2.17.0]` section (F1/F2/F3, contract fields, ADR-0003).
   — (docs · P8) · AC-7 · depends: B1B2B3
-- [ ] **T015** [docs] Final sweep: `check-gate-integrity.sh .` clean (no green-by-skip); CI internal-link check
+- [x] **T015** [docs] Final sweep: `check-gate-integrity.sh .` clean (no green-by-skip); CI internal-link check
   passes for the new ADR/reference links; re-run all `bin/*.sh --self-test` + `shellcheck --severity=error bin/*.sh`.
   — (docs · P10) · AC-7 · depends: T010T014
   **B4 GATE:** gate-integrity clean · links resolve · all self-tests + shellcheck green.
@@ -159,10 +159,10 @@ Every AC maps to ≥1 task; every code task cites its AC. No orphan AC.
 
 ## Exit criteria (release gate)
 
-- [ ] All 16 tasks `[x]`; AC→task table fully covered.
-- [ ] `bin/*.sh --self-test` green for `tdd-red`, `check-tdd`, `check-diff-coverage`, `check-mutation`;
+- [x] All 16 tasks `[x]`; AC→task table fully covered.
+- [x] `bin/*.sh --self-test` green for `tdd-red`, `check-tdd`, `check-diff-coverage`, `check-mutation`;
   existing `check-delivery`/`delivery-stop-hook`/`select-pipeline` self-tests still green (no regression).
-- [ ] `shellcheck --severity=error bin/*.sh` clean; `check-gate-integrity.sh .` clean.
-- [ ] `verify-batch .` passes on this repo (all three tooling gates skip+warn — AC-8).
-- [ ] `VERSION`=2.17.0, `CHANGELOG [2.17.0]`, ADR-0003 present, internal links resolve.
+- [x] `shellcheck --severity=error bin/*.sh` clean; `check-gate-integrity.sh .` clean.
+- [x] `verify-batch .` passes on this repo (all three tooling gates skip+warn — AC-8).
+- [x] `VERSION`=2.17.0, `CHANGELOG [2.17.0]`, ADR-0003 present, internal links resolve.
 - [ ] Push only on explicit human authorization (P5).
