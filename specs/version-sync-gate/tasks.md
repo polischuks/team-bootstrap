@@ -15,10 +15,10 @@
 
 ## B2 — docs + version bump (`kind:doc`, `risk_rank:doc`)
 
-- [ ] **T007** — `references/agents-md-contract.md`: add `VersionFiles:` (syntax per OQ-2).
-- [ ] **T008** — `references/enforcement.md`: add the version-sync layer.
-- [ ] **T009** — `CHANGELOG` `[2.18.0]`; bump `VERSION` + `plugin.json` + `marketplace.json` (metadata + plugins[]) to 2.18.0 — which B1's gate then verifies stay in sync.
-- [ ] **T010** — ADR-0004 (version-sync gate); final sweep (shellcheck, self-tests, links).
+- [x] **T007** — `references/agents-md-contract.md`: add `VersionFiles:` (syntax per OQ-2).
+- [x] **T008** — `references/enforcement.md`: add the version-sync layer.
+- [x] **T009** — `CHANGELOG` `[2.18.0]`; bump `VERSION` + `plugin.json` + `marketplace.json` (metadata + plugins[]) to 2.18.0 — which B1's gate then verifies stay in sync.
+- [x] **T010** — ADR-0004 (version-sync gate); final sweep (shellcheck, self-tests, links).
 
 ## Coverage check
 
