@@ -60,6 +60,12 @@ convention as `Test:`/`Typecheck:`; the framework declares the *contract*, the p
 - **`MutationThreshold:`** (F3) — minimum mutation score to pass under enforce. Default **60**.
 - **`MutationMode:`** (F3) — `enforce` (hard gate) or `advisory` (report only). Default **advisory** —
   mutation is opt-in by contract, not by pipeline tier.
+- **`VersionFiles:`** (version-sync) — a space/comma list of `path` (whole trimmed file) or `path:key`
+  (first `"key":"…"` in that file) whose version values must all agree, e.g.
+  `` `package.json:version`, `pyproject.toml:version` ``. **Only needed for non-plugin projects** — a
+  plugin (`.claude-plugin/plugin.json` present) is checked automatically (`VERSION` + `plugin.json.version`
+  + every `marketplace.json` version). Absent + not a plugin ⇒ the gate skips + warns
+  ([`check-version-sync.sh`](../bin/check-version-sync.sh)).
 
 A `## PR Conventions` section with:
 
