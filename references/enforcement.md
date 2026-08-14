@@ -135,6 +135,19 @@ The batch gate is the same script CI runs, so a batch whose local run skipped `i
 or `code-reviewer` still fails at merge. That is the point: **CI is the layer the orchestrator cannot
 talk its way past.**
 
+### Version-sync — manifests cannot drift (v2.18.0)
+
+A release must not bump `VERSION` while leaving `.claude-plugin/plugin.json` / `marketplace.json` stale —
+a drift this framework itself shipped twice (`v2.12.1`, `v2.17.0`), each time silently: the plugin
+self-reported the old version and `claude plugin update` offered nothing.
+[`../bin/check-version-sync.sh`](../bin/check-version-sync.sh) (a `verify-batch` gate) collects every
+declared version field — for a plugin: `VERSION`, `plugin.json.version`, and **every** `"version"` in
+`marketplace.json` (metadata + each `plugins[]`); otherwise the AGENTS.md `VersionFiles:` set — and
+**fails when they disagree**, naming each location and the plurality value (report truth; the human
+bumps). No version locations ⇒ skip + WARN. Marker-gated ⇒ in-session (a committed-manifest CI check is
+a cheap follow-on). It has no version field of its own and dogfooded its own milestone: B2's bump to
+2.18.0 closed only because all four fields agreed.
+
 ## CI backstop (add to the target project)
 
 Add a job that runs the batch gate against the change — this is what makes review non-optional:

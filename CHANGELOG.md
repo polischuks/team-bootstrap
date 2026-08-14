@@ -2,6 +2,25 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.18.0] - 2026-08-14
+
+### Added
+
+- **Version-sync gate — manifests cannot drift.** The plugin's version lives in four places that must
+  agree (`VERSION`, `.claude-plugin/plugin.json` `version`, `marketplace.json` `metadata.version` +
+  each `plugins[].version`). A release that bumps one and forgets the others is silent and
+  outward-facing — the plugin self-reports the old version and `claude plugin update` offers nothing.
+  This framework shipped that drift **twice** (`v2.12.1`, `v2.17.0`). Now
+  [`bin/check-version-sync.sh`](bin/check-version-sync.sh) (a `verify-batch` gate) collects every
+  declared version field and **fails when they disagree**, naming each location and the plurality value
+  (no auto-fix — the human bumps). Default plugin set, else AGENTS.md `VersionFiles:`
+  ([agents-md-contract.md](references/agents-md-contract.md)), else skip+WARN (never a false block).
+  Marker-gated ⇒ in-session; jq-free. Wired into [`verify-batch.sh`](bin/verify-batch.sh);
+  `--self-test` 7 cases; `shellcheck` clean. See [ADR-0004](docs/adr/0004-version-sync-gate.md),
+  [enforcement.md](references/enforcement.md). Delivered via `/deliver` (B1 code, B2 doc); the gate
+  dogfooded this milestone — B2's bump to 2.18.0 closed only because all four fields agree. No
+  constitution bump.
+
 ## [2.17.0] - 2026-08-13
 
 ### Added
