@@ -2,6 +2,26 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.18.1] - 2026-08-14
+
+### Fixed
+
+- **Whitespace-fragile marker parser silently disabled fail-closed (critical).** `delivery-lib.sh`'s
+  `field_str`/`field_num`/`field_bool` matched `"key":value` with **no space after the colon**. A RUN
+  marker written with `": "` (e.g. `python json.dumps`' default) parsed as **empty** → `intends_code`
+  read false → `check-tdd`, `check-delivery` (fail-closed), `check-version-sync`, `check-diff-coverage`,
+  `check-mutation` all **silently skipped**, turning the guard off with no error. Added `[[:space:]]*`
+  after the colon in all extractors (and `shas_of_line`), so compact **and** spaced markers parse.
+  Regression-locked in `check-delivery --self-test` (spaced marker → still fail-closed).
+- **`commit_shas` included the test-only RED commit (and pre-baseline commits), breaking closure.**
+  `verify-batch` stamped `git log current_batch_base..HEAD` verbatim, and `current_batch_base` fell back
+  to `origin/main` without consulting the RUN marker's `baseline_sha`. So (a) the TDD red commit became
+  the **oldest** `commit_sha` — which `check-tdd` uses as the batch's code-anchor, and `red_sha` cannot
+  be a proper ancestor of itself → **post-closure FAIL**; and (b) pre-baseline commits leaked in, which
+  `check-delivery`'s predate check flagged as forged. Fixed both: `current_batch_base` uses the marker's
+  `baseline_sha` for the first batch, and `verify-batch` excludes recorded `red_sha` commits from
+  `commit_shas` (impl-only). Regression-locked in a new `verify-batch --self-test`.
+
 ## [2.18.0] - 2026-08-14
 
 ### Added
