@@ -25,7 +25,9 @@ set -uo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
 root="${1:-.}"
-cd "$root" 2>/dev/null || { echo "verify-batch: bad dir '$root'" >&2; exit 64; }
+if [ "$root" != "--self-test" ]; then
+  cd "$root" 2>/dev/null || { echo "verify-batch: bad dir '$root'" >&2; exit 64; }
+fi
 # shellcheck source=bin/delivery-lib.sh
 . "$here/delivery-lib.sh"
 
@@ -65,6 +67,29 @@ stamp_batch_closed() {
   # (for the ledger JSON). One list, two renderings.
   local shas_list shas
   shas_list="$(git log --format=%h "$range" 2>/dev/null | head -50 | tr '\n' ' ' || true)"
+
+  # Exclude test-only RED commits from commit_shas. The TDD red step commits the failing test
+  # FIRST (that commit becomes the red_sha), then implementation follows. commit_shas must be
+  # IMPL-only: otherwise the RED commit is the OLDEST commit_sha, which check-tdd uses as the
+  # batch's code-anchor — and red_sha cannot be a proper ancestor of itself, so the batch would
+  # FAIL after it was closed. Drop any stamped commit that is a recorded red_sha for this run.
+  local tdd rl rs rf red_fulls="" s sfull filtered=""
+  tdd="$(dirname "$ledger")/tdd.jsonl"
+  if [ -f "$tdd" ]; then
+    while IFS= read -r rl; do
+      [ -n "$rl" ] || continue
+      rs="$(field_str "$rl" red_sha)"; [ -n "$rs" ] || continue
+      rf="$(resolve_sha "$rs")"; [ -n "$rf" ] && red_fulls="$red_fulls $rf"
+    done < "$tdd"
+  fi
+  if [ -n "$red_fulls" ]; then
+    for s in $shas_list; do
+      sfull="$(resolve_sha "$s")"
+      case " $red_fulls " in *" $sfull "*) continue ;; esac
+      filtered="$filtered $s"
+    done
+    shas_list="$(printf '%s' "$filtered" | xargs 2>/dev/null || true)"
+  fi
   shas="$(printf '%s' "$shas_list" | sed 's/[[:space:]]*$//;s/  */,/g')"
 
   # code_delta from the SAME shared function check-delivery.sh recomputes with
@@ -89,6 +114,32 @@ stamp_batch_closed() {
   done < "$ledger" > "$tmp" && mv "$tmp" "$ledger"
   echo "verify-batch: stamped closed in $ledger — code_delta=$delta shas=${shas:-none}" >&2
 }
+
+# --- self-test: stamp_batch_closed writes IMPL-only commit_shas over the baseline window --------
+# Locks the bug where the test-only RED commit (and pre-baseline commits via the origin/main
+# fallback) leaked into commit_shas, breaking check-tdd's oldest-commit anchor after closure.
+if [ "${1:-}" = "--self-test" ]; then
+  fail=0; T="$(mktemp -d)"
+  ( cd "$T" && git init -q && git config user.email t@t && git config user.name t
+    echo base > app.sh && git add . && git commit -qm c0 ) >/dev/null 2>&1
+  base="$(cd "$T" && git rev-parse --short HEAD)"
+  ( cd "$T" && echo t > app_test.sh && git add app_test.sh && git commit -qm RED ) >/dev/null 2>&1
+  red="$(cd "$T" && git rev-parse --short HEAD)"
+  ( cd "$T" && : > .green && echo impl >> app.sh && git add . && git commit -qm IMPL ) >/dev/null 2>&1
+  impl="$(cd "$T" && git rev-parse --short HEAD)"
+  mkdir -p "$T/.runs/r"
+  printf '{"run":"r","intends_code":true,"baseline_sha":"%s"}\n' "$base" > "$T/.runs/r/RUN"
+  printf '{"id":"B1","kind":"code","status":"announced"}\n' > "$T/.runs/r/batches.jsonl"
+  printf '{"batch":"B1","red_sha":"%s","observed":"red"}\n' "$red" > "$T/.runs/r/tdd.jsonl"
+  ( cd "$T" && TEAM_BOOTSTRAP_RUN=r stamp_batch_closed ) 2>/dev/null
+  got="$(grep -oE '"commit_shas":\[[^]]*\]' "$T/.runs/r/batches.jsonl" 2>/dev/null)"
+  if printf '%s' "$got" | grep -q "$impl" && ! printf '%s' "$got" | grep -q "$red"; then
+    echo "  PASS commit_shas is IMPL-only ($got) — test-only RED excluded, window = baseline"
+  else echo "  FAIL commit_shas=$got (want IMPL=$impl present, RED=$red absent)" >&2; fail=$((fail + 1)); fi
+  rm -rf "$T"
+  if [ "$fail" -eq 0 ]; then echo "verify-batch --self-test: OK"; exit 0; fi
+  echo "verify-batch --self-test: $fail case(s) FAILED" >&2; exit 1
+fi
 
 gate "quality-gate (typecheck + lint)"      "$here/quality-gate.sh" .
 gate "orphans (dead code / not wired)"       "$here/check-orphans.sh"

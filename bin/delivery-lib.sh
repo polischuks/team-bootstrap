@@ -31,16 +31,20 @@ resolve_marker() {
   ls -t .runs/*/RUN 2>/dev/null | head -1 || true
 }
 
-# field_str LINE KEY  → "key":"value"  string value
-field_str() { printf '%s' "$1" | grep -oE "\"$2\":\"[^\"]*\"" | head -1 | sed -E "s/\"$2\":\"([^\"]*)\"/\1/"; }
-# field_num LINE KEY  → "key":<int>    integer value
-field_num() { printf '%s' "$1" | grep -oE "\"$2\":-?[0-9]+" | head -1 | sed -E "s/\"$2\"://"; }
-# field_bool LINE KEY → "key":true|false
-field_bool() { printf '%s' "$1" | grep -oE "\"$2\":(true|false)" | head -1 | sed -E "s/\"$2\"://"; }
+# Compact-or-spaced JSON field extractors. The `[[:space:]]*` after each colon is load-bearing:
+# without it, a marker written with `": "` (e.g. python json.dumps' default) parses as EMPTY, so
+# field_bool intends_code returns false and every fail-closed gate SILENTLY skips — the guard turns
+# off with no error. Accept both compact and spaced forms (Postel's law).
+# field_str LINE KEY  → "key": "value"  string value
+field_str() { printf '%s' "$1" | grep -oE "\"$2\":[[:space:]]*\"[^\"]*\"" | head -1 | sed -E "s/\"$2\":[[:space:]]*\"([^\"]*)\"/\1/"; }
+# field_num LINE KEY  → "key": <int>    integer value
+field_num() { printf '%s' "$1" | grep -oE "\"$2\":[[:space:]]*-?[0-9]+" | head -1 | sed -E "s/\"$2\":[[:space:]]*//"; }
+# field_bool LINE KEY → "key": true|false
+field_bool() { printf '%s' "$1" | grep -oE "\"$2\":[[:space:]]*(true|false)" | head -1 | sed -E "s/\"$2\":[[:space:]]*//"; }
 
-# extract every commit_sha from a ledger line as space-separated tokens.
+# extract every commit_sha from a ledger line as space-separated tokens (compact or spaced).
 shas_of_line() {
-  printf '%s' "$1" | grep -oE "\"commit_shas\":\[[^]]*\]" | head -1 \
+  printf '%s' "$1" | grep -oE "\"commit_shas\":[[:space:]]*\[[^]]*\]" | head -1 \
     | grep -oE '"[0-9a-fA-F]+"' | tr -d '"' | tr '\n' ' '
 }
 
@@ -170,13 +174,25 @@ nondoc_delta_of_shas() {
 # code_delta stamp both take their window from HERE, so "the batch's changed lines" is one definition
 # and cannot drift (spec R1). Echoes a usable base (empty only in a repo with no HEAD~1).
 current_batch_base() {
-  local ledger since base b
+  local ledger since base b marker mk bsha
   ledger="$(resolve_ledger)"
   if [ -n "$ledger" ] && [ -f "$ledger" ]; then
     since="$(grep '"status":"closed"' "$ledger" 2>/dev/null | tail -1 \
-      | sed -nE 's/.*"commit_shas":\["([0-9a-fA-F]+)".*/\1/p')"
+      | sed -nE 's/.*"commit_shas":\[[[:space:]]*"([0-9a-fA-F]+)".*/\1/p')"
     if [ -n "$since" ] && git rev-parse --verify -q "$since^{commit}" >/dev/null 2>&1; then
       printf '%s' "$since"; return 0
+    fi
+  fi
+  # first batch (no closed batch yet): the window starts at the RUN's OWN baseline_sha, not
+  # origin/main. Using origin/main here can drag pre-run commits (even the run baseline itself)
+  # into commit_shas, which check-delivery then flags as predate/forged and check-tdd's oldest-
+  # commit anchor breaks on. baseline_sha is the run's declared start — the correct window base.
+  marker="$(resolve_marker)"
+  if [ -n "$marker" ] && [ -f "$marker" ]; then
+    mk="$(cat "$marker" 2>/dev/null || true)"; bsha="$(field_str "$mk" baseline_sha)"
+    if [ -n "$bsha" ] && git rev-parse --verify -q "$bsha^{commit}" >/dev/null 2>&1 \
+       && [ "$(git rev-parse -q "$bsha^{commit}" 2>/dev/null)" != "$(git rev-parse -q HEAD 2>/dev/null)" ]; then
+      printf '%s' "$bsha"; return 0
     fi
   fi
   base=""
