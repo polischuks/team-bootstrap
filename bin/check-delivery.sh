@@ -42,7 +42,7 @@ if [ "${1:-}" = "--self-test" ]; then
     if [ "$got" -eq "$exp" ]; then echo "  PASS (exit $got) $desc"
     else echo "  FAIL (exit $got, want $exp) $desc" >&2; fail=$((fail + 1)); fi
   }
-  _dirs="_st_ac1 _st_ac2 _st_ac4a _st_ac4b _st_ac5 _st_f2i _st_f2ii _st_ac7 _st_ac9"
+  _dirs="_st_ac1 _st_ac2 _st_ac4a _st_ac4b _st_ac5 _st_f2i _st_f2ii _st_ac7 _st_ac9 _st_ws"
   for d in $_dirs; do mkdir -p ".runs/$d"; done
   # F-A recompute (no marker → binding off) -----------------------------------
   printf '%s\n' '{"id":"F1","kind":"code","status":"closed","commit_shas":["deadbeef"],"code_delta":137}' > .runs/_st_ac1/batches.jsonl
@@ -57,6 +57,10 @@ if [ "${1:-}" = "--self-test" ]; then
   # F-B fail-closed under an active marker -------------------------------------
   printf '%s\n' '{"run":"_st_ac4a","intends_code":true,"source":"harness"}' > .runs/_st_ac4a/RUN
   _expect _st_ac4a 1 "AC-4 — active run (intends_code) + no ledger → fail-closed"
+  # whitespace-tolerant marker parse: a SPACED marker (json.dumps' `": "`) must still read
+  # intends_code:true → fail-closed. Before the delivery-lib fix it parsed EMPTY and silently skipped.
+  printf '%s\n' '{"run": "_st_ws", "intends_code": true, "source": "harness"}' > .runs/_st_ws/RUN
+  _expect _st_ws 1 "WS — spaced marker still parses intends_code → fail-closed (not silently skipped)"
   printf '%s\n' '{"run":"_st_ac4b","intends_code":true,"source":"harness"}' > .runs/_st_ac4b/RUN
   printf '%s\n' '{"id":"D1","kind":"doc","status":"closed"}' > .runs/_st_ac4b/batches.jsonl
   _expect _st_ac4b 1 "AC-4 — active run + only kind:doc closures → fail-closed"
