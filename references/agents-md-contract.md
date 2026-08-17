@@ -68,7 +68,13 @@ convention as `Test:`/`Typecheck:`; the framework declares the *contract*, the p
   ([`check-version-sync.sh`](../bin/check-version-sync.sh)).
 - **`AcPattern:`** (completeness `--final`) — an ERE overriding the default `AC-[0-9]+` used to enumerate
   acceptance-criterion tokens in `spec.md` that `check-completeness.sh --final` requires each to be
-  referenced by ≥1 test-path file, e.g. `` `ISSUE-[0-9]+` ``. Absent ⇒ the `AC-[0-9]+` default
+  **asserted** by ≥1 test-path file, e.g. `` `ISSUE-[0-9]+` ``. Absent ⇒ the `AC-[0-9]+` default
+  ([`check-completeness.sh`](../bin/check-completeness.sh)).
+- **`AcTestPattern:`** (completeness `--final`, v2.19.1) — an ERE of test/assertion **constructs**; an `AC-N`
+  token counts as *asserted* only when it appears within ±3 lines of a match (B6 — a bare comment mention of
+  the token no longer satisfies the gate). Absent ⇒ a broad polyglot default
+  (`assert`, `expect(`, `def test`, `func Test`, `it(`, `describe(`, `@Test`, `#[test]`, `EXPECT_`, `ASSERT_`,
+  `should(`, …). Widen it for a house test DSL whose asserts the default misses, e.g. `` `verify\(|check_that` ``
   ([`check-completeness.sh`](../bin/check-completeness.sh)).
 
 ### Closure-fidelity marker fields (v2.19.0 — written to `.runs/<run>/RUN`, not AGENTS.md)
