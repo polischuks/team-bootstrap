@@ -151,6 +151,7 @@ gate "diff-coverage (changed-line breadth, F2)" "$here/check-diff-coverage.sh" .
 gate "mutation (assertion strength, F3)"     "$here/check-mutation.sh" .
 gate "enforcement (no silent skip, A)"       "$here/check-enforcement.sh" .
 gate "completeness (task_ids [x], B)"        "$here/check-completeness.sh" .
+gate "seam-ack (high-risk seam read, C)"     "$here/check-seam-ack.sh" .
 gate "delivery (no unearned closure)"        "$here/check-delivery.sh" .
 
 if [ "$fails" -gt 0 ]; then
