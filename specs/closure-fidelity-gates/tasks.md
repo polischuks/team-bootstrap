@@ -52,7 +52,7 @@ Every `AC-N` in spec.md maps to ≥1 task (coverage check at bottom). Vertical s
   (soundness mode, OQ-3); `tests/check-seam-ack.test.sh` (`AC-5` token); wire C into `verify-batch.sh`;
   shellcheck + gate-integrity clean; peer self-tests unregressed. *(infra · P8,P10)* *(AC-7, AC-8)*
 
-## B4 — docs + wiring + version bump (`kind:doc`, `risk_rank:doc`) — CLOSED (pending)
+## B4 — docs + wiring + version bump (`kind:doc`, `risk_rank:doc`) — CLOSED (1b7cab4)
 
 - [x] **T017** — `references/agents-md-contract.md` (`AcPattern:`, marker schema: `enforcement_gaps`,
   `enforcement_ack`, `high_risk_seams`, `seam_acks`) + `references/enforcement.md` (new closure-fidelity
