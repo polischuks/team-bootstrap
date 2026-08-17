@@ -93,7 +93,10 @@ as the judge of test non-vacuousness — they make its **absence** visible and f
 - **AC-3** (US2, B) — a closing batch whose ledger `task_ids` include an unchecked `[ ]` task in
   `tasks.md` → `check-completeness.sh` exit 1; all `[x]` → exit 0. *(Fixtures both sides.)*
 - **AC-4** (US2, B) — `check-completeness.sh --final`: any remaining `[ ]` in `tasks.md`, or any `AC-N` in
-  `spec.md` not referenced by a test-path file → exit 1; complete + all ACs referenced → exit 0. *(Fixtures.)*
+  `spec.md` not **asserted** by a test-path file → exit 1; complete + all ACs asserted → exit 0. "Asserted"
+  (B6) means the `AC-N` token appears within ±3 lines of a test/assertion construct (`assert`, `expect(`,
+  `def test`, `@Test`, `it(`, `EXPECT_`, … — overridable via `AcTestPattern:`) in that file; a **bare
+  comment mention** of the token no longer satisfies the gate. *(Fixtures both sides + a bare-comment case.)*
 - **AC-5** (US3, C) — with `high_risk_seams` recorded, closing a batch whose files intersect a seam's
   paths but with **no** matching `seam_acks` entry → `check-seam-ack.sh` exit 1; with an ack naming the
   seam + a commit that is **reachable from HEAD, post-baseline, and actually changed the seam's paths**

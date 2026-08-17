@@ -58,6 +58,32 @@ _test_path_files() {
     -o -type f -print 2>/dev/null)
 }
 
+# Default test/assertion construct pattern (ERE). An AC token counts as *asserted* only when it sits
+# within a few lines of one of these — so a bare `# AC-1 AC-2` comment far from any test no longer
+# satisfies the AC→test check (a reference-only pass). Override/extend via AGENTS.md `AcTestPattern:`.
+# Honest limit: this raises the reference floor to "co-located with a real test construct"; whether the
+# test actually asserts the AC's behaviour is still F3 (mutation), not this gate.
+DEFAULT_AC_TEST_PAT='assert|expect\(|def[[:space:]]+test|func[[:space:]]+Test|[^A-Za-z]it\(|describe\(|[^A-Za-z]test\(|@Test|#\[test\]|t\.Run|Scenario|EXPECT_|ASSERT_|_chk|_expect|should\('
+
+# _ac_in_tests AC PAT W  (test-file list on stdin) → rc 0 if the AC token (word-boundary) appears in
+# some test-path file within W lines of a line matching the construct pattern PAT.
+_ac_in_tests() {
+  local ac="$1" pat="$2" w="${3:-3}" f acre
+  acre="(^|[^0-9A-Za-z])${ac}([^0-9A-Za-z]|$)"
+  # Pass regexes via ENVIRON, NOT awk -v: -v runs backslash-escape processing that strips the `\(`/`\[`
+  # in the construct pattern, corrupting the regex ("illegal primary"). ENVIRON values are used verbatim.
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    AC_RE="$acre" AC_PAT="$pat" AC_W="$w" awk '
+      BEGIN { acre = ENVIRON["AC_RE"]; pat = ENVIRON["AC_PAT"]; w = ENVIRON["AC_W"] + 0 }
+      $0 ~ acre { a[NR] = 1 }
+      $0 ~ pat  { c[NR] = 1 }
+      END { for (i in a) for (j in c) { d = (i > j) ? i - j : j - i; if (d <= w) exit 0 } exit 1 }
+    ' "$f" && return 0
+  done
+  return 1
+}
+
 # --- per-batch ----------------------------------------------------------------
 _per_batch() {
   local marker mk spec tasks ledger line ids tid viol=0 entry
@@ -113,28 +139,22 @@ _final() {
     viol=$((viol + 1))
   fi
 
-  # (2) every AC-N in spec.md referenced by >=1 is_test_path file
-  doc="$(_doc)"; acpat="AC-[0-9]+"
-  [ -n "$doc" ] && { local p; p="$(_val AcPattern "$doc")"; [ -n "$p" ] && acpat="$p"; }
+  # (2) every AC-N in spec.md ASSERTED by a test: the AC token must sit within a few lines of a test/
+  # assertion construct in a test-path file — a bare comment mention no longer counts (B6).
+  doc="$(_doc)"; acpat="AC-[0-9]+"; local testpat="$DEFAULT_AC_TEST_PAT"
+  if [ -n "$doc" ]; then
+    local p; p="$(_val AcPattern "$doc")"; [ -n "$p" ] && acpat="$p"
+    local tp; tp="$(_val AcTestPattern "$doc")"; [ -n "$tp" ] && testpat="$tp"
+  fi
   acs="$(grep -oE "$acpat" "$spec" 2>/dev/null | sort -u)"
   if [ -z "$acs" ]; then
     echo "check-completeness --final: no '$acpat' tokens in $spec — no AC→test mapping to enforce."
   else
     files="$(_test_path_files .)"
     for ac in $acs; do
-      hit=0
-      if [ -n "$files" ]; then
-        while IFS= read -r f; do
-          [ -n "$f" ] || continue
-          if grep -qE "(^|[^0-9A-Za-z])${ac}([^0-9A-Za-z]|\$)" "$f" 2>/dev/null; then hit=1; break; fi
-        done <<EOF
-$files
-EOF
-      fi
-      if [ "$hit" -eq 0 ]; then
-        echo "  FAIL: $ac is in $spec but referenced by NO test-path file — an acceptance criterion with no test (AC-4)." >&2
-        viol=$((viol + 1))
-      fi
+      if printf '%s\n' "$files" | _ac_in_tests "$ac" "$testpat" 3; then continue; fi
+      echo "  FAIL: $ac is in $spec but NOT asserted by any test — it appears in no test-path file within 3 lines of a test/assertion construct (a bare comment mention does not count) (AC-4, B6)." >&2
+      viol=$((viol + 1))
     done
   fi
 
@@ -167,24 +187,27 @@ if [ "${1:-}" = "--self-test" ]; then
   printf '# Tasks\n\n- [x] **T0010** other\n- [ ] **T001** undone\n' > "$T/specs/demo/tasks.md"
   _chk "AC-3 boundary: [x] T0010 does not satisfy T001 → fail" "$(_runpb)" 1
 
-  # AC-4 — --final: complete tasks + every AC referenced by a test-path file → pass
+  # AC-4 — --final: complete tasks + every AC ASSERTED near a test construct → pass
   printf '# Spec\n\n- AC-1 foo\n- AC-2 bar\n' > "$T/specs/demo/spec.md"
   printf '# Tasks\n\n- [x] **T001** done\n' > "$T/specs/demo/tasks.md"
-  printf '# refs AC-1 AC-2\n' > "$T/tests/x.test.sh"
-  _chk "AC-4 --final complete + all ACs referenced → pass" "$(_runf)" 0
-  # AC-4 — an AC referenced by NO test-path file → fail
-  printf '# refs AC-1 only\n' > "$T/tests/x.test.sh"
-  _chk "AC-4 --final AC-2 unreferenced → fail" "$(_runf)" 1
+  printf '# AC-1\nassert ac1\n# AC-2\nassert ac2\n' > "$T/tests/x.test.sh"
+  _chk "AC-4 --final every AC near a test construct → pass" "$(_runf)" 0
+  # B6 — ACs mentioned ONLY in a bare comment (no test construct nearby) → fail (reference-only no longer counts)
+  printf '# refs AC-1 AC-2 (bare comment, no test construct nearby)\n' > "$T/tests/x.test.sh"
+  _chk "B6 --final ACs only in a bare comment → fail" "$(_runf)" 1
+  # AC-4 — an AC asserted by NO test → fail
+  printf '# AC-1\nassert ac1\n' > "$T/tests/x.test.sh"
+  _chk "AC-4 --final AC-2 not asserted → fail" "$(_runf)" 1
   # AC-4 — a remaining [ ] in tasks.md → fail
-  printf '# refs AC-1 AC-2\n' > "$T/tests/x.test.sh"
+  printf '# AC-1\nassert ac1\n# AC-2\nassert ac2\n' > "$T/tests/x.test.sh"
   printf '# Tasks\n\n- [x] **T001** done\n- [ ] **T002** undone\n' > "$T/specs/demo/tasks.md"
   _chk "AC-4 --final unchecked task remains → fail" "$(_runf)" 1
-  # AcPattern override: AC-1 not required; only ISSUE-\d tokens
+  # AcPattern override: ISSUE-\d tokens, asserted near a construct
   printf '# Spec\n\n- ISSUE-9 foo\n' > "$T/specs/demo/spec.md"
   printf '# Tasks\n\n- [x] **T001** done\n' > "$T/specs/demo/tasks.md"
   printf '# AGENTS\n\n- AcPattern: `ISSUE-[0-9]+`\n' > "$T/AGENTS.md"
-  printf '# refs ISSUE-9\n' > "$T/tests/x.test.sh"
-  _chk "AC-4 --final AcPattern override (ISSUE-9 referenced) → pass" "$(_runf)" 0
+  printf '# ISSUE-9\nassert i9\n' > "$T/tests/x.test.sh"
+  _chk "AC-4 --final AcPattern override (ISSUE-9 asserted) → pass" "$(_runf)" 0
   rm -f "$T/AGENTS.md"
 
   # AC-6 — no active marker → skip (both modes)
