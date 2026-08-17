@@ -79,12 +79,26 @@ _intersects() {
   return 1
 }
 
+# _commit_touches_seam FULLSHA PATHS… → rc 0 if the commit changed a file under any seam path.
+# The ack must name the commit that ACTUALLY shipped the seam change — not merely a resolvable SHA
+# (B5): a resolvable-but-unrelated commit, e.g. the run baseline, proves nothing was read.
+_commit_touches_seam() {
+  local full="$1"; shift
+  local f
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    _intersects "$f" "$@" && return 0
+  done < <(git show --name-only --format= "$full" 2>/dev/null)
+  return 1
+}
+
 _evaluate() {
-  local marker mk seams files viol=0 name paths_str touched f ackc
+  local marker mk seams files viol=0 name paths_str touched f ackc ackfull bfull
   marker="$(resolve_marker)"
   [ -n "$marker" ] && [ -f "$marker" ] || { echo "check-seam-ack: no active delivery run — skipping (governs armed runs)."; return 0; }
   mk="$(cat "$marker" 2>/dev/null || true)"
   [ "$(field_bool "$mk" intends_code)" = "true" ] || { echo "check-seam-ack: marker not intends_code — skipping."; return 0; }
+  bfull="$(resolve_sha "$(field_str "$mk" baseline_sha)")"
 
   seams="$(_seam_objects "$mk")"
   [ -n "$seams" ] || { echo "check-seam-ack: no high_risk_seams recorded — nothing to guard."; return 0; }
@@ -106,14 +120,25 @@ EOF
     [ "$touched" -eq 1 ] || continue
 
     ackc="$(_ack_commit "$mk" "$name")"
+    ackfull="$(resolve_sha "$ackc")"
+    # shellcheck disable=SC2086  # word-split paths_str into positional seam paths on purpose
     if [ -z "$ackc" ]; then
-      echo "  FAIL: batch touches high-risk seam '$name' but no seam_acks entry names it — record a read-in-the-shipped-code ack (seam + resolvable commit + file:line note) before closing (AC-5)." >&2
+      echo "  FAIL: batch touches high-risk seam '$name' but no seam_acks entry names it — record a read-in-the-shipped-code ack (seam + commit that changed the seam + file:line note) before closing (AC-5)." >&2
       viol=$((viol + 1))
-    elif [ -z "$(resolve_sha "$ackc")" ]; then
+    elif [ -z "$ackfull" ]; then
       echo "  FAIL: seam_acks entry for '$name' cites commit '$ackc' that git cannot resolve — the ack must be anchored to a real shipped commit (AC-5)." >&2
       viol=$((viol + 1))
+    elif ! git merge-base --is-ancestor "$ackfull" HEAD 2>/dev/null; then
+      echo "  FAIL: seam '$name' ack commit '$ackc' is not reachable from HEAD — the ack must name a commit shipped in this run (AC-5, B5)." >&2
+      viol=$((viol + 1))
+    elif [ -n "$bfull" ] && { [ "$ackfull" = "$bfull" ] || ! git merge-base --is-ancestor "$bfull" "$ackfull" 2>/dev/null; }; then
+      echo "  FAIL: seam '$name' ack commit '$ackc' is not after the run baseline — the ack must anchor to this run's shipped change, not pre-existing history (AC-5, B5)." >&2
+      viol=$((viol + 1))
+    elif ! _commit_touches_seam "$ackfull" $paths_str; then
+      echo "  FAIL: seam '$name' ack commit '$ackc' did not change the seam's paths — the ack must name the commit that shipped the seam change, not a resolvable-but-unrelated commit like the baseline (AC-5, B5)." >&2
+      viol=$((viol + 1))
     else
-      echo "check-seam-ack: seam '$name' touched — ack recorded (commit $ackc resolves)."
+      echo "check-seam-ack: seam '$name' touched — ack commit $ackc resolves, is reachable from HEAD, post-baseline, and changed the seam."
     fi
   done <<EOF
 $seams
@@ -156,6 +181,18 @@ if [ "${1:-}" = "--self-test" ]; then
   # no high_risk_seams at all → pass
   _marker "{\"run\":\"r\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$base\"}"
   _chk "no high_risk_seams recorded → pass" "$(_run)" 0
+  # B5 — the ack must anchor to the commit that SHIPPED the seam change, not a resolvable-but-unrelated one.
+  # ack = the run baseline (resolvable + reachable, but pre-baseline and touched no seam) → fail.
+  _marker "{\"run\":\"r\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$base\",$SEAM,\"seam_acks\":[{\"seam\":\"marker-rewrite\",\"commit\":\"$base\",\"note\":\"x\"}]}"
+  _chk "B5 ack = baseline (resolvable but pre-baseline, no seam change) → fail" "$(_run)" 1
+  # a post-baseline commit that changed a NON-seam file → reachable + post-baseline but didn't touch the seam → fail
+  ( cd "$T" && echo o > other.txt && git add other.txt && git commit -qm "non-seam work" ) >/dev/null 2>&1
+  code2="$(cd "$T" && git rev-parse --short HEAD)"
+  _marker "{\"run\":\"r\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$base\",$SEAM,\"seam_acks\":[{\"seam\":\"marker-rewrite\",\"commit\":\"$code2\",\"note\":\"x\"}]}"
+  _chk "B5 ack = post-baseline commit that didn't touch the seam → fail" "$(_run)" 1
+  # ack = the seam-touching commit still passes with HEAD advanced past it
+  _marker "{\"run\":\"r\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$base\",$SEAM,\"seam_acks\":[{\"seam\":\"marker-rewrite\",\"commit\":\"$code\",\"note\":\"x\"}]}"
+  _chk "B5 ack = the seam-touching commit → pass" "$(_run)" 0
   # AC-6 — no active marker → skip
   rm -f "$T/.runs/r/RUN"
   _chk "AC-6 no active marker → skip (exit 0)" "$(_run)" 0
