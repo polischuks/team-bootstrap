@@ -95,8 +95,10 @@ as the judge of test non-vacuousness — they make its **absence** visible and f
 - **AC-4** (US2, B) — `check-completeness.sh --final`: any remaining `[ ]` in `tasks.md`, or any `AC-N` in
   `spec.md` not referenced by a test-path file → exit 1; complete + all ACs referenced → exit 0. *(Fixtures.)*
 - **AC-5** (US3, C) — with `high_risk_seams` recorded, closing a batch whose files intersect a seam's
-  paths but with **no** matching `seam_acks` entry → `check-seam-ack.sh` exit 1; with the ack (naming the
-  seam + a resolvable commit) → exit 0; a batch touching **no** flagged seam → exit 0. *(Fixtures.)*
+  paths but with **no** matching `seam_acks` entry → `check-seam-ack.sh` exit 1; with an ack naming the
+  seam + a commit that is **reachable from HEAD, post-baseline, and actually changed the seam's paths**
+  (B5 — not merely resolvable) → exit 0; a resolvable-but-unrelated commit (e.g. the baseline) → exit 1;
+  a batch touching **no** flagged seam → exit 0. *(Fixtures.)*
 - **AC-6** (US4) — all three gates: no active `intends_code` marker ⇒ exit 0 (skip), identical to peers.
 - **AC-7** — each ships `--self-test`; `check-gate-integrity.sh` clean (none green-by-skip; each fires);
   `shellcheck --severity=error bin/*.sh` clean; existing gate self-tests unregressed (no regression).

@@ -4,6 +4,16 @@ All notable changes to team-bootstrap. Format follows [Keep a Changelog](https:/
 
 ## [2.19.0] - 2026-08-17
 
+### Fixed
+
+- **Gate C seam-ack anchor strengthened (post-delivery review, B5).** `check-seam-ack.sh` accepted any
+  **resolvable** commit as the ack — so acking with a resolvable-but-unrelated commit (e.g. the run
+  baseline, which never touched the seam) passed, making "read it in the shipped code" a recorded gesture
+  rather than an anchor to the actual change. The ack commit must now be **reachable from HEAD**,
+  **post-baseline**, and have **actually changed the seam's paths** (`git show --name-only` intersects
+  the seam). Regression-locked (`check-seam-ack --self-test`: ack=baseline → fail; ack=non-seam-touching
+  post-baseline commit → fail; ack=the seam-touching commit → pass).
+
 ### Added
 
 - **Closure-fidelity gates — closure certifies fidelity + non-vacuousness, not just "tests green."** A
