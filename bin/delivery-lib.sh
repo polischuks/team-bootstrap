@@ -48,6 +48,73 @@ shas_of_line() {
     | grep -oE '"[0-9a-fA-F]+"' | tr -d '"' | tr '\n' ' '
 }
 
+# --- marker list fields (closure-fidelity gates A/C) ---------------------------
+# One definition of the pure-bash marker-list rewrite, mirroring record_precond's surgery in
+# check-preconditions.sh: NO sed — list items (gap strings, seam paths) contain '/', which would
+# collide with a sed s/// delimiter, silently fail, and clobber the marker (the v2.18.1 self-disarm
+# class). Operates on top-level FLAT array keys (a value with no nested '[' or ']'): enforcement_gaps
+# is a flat string array; high_risk_seams / seam_acks (which carry nested arrays) are written by the
+# orchestrator/human, only READ here. resolve_marker scopes to the active run.
+
+# _marker_strip_flat_key MK KEY → MK with a top-level flat "KEY":[…] removed (one separator comma with
+# it, so no ',,' '{,' or ',}' is left). Absent KEY ⇒ MK unchanged. A flat array closes at the FIRST ']'
+# after "KEY":[, so the prefix/suffix expansion is exact. NO ${//} substitution — bash 5.2 does
+# backslash processing in the replacement string, which leaked literal backslashes into the marker (the
+# very marker-rewrite seam this milestone guards); single-char slicing is version-stable instead.
+_marker_strip_flat_key() {
+  local mk="$1" key="$2" before after
+  case "$mk" in *"\"$key\":["*) : ;; *) printf '%s' "$mk"; return 0 ;; esac
+  before="${mk%%\"$key\":[*}"     # up to (not incl) "key":[  — ends with '{' or ','
+  after="${mk#*\"$key\":[}"       # after "key":[
+  after="${after#*]}"             # drop through the first ']' (flat array): starts with ',' or '}'
+  if [ "${before: -1}" = "," ]; then
+    before="${before%,}"          # key not first: drop the comma that preceded it
+  elif [ "${after:0:1}" = "," ]; then
+    after="${after#,}"            # key first: drop the comma that followed it
+  fi
+  printf '%s%s' "$before" "$after"
+}
+
+# record_marker_list KEY JSON_ARRAY → insert/replace a top-level "KEY":<JSON_ARRAY> in the active RUN
+# marker (JSON_ARRAY = a complete flat array literal, e.g. '["red-first","mutation"]' or '[]'). No
+# marker ⇒ no-op. Preserves every other field. Validates the result is still a single {…} object
+# before writing (never leave a half-written marker).
+record_marker_list() {
+  local key="$1" arr="$2" marker mk newmk
+  marker="$(resolve_marker)"
+  [ -n "$marker" ] && [ -f "$marker" ] || return 0
+  mk="$(cat "$marker" 2>/dev/null || true)"
+  [ -n "$mk" ] || return 0
+  mk="$(_marker_strip_flat_key "$mk" "$key")"
+  newmk="${mk%\}}"                          # strip the final '}'
+  if [ "${newmk: -1}" = "{" ]; then
+    newmk="${newmk}\"${key}\":${arr}}"      # empty object: no leading comma
+  else
+    newmk="${newmk},\"${key}\":${arr}}"     # append the field, re-close
+  fi
+  case "$newmk" in
+    \{*\}) printf '%s\n' "$newmk" > "$marker" 2>/dev/null || return 1 ;;
+    *) return 1 ;;
+  esac
+}
+
+# marker_list KEY → echo the flat JSON array body for a top-level KEY (e.g. '["a","b"]'), empty if absent.
+marker_list() {
+  local key="$1" marker mk body
+  marker="$(resolve_marker)"
+  [ -n "$marker" ] && [ -f "$marker" ] || return 0
+  mk="$(cat "$marker" 2>/dev/null || true)"
+  case "$mk" in *"\"$key\":["*) : ;; *) return 0 ;; esac
+  body="${mk#*\"$key\":[}"; body="${body%%]*}"
+  printf '[%s]' "$body"
+}
+
+# json_has_obj_field ARRAYJSON FIELD VALUE → rc 0 if any object in the array-of-objects ARRAYJSON has
+# "FIELD":"VALUE" (whitespace-tolerant). Used by check-seam-ack to test seam_acks presence (AC-5).
+json_has_obj_field() {
+  printf '%s' "$1" | grep -qE "\"$2\":[[:space:]]*\"$3\""
+}
+
 # resolve_sha SHA → full commit hash if it names a commit, else empty (rc 1).
 # Abbrev-safe: the historical ledger stores 7-char SHAs.
 resolve_sha() { git rev-parse --verify -q "$1^{commit}" 2>/dev/null; }
