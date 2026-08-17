@@ -2,6 +2,20 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.19.1] - 2026-08-17
+
+### Fixed
+
+- **Gate B AC→test check strengthened — a bare comment no longer counts as a test (post-delivery review,
+  B6).** `check-completeness.sh --final` accepted an `AC-N` token appearing *anywhere* in a test-path file,
+  so a bare `# AC-1 AC-2` comment (or an AC listed in a header block with no test) satisfied the
+  "every AC referenced by a test" gate — reference, not assertion. An `AC-N` now counts only when it appears
+  within **±3 lines of a test/assertion construct** (`assert`, `expect(`, `def test`, `@Test`, `it(`,
+  `EXPECT_`, … — polyglot default, overridable via the new **`AcTestPattern:`** AGENTS.md field). Bias stays
+  lenient on weak signals (co-location, not parsing) — only the genuine hole (an AC with *no* test construct
+  anywhere near it) blocks. Regression-locked (`check-completeness --self-test`: ACs asserted near a
+  construct → pass; the same ACs in a bare comment → fail; `AcTestPattern`/`AcPattern` overrides exercised).
+
 ## [2.19.0] - 2026-08-17
 
 ### Fixed
