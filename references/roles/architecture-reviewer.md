@@ -34,6 +34,12 @@ Is the *planned* architecture correct and does it fit the baseline?
   or contradicts an existing one?
 - Are the ADR-worthy decisions surfaced (and justified) rather than smuggled in?
 Emit `architecture_sound: true|false`. A `false` blocks entry to Phase B — fix the plan first.
+Also emit `high_risk_seams: [{seam, paths}]` — the plan's highest-risk seams (the surfaces where a
+silent defect would be most costly or hardest to catch), each named with the file paths it lives in.
+The orchestrator records these to the run marker (`high_risk_seams`); `check-seam-ack.sh` (gate C) then
+requires a recorded "read it in the shipped code" ack (`seam_acks`) before a batch touching a flagged
+seam's paths can close (closure-fidelity-gates, AC-5). Empty list ⇒ no seam rises above the baseline
+risk floor — state that explicitly rather than omitting it.
 
 ### `review_mode: conformance` — Phase B, per batch (after the builders)
 Did this batch **drift** from the baseline?
@@ -66,6 +72,9 @@ status: completed        # completed ONLY if sound (soundness) or verified & 0 d
 role: architecture-reviewer
 review_mode: <soundness|conformance>
 architecture_sound: <true|false>       # soundness mode
+high_risk_seams:                        # soundness mode — recorded to marker, gates C (check-seam-ack)
+  - seam: <short-name>
+    paths: [<file/dir>, …]
 conformance_verified: <true|false>     # conformance mode
 drift_findings: <integer>              # conformance mode
 summary: <one-line verdict>
