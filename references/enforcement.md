@@ -148,6 +148,40 @@ bumps). No version locations ⇒ skip + WARN. Marker-gated ⇒ in-session (a com
 a cheap follow-on). It has no version field of its own and dogfooded its own milestone: B2's bump to
 2.18.0 closed only because all four fields agreed.
 
+### Closure certifies fidelity, not just "tests green" (v2.19.0)
+
+A retrospective found a HIGH bug (a CAS predicate `IN (owed-set)` where candidates were `= 'done'` → 0
+rows updated → infinite loop) that **passed every gate**. The cause was not a missing gate but three
+**disarmed** ones: P9 red-first, F2 diff-coverage, F3 mutation all **silently skipped** because the
+project declared no `Test:`/`Coverage:`/`Mutation:` — the bug slipped through gates that were *off*, not
+*absent* (same self-disarm class as the v2.18.1 marker-whitespace bug). Two adjacent gaps compounded it:
+closure was silent on **fidelity** (are the declared tasks done, is every AC exercised by a test?) and on
+the **named-but-unread high-risk seam**. Three `verify-batch` gates close that, each marker-gated ⇒
+in-session, git/artifact-grounded, `--self-test`, never a false block:
+
+- **A — enforcement-visibility** ([`../bin/check-enforcement.sh`](../bin/check-enforcement.sh)) — records
+  which quality dimension is unenforceable (`enforcement_gaps` in the marker) and **blocks a code batch
+  from closing** until `enforcement_ack:true`. A `run-rate|irreversible` batch **hard-fails** on any gap
+  regardless of the ack (the CAS bug was a run-rate reconciliation path). The silent skip becomes a
+  logged, dated decision — parity with the precond-ack pattern.
+- **B — completeness** ([`../bin/check-completeness.sh`](../bin/check-completeness.sh)) — per batch, every
+  `task_id` in the ledger entry must be `[x]` in `specs/<slug>/tasks.md`; `--final` (invoked by
+  `deliver.md` at finalization) requires **no** `[ ]` left and **every** `AC-N` in `spec.md` referenced by
+  ≥1 `is_test_path` file (`AcPattern:` configurable). Catches "closed but undone / unimplemented". Reads
+  `tasks.md`, never writes it — the AC→test reference is the machine-grounded half of the check.
+- **C — high-risk-seam ack** ([`../bin/check-seam-ack.sh`](../bin/check-seam-ack.sh)) — the architecture
+  review records its highest-risk seams (`high_risk_seams:[{seam,paths}]`); a batch whose files intersect
+  a flagged seam's paths must carry a `seam_acks` entry naming the seam + a resolvable commit (a recorded
+  "read it in the shipped code"). Turns named risk → named manual verification into a recorded step.
+
+Honest boundary (stated, not assumed): the A/C acks and B's `[x]` are **recorded, blocking, referenced** —
+truthfulness is the human's, logged not proven (parity with `risk_rank`/precond). None replaces mutation
+testing (F3) as the judge of assertion strength — they make its **absence** visible and force the
+decision. The immediate unblock for a real project is to **declare `Test:`/`Coverage:`/`Mutation: enforce`**
+so F1/F2/F3 actually run (out of this plugin's scope — P7 — documented). This milestone dogfooded all
+three on itself, and building A's marker rewrite surfaced + locked a real bash-5.2 `${//}` backslash-leak
+in the marker-write path — the exact seam C guards. See [ADR-0005](../docs/adr/0005-closure-fidelity-gates.md).
+
 ## CI backstop (add to the target project)
 
 Add a job that runs the batch gate against the change — this is what makes review non-optional:

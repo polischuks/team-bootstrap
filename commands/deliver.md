@@ -152,12 +152,30 @@ Then, for **each batch, one at a time**:
    it also runs `check-delivery` (no prior kind:code batch announced-but-never-closed) and **stamps
    this batch `closed`** in the ledger with `commit_shas` + `code_delta` — closure becomes a recorded
    machine fact, not a claim.
+   **Closure-fidelity gates (hard, in `verify-batch`).** The backstop also runs the three closure-fidelity
+   gates: **A** (`check-enforcement`) records `enforcement_gaps` and blocks until you record
+   `enforcement_ack:true` in the marker — surface the gap set to the human and, on their go-ahead, set it
+   (a `run-rate|irreversible` batch cannot ack — declare the tooling or split the risk); **B**
+   (`check-completeness`) requires this batch's `task_ids` to be `[x]` in `tasks.md` — so mark them the
+   moment the work is done-and-self-tested, before the backstop runs; **C** (`check-seam-ack`) blocks a
+   batch touching a recorded `high_risk_seams` path until you record a `seam_acks` entry naming the seam +
+   the shipped commit + a `file:line` note. All three are the same recorded-blocking-ack machinery as the
+   precond ack — honesty is the human's, presence is enforced.
 6. After the batch **passes all gates**: `verify-batch.sh` has stamped the ledger entry
    `status:closed` with `commit_shas` + `code_delta`. **Read closure from the ledger — do not assert
    it.** A batch is closed only if its entry says so; if it still reads `announced`, the pipeline did
    not run and the batch is **not** closed — do not present the next batch. On real closure, mark its
    tasks `[x]` in `tasks.md`, report the stamped SHA(s) and gate results (E2E + 0 orphans + 0 drift +
    0 regressions), and any catches. Then present the **next** batch and **WAIT** again.
+
+**Milestone finalization (hard, before declaring done).** After the final batch closes, run
+`/Users/sergey_polishchuk/.claude/plugins/cache/team-bootstrap/team-bootstrap/2.18.1/bin/check-completeness.sh --final` — the closure-fidelity completeness
+gate in milestone mode: **no** `[ ]` may remain in `specs/<slug>/tasks.md`, and **every** `AC-N` in
+`spec.md` must be referenced by ≥1 test-path file (`is_test_path`; `AcPattern:` configurable). A non-zero
+exit means the milestone is **not** done — an unchecked task or an acceptance criterion with no test. Fix
+(implement the task / add the test, or defer it explicitly with rationale) before declaring the milestone
+complete. This is the machine half of "post-review keeps finding undone tasks / unimplemented spec parts"
+([../references/enforcement.md](../references/enforcement.md), closure-fidelity layer).
 
 Stop after the final batch, or whenever the user says stop. At the end, summarize: batches shipped,
 tasks closed vs deferred, and what still needs a human (push authorization, prod deploy, open risks).
