@@ -2,6 +2,55 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.19.0] - 2026-08-17
+
+### Fixed
+
+- **Gate C seam-ack anchor strengthened (post-delivery review, B5).** `check-seam-ack.sh` accepted any
+  **resolvable** commit as the ack — so acking with a resolvable-but-unrelated commit (e.g. the run
+  baseline, which never touched the seam) passed, making "read it in the shipped code" a recorded gesture
+  rather than an anchor to the actual change. The ack commit must now be **reachable from HEAD**,
+  **post-baseline**, and have **actually changed the seam's paths** (`git show --name-only` intersects
+  the seam). Regression-locked (`check-seam-ack --self-test`: ack=baseline → fail; ack=non-seam-touching
+  post-baseline commit → fail; ack=the seam-touching commit → pass).
+
+### Added
+
+- **Closure-fidelity gates — closure certifies fidelity + non-vacuousness, not just "tests green."** A
+  retrospective found a HIGH bug (a CAS predicate `IN (owed-set)` vs candidates `= 'done'` → 0 rows → an
+  infinite loop) that passed every gate: P9 red-first, F2 diff-coverage, and F3 mutation all **silently
+  skipped** because the project declared no `Test:`/`Coverage:`/`Mutation:` — the bug slipped through
+  gates that were *off*, not *absent* (the v2.18.1 self-disarm class). Three new `verify-batch` gates,
+  each marker-gated ⇒ in-session, git/artifact-grounded, `--self-test`, `shellcheck` clean, never a false
+  block on a non-delivery session:
+  - **A — `bin/check-enforcement.sh`.** Records which quality dimension is unenforceable
+    (`enforcement_gaps` in the RUN marker: `red-first`/`diff-coverage`/`mutation`) and **blocks a code
+    batch from closing** until `enforcement_ack:true`. A `run-rate|irreversible` batch hard-fails on any
+    gap regardless of the ack. The silent skip becomes a logged, dated decision (parity with precond-ack).
+  - **B — `bin/check-completeness.sh`.** Per batch, every `task_id` in the ledger entry must be `[x]` in
+    `specs/<slug>/tasks.md`; `--final` (invoked by `deliver.md` at finalization) requires no `[ ]` left
+    and every `AC-N` in `spec.md` referenced by ≥1 test-path file (`AcPattern:` configurable). Reads
+    `tasks.md`, never writes it.
+  - **C — `bin/check-seam-ack.sh`.** The architecture review records its highest-risk seams
+    (`high_risk_seams:[{seam,paths}]`); a batch whose files intersect a flagged seam's paths must carry a
+    `seam_acks` entry naming the seam + a resolvable commit (a recorded "read it in the shipped code").
+  - Wired A, B(per-batch), C into `bin/verify-batch.sh`; B `--final` into `commands/deliver.md`
+    finalization. `architecture-reviewer` soundness handoff gains `high_risk_seams`. New marker fields
+    documented in `references/agents-md-contract.md`; enforcement layer in `references/enforcement.md`;
+    ADR-0005. Constitution unchanged (1.0.1) — the gates operationalize P6/P9/P10/P3/P11.
+  - Dogfooded on itself: A flagged this bash-gate repo's three gaps (acked, feature-rank); B verified each
+    batch's own `task_ids` and the milestone's AC→test coverage; C required (and got) a `seam_acks` entry
+    on the batch that touched the recorded `marker-rewrite` seam.
+
+### Fixed
+
+- **`delivery-lib.sh` marker-list rewrite leaked a literal backslash (bash 5.2).** Building gate A's
+  `record_marker_list`/`_marker_strip_flat_key`, a `${var//pat/rep}` normalization with escaped
+  `\{`/`\}` replacements inserted literal backslashes into the RUN marker when replacing a key that
+  followed a nested array (`high_risk_seams`) — corrupting the marker and disarming every fail-closed gate
+  (the exact v2.18.1 class, on the very seam gate C guards). Replaced the substitution with version-stable
+  single-char prefix/suffix surgery; regression-locked as case R6 in `check-enforcement --self-test`.
+
 ## [2.18.1] - 2026-08-14
 
 ### Fixed
