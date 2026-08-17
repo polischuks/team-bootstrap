@@ -66,6 +66,25 @@ convention as `Test:`/`Typecheck:`; the framework declares the *contract*, the p
   plugin (`.claude-plugin/plugin.json` present) is checked automatically (`VERSION` + `plugin.json.version`
   + every `marketplace.json` version). Absent + not a plugin ⇒ the gate skips + warns
   ([`check-version-sync.sh`](../bin/check-version-sync.sh)).
+- **`AcPattern:`** (completeness `--final`) — an ERE overriding the default `AC-[0-9]+` used to enumerate
+  acceptance-criterion tokens in `spec.md` that `check-completeness.sh --final` requires each to be
+  referenced by ≥1 test-path file, e.g. `` `ISSUE-[0-9]+` ``. Absent ⇒ the `AC-[0-9]+` default
+  ([`check-completeness.sh`](../bin/check-completeness.sh)).
+
+### Closure-fidelity marker fields (v2.19.0 — written to `.runs/<run>/RUN`, not AGENTS.md)
+
+The three closure-fidelity gates read/record these on the harness RUN marker (not project config). Listed
+here for schema reference; field **order inside each object is load-bearing** for the jq-free parse.
+
+- **`enforcement_gaps: ["red-first"|"diff-coverage"|"mutation", …]`** — recorded by
+  [`check-enforcement.sh`](../bin/check-enforcement.sh) (gate A): which quality dimensions are
+  unenforceable on this project (no `Test:`/`Coverage:`/`Mutation: enforce`).
+- **`enforcement_ack: true`** — the human's recorded decision to close a code batch with the
+  `enforcement_gaps` OFF (blocking until set; not honoured for `run-rate|irreversible` batches — OQ-1).
+- **`high_risk_seams: [{"seam":"<name>","paths":["<path>",…]}, …]`** — the architecture review's highest-
+  risk seams (seam **then** paths), consumed by [`check-seam-ack.sh`](../bin/check-seam-ack.sh) (gate C).
+- **`seam_acks: [{"seam":"<name>","commit":"<sha>","note":"<file:line + why>"}, …]`** — the recorded
+  "read it in the shipped code" ack (seam **then** commit) for a batch touching a flagged seam's paths.
 
 A `## PR Conventions` section with:
 
