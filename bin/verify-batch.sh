@@ -101,7 +101,7 @@ stamp_batch_closed() {
 
   local shas_json="[]"
   [ -n "$shas" ] && shas_json="[\"$(printf '%s' "$shas" | sed 's/,/","/g')\"]"
-  local gates="quality-gate=ok;orphans=ok;architecture=ok;gate-integrity=ok;tdd=ok;diff-coverage=ok;mutation=ok;delivery=ok"
+  local gates="quality-gate=ok;orphans=ok;architecture=ok;gate-integrity=ok;tdd=ok;version-sync=ok;diff-coverage=ok;mutation=ok;enforcement=ok;completeness=ok;seam-ack=ok;disposition=ok;delivery=ok"
 
   local newline
   newline="$(printf '%s' "$target" \
@@ -152,6 +152,7 @@ gate "mutation (assertion strength, F3)"     "$here/check-mutation.sh" .
 gate "enforcement (no silent skip, A)"       "$here/check-enforcement.sh" .
 gate "completeness (task_ids [x], B)"        "$here/check-completeness.sh" .
 gate "seam-ack (high-risk seam read, C)"     "$here/check-seam-ack.sh" .
+gate "disposition (MEDIUM+ finding governed, B)" "$here/check-disposition.sh" .
 gate "delivery (no unearned closure)"        "$here/check-delivery.sh" .
 
 if [ "$fails" -gt 0 ]; then
