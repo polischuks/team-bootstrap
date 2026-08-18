@@ -113,7 +113,26 @@ _evaluate() {
     fi
   fi
 
-  # 2) every credible refutation for this batch must link to a B-governed (≥MEDIUM) finding
+  # 2a) fail-closed parse-integrity guard (independent review, round 2). A naive single-regex object
+  # extractor cannot survive arbitrary value punctuation: the first fix rotated the vulnerable char from
+  # ']' to '{'/'}'. Rather than chase a total regex, make ambiguity a SAFE REJECTION. "outcome" is unique
+  # to refutation objects, so the raw count of `"outcome":` tokens is the TRUE number of refutations; if
+  # the extractor parsed fewer VALID (batch-bearing) objects, some value broke the parse ⇒ the governance
+  # record is unverifiable ⇒ FAIL-CLOSED (never silently govern fewer credible refutations than exist).
+  local raw_outcomes valid_refs=0 _ro
+  raw_outcomes="$(printf '%s' "$mk" | grep -oE '"outcome":' | grep -c . || true)"
+  while IFS= read -r _ro; do
+    [ -n "$_ro" ] || continue
+    [ -n "$(field_str "$_ro" batch)" ] && valid_refs=$((valid_refs + 1))
+  done <<EOF
+$(_refutation_objects "$mk")
+EOF
+  if [ "${raw_outcomes:-0}" -gt "${valid_refs:-0}" ]; then
+    echo "  FAIL-CLOSED: review_refutations record unparseable — $raw_outcomes refutation(s) present but only $valid_refs parsed with a valid batch; a value contains { } [ ] punctuation that broke the parse. Ambiguous governance record ⇒ rejected (not fail-open)." >&2
+    viol=$((viol + 1))
+  fi
+
+  # 2b) every credible refutation for this batch must link to a B-governed (≥MEDIUM) finding
   local robj rbatch rout rfid fobj fsev
   while IFS= read -r robj; do
     [ -n "$robj" ] || continue
@@ -199,6 +218,12 @@ if [ "${1:-}" = "--self-test" ]; then
   # REGRESSION (independent review, credible #2): 'credible ' with trailing space must still be governed → fail.
   _marker '{'"$M"','"$AOK"',"review_refutations":[{"batch":"C1","class":"ordering","outcome":"credible "}]}'
   _chk "REGRESSION 'credible ' (trailing space) still governed → fail" "$(_run)" 1
+  # REGRESSION (independent review round 2): a '}' or '{' in a refutation value must not fail OPEN — the
+  # parse-integrity guard rejects the unparseable governance record (fail-closed).
+  _marker '{'"$M"','"$AOK"',"review_refutations":[{"batch":"C1","class":"a}b","outcome":"credible","finding_id":""}]}'
+  _chk "REGRESSION '}' in value → parse-integrity guard → fail" "$(_run)" 1
+  _marker '{'"$M"','"$AOK"',"review_refutations":[{"batch":"C1","class":"a{b","outcome":"credible","finding_id":""}]}'
+  _chk "REGRESSION '{' in value → parse-integrity guard → fail" "$(_run)" 1
   # skip — in-flight batch is kind:doc → skip
   _batch '{"id":"Z","kind":"doc","status":"announced"}'
   _marker "{$M}"
