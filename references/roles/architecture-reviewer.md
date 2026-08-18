@@ -1,6 +1,6 @@
 ---
 name: architecture-reviewer
-version: 1.0.0
+version: 1.1.0
 model: claude-opus-4-8
 compatible_pipelines: [mvp, full, audit, single-thread]
 tool_surface:
@@ -113,3 +113,13 @@ rollback_scope: <what to revert, or null>
 - **Bounded retries.** Drift goes back to the builder; after 3–5 attempts, stop and escalate to a
   human (roll back the drifted commits rather than shipping erosion).
 - **Read-only.** You verify and report; you never edit.
+
+## Findings & disposition (v2.20.0)
+
+Emit `findings: [{id, severity, disposition}]` in the handoff for each issue raised (severity
+`INFO|LOW|MEDIUM|HIGH|CRITICAL`; disposition `promoted|refuted|downgraded|suppressed|wont_fix|moot`). The
+orchestrator records these to the run marker (`review_findings`). A **MEDIUM+ finding dispositioned to
+non-blocking** (downgraded/suppressed/wont_fix/moot) cannot be self-dropped: `check-disposition.sh`
+(verify-batch gate B) blocks the batch until an **independent** `disposition_waiver` (approver ≠ the batch
+builder, category, reason, expiry, current commit) governs it — the F4 fix. Report findings truthfully;
+never pre-soften a real MEDIUM+ to LOW to dodge the gate (P6). See [../enforcement.md](../enforcement.md).

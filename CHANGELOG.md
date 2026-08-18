@@ -2,6 +2,29 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.20.0] - 2026-08-18
+
+### Added
+- **Governed enforcement waiver (gate A, `check-enforcement.sh`).** `enforcement_ack` is now a dated,
+  expiring, categorized waiver (`by`/`reason`/`expires`/`category`); category is derived (declared+resolvable
+  tool forces `deferred`); a valid `host_structural` gap is exempt from every hard-require tier, a `deferred`
+  gap is not. Stops the ack deprecating into a perpetual free pass (ADR-0007).
+- **Disposition governance gate (gate B, `check-disposition.sh`).** A fired review finding of severity ≥
+  MEDIUM cannot be self-dispositioned to non-blocking; a downgrade requires an independent, dated waiver
+  (approver≠builder, current commit — a new commit voids it). Closes the "fired finding downgraded to a
+  comment" failure.
+- **Independent review-ack gate (gate C, `check-review-ack.sh`).** A `kind:code` batch cannot close without a
+  recorded independent clean-context adversarial review (reviewer≠builder, context:clean, verdict:go, commit
+  anchored); a credible refutation must link to a gate-B-governed MEDIUM+ finding. Reviewer independence is a
+  clean-context subagent, cross-model is opt-in hardening (ADR-0006).
+- team-bootstrap ships its own `AGENTS.md` (`Test:`/`TestGlobs:`); `bin/run-tests.sh` test runner.
+- `reviewFindings`/`review_acks`/`review_refutations` schema branches on the reviewer roles; reviewer role
+  version bumps (architecture-reviewer 1.1.0, code-reviewer 1.3.0, overengineering-reviewer 1.2.0).
+
+### Changed
+- `verify-batch` gate list adds `disposition` and `review-ack` (after `seam-ack`, before `delivery`); the
+  stale `gate_results` stamp string now enumerates all gates.
+
 ## [2.19.1] - 2026-08-17
 
 ### Fixed

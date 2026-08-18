@@ -116,3 +116,16 @@ The orchestrator's own guardrails (`tool_surface`, `permission_mode`, irreversib
 The orchestrator must include explicit instructions to return the handoff YAML — the `Task` tool returns one final string, so the prompt must direct the subagent to emit valid YAML.
 
 See [orchestrator.md](orchestrator.md) for the dispatch decision point in the execution loop, and [subagent-mapping.md](subagent-mapping.md) for the role→specialist mapping table.
+
+## Independent post-code review (v2.20.0, gate C)
+
+A `kind:code` batch's post-code review is dispatched as a **clean-context subagent** that receives **only
+the diff + the enumerated refutation criteria** — never the builder's run document or reasoning. This is
+what makes the review independent (generator≠verifier): a same-context reviewer inherits the biases that
+produced the code. The reviewer is prompted to **refute** (Refute-or-Promote), returns
+`review_acks`/`review_refutations` ([roles/code-reviewer.md](roles/code-reviewer.md)), and the orchestrator
+transcribes them to the run marker. `check-review-ack.sh` blocks closure without a valid entry
+(reviewer≠builder, context:clean, verdict:go, commit anchored). **Escalation:** an `irreversible`-classed
+batch, or a review that leaves a credible refutation unresolved, emits `verdict:blocked` → **human ack**;
+the orchestrator never self-closes over a blocked review (P5). Cross-model review is optional hardening for
+irreversible/security batches; clean-context subagent independence is the enforced floor (P7, ADR-0006).

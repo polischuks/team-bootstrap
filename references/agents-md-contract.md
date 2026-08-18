@@ -86,7 +86,13 @@ here for schema reference; field **order inside each object is load-bearing** fo
   [`check-enforcement.sh`](../bin/check-enforcement.sh) (gate A): which quality dimensions are
   unenforceable on this project (no `Test:`/`Coverage:`/`Mutation: enforce`).
 - **`enforcement_ack: true`** — the human's recorded decision to close a code batch with the
-  `enforcement_gaps` OFF (blocking until set; not honoured for `run-rate|irreversible` batches — OQ-1).
+  `enforcement_gaps` OFF (blocking until set). **v2.20.0 — now a governed, expiring waiver:** only valid
+  alongside **`enforcement_ack_by`**, **`enforcement_ack_reason`**, **`enforcement_ack_expires`**
+  (`YYYY-MM-DD`; past it, vs `TEAM_BOOTSTRAP_NOW`/system date, ⇒ no ack), and **`enforcement_ack_category`**
+  (`host_structural` = tool cannot exist on host, or `deferred` = tool available but off). The category is
+  *derived/corroborated*: a declared+resolvable `Coverage:`/`Mutation:` forces `deferred`. An ackable gap
+  (unwaived or `deferred`) hard-fails on a `high_risk_seams`-touching **or** `run-rate|irreversible` batch;
+  a valid `host_structural` waiver is exempt from every tier. Any field missing ⇒ not an ack.
 - **`high_risk_seams: [{"seam":"<name>","paths":["<path>",…]}, …]`** — the architecture review's highest-
   risk seams (seam **then** paths), consumed by [`check-seam-ack.sh`](../bin/check-seam-ack.sh) (gate C).
 - **`seam_acks: [{"seam":"<name>","commit":"<sha>","note":"<file:line + why>"}, …]`** — the recorded

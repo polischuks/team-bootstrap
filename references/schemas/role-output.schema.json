@@ -90,6 +90,21 @@
       "required": ["critical", "high", "medium", "low"],
       "additionalProperties": false
     },
+    "reviewFindings": {
+      "type": "array",
+      "description": "Findings this reviewer raised, each with an explicit disposition. A finding of severity MEDIUM+ dispositioned to non-blocking (downgraded/suppressed/wont_fix/moot) is governed by check-disposition.sh (verify-batch gate B, v2.20.0): the shipping actor cannot self-drop it — it requires an independent disposition_waiver (approver ≠ builder, category, reason, expiry, current commit). The orchestrator records these to the run marker as review_findings. See references/enforcement.md.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "severity": { "enum": ["INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+          "disposition": { "enum": ["promoted", "refuted", "downgraded", "suppressed", "wont_fix", "moot"] },
+          "summary": { "type": "string" }
+        },
+        "required": ["id", "severity", "disposition"],
+        "additionalProperties": false
+      }
+    },
     "reviewerConsensus": {
       "type": "array",
       "description": "Optional per-finding cross-reviewer agreement. When a surface is judged by multiple independent reviewers or verification passes, record how many flagged each finding: a higher tally is a stronger confidence signal, and the denominator must reflect reviewers that actually ran (log skipped ones — never silently shrink it). See references/trace-evals.md.",
@@ -277,7 +292,8 @@
         {
           "properties": {
             "role": { "const": "overengineering-reviewer" },
-            "verdict": { "enum": ["appropriate", "overengineered", "underengineered"] }
+            "verdict": { "enum": ["appropriate", "overengineered", "underengineered"] },
+            "findings": { "$ref": "#/$defs/reviewFindings" }
           },
           "required": ["verdict"]
         }
@@ -291,7 +307,39 @@
           "properties": {
             "role": { "const": "code-reviewer" },
             "approval_status": { "enum": ["approved", "changes_requested"] },
-            "reviewer_consensus": { "$ref": "#/$defs/reviewerConsensus" }
+            "reviewer_consensus": { "$ref": "#/$defs/reviewerConsensus" },
+            "findings": { "$ref": "#/$defs/reviewFindings" },
+            "review_acks": {
+              "type": "array",
+              "description": "v2.20.0 gate C: the independent post-code review record the orchestrator transcribes to the run marker. check-review-ack.sh requires reviewer≠builder, context:clean, verdict:go, commit reachable+post-baseline. See references/enforcement.md.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "batch": { "type": "string", "minLength": 1 },
+                  "reviewer": { "type": "string", "minLength": 1 },
+                  "context": { "const": "clean" },
+                  "commit": { "type": "string", "minLength": 1 },
+                  "verdict": { "enum": ["go", "blocked"] }
+                },
+                "required": ["batch", "reviewer", "context", "commit", "verdict"],
+                "additionalProperties": false
+              }
+            },
+            "review_refutations": {
+              "type": "array",
+              "description": "One entry per attempted adversarial refutation (Refute-or-Promote). A credible outcome must carry a finding_id resolving to a review_findings entry of severity ≥ MEDIUM (gate B governs it). Keep values free of raw {}/[] (jq-free marker parse fail-closes on them).",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "batch": { "type": "string", "minLength": 1 },
+                  "class": { "type": "string" },
+                  "outcome": { "enum": ["none", "refuted", "credible"] },
+                  "finding_id": { "type": "string" }
+                },
+                "required": ["batch", "outcome"],
+                "additionalProperties": false
+              }
+            }
           },
           "required": ["approval_status"]
         }
@@ -709,7 +757,8 @@
             "review_mode": { "enum": ["soundness", "conformance"] },
             "architecture_sound": { "type": "boolean", "description": "Soundness mode: is the planned architecture correct and baseline-fitting? See references/architecture-baseline.md." },
             "conformance_verified": { "type": "boolean", "description": "Conformance mode: did the batch stay within the baseline (no drift)?" },
-            "drift_findings": { "type": "integer", "minimum": 0, "description": "Conformance mode: count of baseline violations (boundary/layer/dependency drift)." }
+            "drift_findings": { "type": "integer", "minimum": 0, "description": "Conformance mode: count of baseline violations (boundary/layer/dependency drift)." },
+            "findings": { "$ref": "#/$defs/reviewFindings" }
           }
         },
         {

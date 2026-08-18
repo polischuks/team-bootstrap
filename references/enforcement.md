@@ -182,6 +182,36 @@ so F1/F2/F3 actually run (out of this plugin's scope — P7 — documented). Thi
 three on itself, and building A's marker rewrite surfaced + locked a real bash-5.2 `${//}` backslash-leak
 in the marker-write path — the exact seam C guards. See [ADR-0005](../docs/adr/0005-closure-fidelity-gates.md).
 
+### The enforcement ack is a governed, expiring waiver (v2.20.0)
+
+A second retrospective found gate A **worked but deprecated into routine**: a `feature|doc` batch passed
+on a bare `enforcement_ack:true`, and the dogfood project re-acked the same gaps every run as "expected"
+— the detector fired, but the ack became a perpetual free pass (F4 at the meta level). v2.20.0 makes the
+waiver *governed* ([ADR-0007](../docs/adr/0007-time-boxed-waivers.md)):
+
+- **Complete + dated.** A valid `enforcement_ack` now requires `enforcement_ack_by`,
+  `enforcement_ack_reason`, `enforcement_ack_expires` (`YYYY-MM-DD`), and `enforcement_ack_category ∈
+  {host_structural, deferred}`. Past `expires` (vs a passed-in `TEAM_BOOTSTRAP_NOW`, default system date),
+  or any field missing ⇒ **no ack**. The waiver must be re-acknowledged, not silently inherited.
+- **Category is derived, not trusted.** `host_structural` (the tool provably cannot exist on host) is
+  legitimate only when **no** gap dimension has a declared+resolvable tool. If `Coverage:`/`Mutation:` is
+  declared *and* resolves on PATH, that gap is `deferred` by construction (arm it, don't waive it) and a
+  `host_structural` label is rejected → forced to `deferred`. This makes the exemption airtight on target
+  projects — the label cannot be forged to dodge a tier.
+- **Tiered hard-require, with a structural exemption.** An *ackable* gap (unwaived, or `deferred`) is
+  hard-failed on the highest-cost paths: a batch touching a recorded `high_risk_seams` path **and** a
+  `run-rate|irreversible` batch. A gap under a **valid `host_structural`** waiver is **exempt from every
+  tier** — otherwise team-bootstrap (whose bash coverage/mutation tools cannot exist) could never ship a
+  run-rate fix to its *own* gate machinery. Honest limit: for a repo whose gaps are permanently
+  host_structural, the expiry buys **visibility in post-review**, not prevention; the tiered prevention is
+  load-bearing for *target* projects where the tooling exists (gaps are `deferred` ⇒ no ack escape).
+
+**Diff-scoped mutation blind spot (target-project doctrine).** Where mutation *is* armed, diff-scoped
+runs match against production code, so an assertion weakened in an otherwise-unchanged file, or precision
+erosion spilling into an untouched region, is invisible to the per-batch run (cargo-mutants / Stryker note
+this explicitly). Target projects should pair the diff-scoped enforce gate with a **scheduled full-repo
+advisory** run as backstop. team-bootstrap declares no mutation tool, so this is doctrine, not a local job.
+
 ## CI backstop (add to the target project)
 
 Add a job that runs the batch gate against the change — this is what makes review non-optional:

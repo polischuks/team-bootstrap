@@ -1,5 +1,5 @@
 {
-  "active_spec": "specs/test-quality-gates",
+  "active_spec": "specs/closed-loop-fidelity",
   "specs_dir": "specs",
   "constitution": "constitution.md",
   "constitution_version": "1.0.1",

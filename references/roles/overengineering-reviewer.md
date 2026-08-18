@@ -1,6 +1,6 @@
 ---
 name: overengineering-reviewer
-version: 1.1.0
+version: 1.2.0
 model: claude-haiku-4-5-20251001
 compatible_pipelines: [full, audit]
 tool_surface:
@@ -91,3 +91,13 @@ Check availability: `bin/check-skills.sh full`. **`code-simplification` + `doubt
 - **YAGNI rigorously applied (2026)** — speculative abstractions for "future flexibility" pay a tax now. Flag them.
 - **Premature optimization flagged** — performance optimization without profiling evidence is overengineering. Profile first, then optimize.
 - **AI-generated boilerplate watch** — if implementation contains generic patterns (over-engineered factory functions, unnecessary configuration layers, "enterprise patterns" for SMB use), flag as AI-aesthetic overengineering.
+
+## Findings & disposition (v2.20.0)
+
+Emit `findings: [{id, severity, disposition}]` in the handoff for each issue raised (severity
+`INFO|LOW|MEDIUM|HIGH|CRITICAL`; disposition `promoted|refuted|downgraded|suppressed|wont_fix|moot`). The
+orchestrator records these to the run marker (`review_findings`). A **MEDIUM+ finding dispositioned to
+non-blocking** (downgraded/suppressed/wont_fix/moot) cannot be self-dropped: `check-disposition.sh`
+(verify-batch gate B) blocks the batch until an **independent** `disposition_waiver` (approver ≠ the batch
+builder, category, reason, expiry, current commit) governs it — the F4 fix. Report findings truthfully;
+never pre-soften a real MEDIUM+ to LOW to dodge the gate (P6). See [../enforcement.md](../enforcement.md).

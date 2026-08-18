@@ -152,6 +152,13 @@ Then, for **each batch, one at a time**:
    it also runs `check-delivery` (no prior kind:code batch announced-but-never-closed) and **stamps
    this batch `closed`** in the ledger with `commit_shas` + `code_delta` — closure becomes a recorded
    machine fact, not a claim.
+   **Independent review gate (hard, in `verify-batch`, v2.20.0).** A `kind:code` batch also runs
+   `check-review-ack` (gate C): dispatch a **clean-context** code-reviewer subagent on the batch diff
+   (only the diff + refutation criteria, not the run doc), record its `review_acks` (reviewer≠builder,
+   context:clean, verdict:go, commit anchored) + `review_refutations` to the marker; a credible refutation
+   becomes a MEDIUM+ `review_findings` governed by gate B. A `blocked` verdict or an `irreversible` batch
+   escalates to a human ack — never self-close (P5). See [../references/enforcement.md](../references/enforcement.md).
+
    **Closure-fidelity gates (hard, in `verify-batch`).** The backstop also runs the three closure-fidelity
    gates: **A** (`check-enforcement`) records `enforcement_gaps` and blocks until you record
    `enforcement_ack:true` in the marker — surface the gap set to the human and, on their go-ahead, set it

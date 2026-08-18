@@ -47,7 +47,7 @@ Use this by default for quick iterations.
 | `backend-engineer` | Implement backend changes. | code, backend notes |
 | `frontend-engineer` | Implement frontend changes. | code, frontend notes, UI notes |
 | `integration-verifier` | Outcome-based check that the batch is wired end-to-end: runs E2E + orphan scan (builder ≠ auditor, hard gate). | integration_verified, orphans_found, E2E evidence |
-| `architecture-reviewer` | Conformance check: batch stays within the app's architecture baseline (fitness functions, no drift; hard gate). | conformance_verified, drift_findings |
+| `architecture-reviewer` | Conformance check: batch stays within the app's architecture baseline (fitness functions, no drift; hard gate). | conformance_verified, drift_findings, findings |
 | `regression-guardian` | Cumulative gate: re-runs invariants across all workflows, graduates verified closures into the regression suite, meta-checks gate integrity (hard gate). | regressions_found, regression_suite_current, gate_integrity_ok |
 | `qa-test-engineer` | Validate behavior and collect evidence. | test plan, QA report, defect list |
 | `release-docs` | Make the final go or no-go and doc handoff. | release decision, release notes, runbook notes |
