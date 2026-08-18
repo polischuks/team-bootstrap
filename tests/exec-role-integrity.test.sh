@@ -70,5 +70,34 @@ printf '{"id":"B1","kind":"code","status":"announced"}\n' > "$T/.runs/st/batches
 _chk "AC-3 single-thread pipeline → gate skips" "$( cd "$T" && TEAM_BOOTSTRAP_RUN=st "$here/bin/check-role-dispatch.sh" . >/dev/null 2>&1; echo $? )" 0
 
 rm -rf "$T"
+
+# --- AC-2: check-review-ack corroboration (Batch C, T5) -------------------------
+# A review_acks entry is valid only when a reviewer-typed dispatch record exists for that batch's
+# window in full/mvp — the marker `reviewer` claim must be harness-corroborated, not merely present
+# (soundness B3). single-thread is exempt (reviewers run inline there — no dispatch).
+T2="$(mktemp -d)"; mkdir -p "$T2/.runs/r"
+( cd "$T2" && git init -q && git config user.email t@t && git config user.name t
+  echo a > f && git add . && git commit -qm c0
+  echo b >> f && git add . && git commit -qm c1 ) >/dev/null 2>&1
+b2="$(cd "$T2" && git rev-parse --short HEAD~1)"; c2="$(cd "$T2" && git rev-parse --short HEAD)"
+printf '{"id":"B1","kind":"code","status":"announced"}\n' > "$T2/.runs/r/batches.jsonl"
+MK2='"run":"r","pipeline":"full","intends_code":true,"builder":"orchestrator","baseline_sha":"'"$b2"'"'
+AOK2='"review_acks":[{"batch":"B1","reviewer":"code-reviewer","context":"clean","commit":"'"$c2"'","verdict":"go"}]'
+_ra() { ( cd "$T2" && TEAM_BOOTSTRAP_RUN=r "$here/bin/check-review-ack.sh" . >/dev/null 2>&1 ); echo $?; }
+# full + valid review_acks + NO reviewer dispatch → fail (claim not harness-corroborated)
+printf '{%s,%s}\n' "$MK2" "$AOK2" > "$T2/.runs/r/RUN"; rm -f "$T2/.runs/r/dispatch.jsonl"
+_chk "AC-2 full + review_acks + no reviewer dispatch → check-review-ack fail" "$(_ra)" 1
+# full + valid review_acks + builder-only dispatch → fail (a builder dispatch does not corroborate)
+printf '{"batch":"B1","subagent_type":"backend-developer"}\n' > "$T2/.runs/r/dispatch.jsonl"
+_chk "AC-2 full + review_acks + builder-only dispatch → fail" "$(_ra)" 1
+# full + valid review_acks + reviewer-typed dispatch → pass
+printf '{"batch":"B1","subagent_type":"code-reviewer"}\n' > "$T2/.runs/r/dispatch.jsonl"
+_chk "AC-2 full + review_acks + reviewer dispatch → pass" "$(_ra)" 0
+# single-thread + valid review_acks + no dispatch → pass (corroboration is full/mvp-scoped)
+printf '{"run":"r","pipeline":"single-thread","intends_code":true,"builder":"orchestrator","baseline_sha":"%s",%s}\n' "$b2" "$AOK2" > "$T2/.runs/r/RUN"
+rm -f "$T2/.runs/r/dispatch.jsonl"
+_chk "AC-2 single-thread + review_acks + no dispatch → pass (exempt)" "$(_ra)" 0
+rm -rf "$T2"
+
 [ "$fail" -eq 0 ] && { echo "exec-role-integrity.test.sh: OK"; exit 0; }
 echo "exec-role-integrity.test.sh: $fail failure(s)" >&2; exit 1
