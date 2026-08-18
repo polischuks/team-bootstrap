@@ -22,6 +22,7 @@ claim. The delivery-occurred layer makes it a recorded machine fact instead.
 | **Always-on** | Stop hook → [`../bin/quality-gate.sh`](../bin/quality-gate.sh) | typecheck + lint red on completion | no (harness) |
 | **Batch gate** | [`../bin/verify-batch.sh`](../bin/verify-batch.sh) at each batch close | dead code (orphans), drift, green-by-skip, red-not-touching-tests (F1), under-covered change (F2), weak assertions (F3, opt-in) | LLM-invoked (see CI) |
 | **Delivery-occurred** | [`../bin/check-delivery.sh`](../bin/check-delivery.sh) inside `verify-batch.sh` + the ledger stamp | a `kind:code` batch announced but **never closed** by a pipeline run; a closure with zero code delta | in-session: **no**; CI: only if the run's ledger is committed (`.runs/` is gitignored by default) |
+| **Role-execution** | `PreToolUse` recorder → `.runs/<run>/dispatch.jsonl` + [`../bin/check-role-dispatch.sh`](../bin/check-role-dispatch.sh) inside `verify-batch.sh` | a `full`/`mvp` `kind:code` batch that dispatched **no reviewer subagent** — the silent collapse of the multi-role pipeline to single-thread (spec-169), **announced** to the user | in-session: **no** (marker-gated); degradation-proof, not forgery-proof (ADR [0008](../docs/adr/0008-harness-verified-role-execution.md)) |
 | **Independent backstop** | **CI** runs `verify-batch.sh` on every PR/push | everything above, from scratch, regardless of what the local run did | **no** — the merge blocks |
 
 ### How closure becomes a fact (delivery-occurred layer)
@@ -211,6 +212,30 @@ runs match against production code, so an assertion weakened in an otherwise-unc
 erosion spilling into an untouched region, is invisible to the per-batch run (cargo-mutants / Stryker note
 this explicitly). Target projects should pair the diff-scoped enforce gate with a **scheduled full-repo
 advisory** run as backstop. team-bootstrap declares no mutation tool, so this is doctrine, not a local job.
+
+### Role execution is harness-observed, not narrated (v2.21.0)
+
+The layers above enforce that the delivered **code is clean** and that **delivery occurred**. They do not
+see *how* the pipeline executed. On spec-169 the `full` pipeline **silently collapsed to single-thread** —
+the orchestrator absorbed the builder **and** the reviewer roles, `verify-batch` still went green, and the
+user was told "delivered, gates passed" while no independent review ran. `full`/`mvp` exist precisely to
+give each batch a fresh independent mind (P2); that separation was **prose the orchestrator could skip**.
+
+The **role-execution layer** moves it onto the harness. A non-blocking `PreToolUse[Agent]` recorder
+([`../bin/record-dispatch.sh`](../bin/record-dispatch.sh)) writes each **reviewer-typed** dispatch
+(`subagent_type` ∈ [`review-types.txt`](review-types.txt), the single source) to `.runs/<run>/dispatch.jsonl`;
+[`../bin/check-role-dispatch.sh`](../bin/check-role-dispatch.sh) then **fails closed and announces** when a
+`full`/`mvp` `kind:code` batch closes with zero reviewer-typed dispatches. Doctrine mandates the four review
+roles dispatch as subagents with a dedicated review type in `full`/`mvp` (`single-thread` inline stays
+sanctioned, P1), and `check-review-ack`'s marker claim is now **corroborated** by a real dispatch record
+(closing 0006's forgeable-marker residual for the dispatch dimension).
+
+Honest reach ([ADR-0008](../docs/adr/0008-harness-verified-role-execution.md)): `subagent_type` is
+model-authored, so this is **degradation-proof, not forgery-proof** — it catches a total inline collapse,
+not a decoy review-typed no-op dispatch; and it proves the reviewer was *dispatched*, not that it *completed*
+or was *good* (quality stays 0006 + the refutation doctrine). It is strictly stronger than a marker string,
+and it is the same prose→harness move this whole document embodies — now applied to **process**, not only
+outcomes.
 
 ## CI backstop (add to the target project)
 

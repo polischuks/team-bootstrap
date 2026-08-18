@@ -42,6 +42,22 @@ Two more hooks make the delivery-occurred gate ([enforcement.md](enforcement.md)
   blocking their `SubagentStop` on an unclosed batch would deadlock the step that closes it — the
   premature-completion this guards is the **main orchestrator's** (`Stop`).
 
+### Role-execution recorder (v2.21.0, exec-role-integrity)
+
+- **`PreToolUse` (matcher `Agent|Task`) → [`../bin/record-dispatch.sh`](../bin/record-dispatch.sh)** — a
+  **non-blocking, recording-only** hook. On each subagent dispatch it reads `tool_input.subagent_type`
+  and, when that type is in the dedicated review-type set ([`review-types.txt`](review-types.txt)),
+  appends `{batch, subagent_type}` for the in-flight batch to `.runs/<run>/dispatch.jsonl`. This makes
+  "an independent reviewer was **dispatched**" a harness-observed fact, so the `role-dispatch`
+  `verify-batch` gate ([`../bin/check-role-dispatch.sh`](../bin/check-role-dispatch.sh)) can catch a
+  `full`/`mvp` batch that silently collapsed build+review into one inline mind (spec-169) and announce it.
+  It records **dispatch occurrence, no completion status** — subagents run background-by-default, so
+  `PostToolUse[Agent]` returns `status:"async_launched"` (never `completed`) and `SubagentStop` is flaky
+  ([#27755](https://github.com/anthropics/claude-code/issues/27755)); `PreToolUse[Agent]` reliably carries
+  the type at dispatch. It **always exits 0** (recording only — like the marker writer, never a deadlock
+  or a block) and marker-gates to a no-op off-session. Honest limit: `subagent_type` is model-authored, so
+  this is **degradation-proof, not forgery-proof** (ADR [0008](../docs/adr/0008-harness-verified-role-execution.md)).
+
 ## Layering (which gate runs where)
 
 | Gate | Where | Enforces |
@@ -50,6 +66,7 @@ Two more hooks make the delivery-occurred gate ([enforcement.md](enforcement.md)
 | Red→green + evidence | role handoff schema (`verification_evidence`, `tests_failed_first`) | TDD + evidence, per role |
 | E2E + no-orphans | `integration-verifier` role | wiring, per batch |
 | Batch gate (orphans + drift + gate-integrity) | `bin/verify-batch.sh` at batch close **+ CI** | dead code / drift / green-by-skip — non-bypassable at merge ([enforcement.md](enforcement.md)) |
+| Role execution (reviewer dispatched, not inline collapse) | `PreToolUse` recorder + `check-role-dispatch.sh` in `verify-batch` | a `full`/`mvp` code batch that dispatched no reviewer subagent — announced, per batch (ADR [0008](../docs/adr/0008-harness-verified-role-execution.md)) |
 | Full suite from scratch | CI (`.github/workflows/ci.yml`) | independent environment |
 
 ## Controls
