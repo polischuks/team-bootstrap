@@ -41,6 +41,16 @@ if [ "${1:-}" = "--self-test" ]; then
   _c="$(git rev-parse --short HEAD 2>/dev/null)"
   _c1="$(git rev-parse --short HEAD~1 2>/dev/null)"
   _root="$(git rev-parse --short "$(git rev-list --max-parents=0 HEAD 2>/dev/null | tail -1)" 2>/dev/null)"
+  # AC-2 needs a commit whose non-doc delta is provably BELOW the inflated stamp (137). Reusing $_c
+  # (=HEAD) is fragile: when HEAD is a large code commit the recompute exceeds 137 and the inflation
+  # is (correctly) NOT flagged, flipping AC-2 red for reasons unrelated to the gate (the
+  # exec-role-integrity batch surfaced exactly this). Synthesize a DOC-ONLY dangling commit instead
+  # (parent HEAD, tree = HEAD's tree + one .md file), so its recomputed non-doc delta is 0 regardless
+  # of HEAD — decoupled the same way the historical-SHA coupling was (baseline 49a8b89).
+  _docblob="$(printf 'doc fixture\n' | git hash-object -w --stdin 2>/dev/null || true)"
+  _doctree=""; [ -n "$_docblob" ] && _doctree="$( { git ls-tree HEAD 2>/dev/null; printf '100644 blob %s\t__ac2_docfix.md\n' "$_docblob"; } | git mktree 2>/dev/null || true)"
+  _docfix=""; [ -n "$_doctree" ] && _docfix="$(git commit-tree "$_doctree" -p HEAD -m 'doc-only fixture (AC-2)' 2>/dev/null || true)"
+  [ -n "$_docfix" ] || _docfix="$_c"   # fallback: old behavior if object plumbing is unavailable
   _expect() { # runname expected_exit desc
     local rn="$1" exp="$2" desc="$3" got
     TEAM_BOOTSTRAP_RUN="$rn" "$0" "$st_root" >/dev/null 2>&1; got=$?
@@ -52,7 +62,7 @@ if [ "${1:-}" = "--self-test" ]; then
   # F-A recompute (no marker → binding off) -----------------------------------
   printf '%s\n' '{"id":"F1","kind":"code","status":"closed","commit_shas":["deadbeef"],"code_delta":137}' > .runs/_st_ac1/batches.jsonl
   _expect _st_ac1 1 "AC-1 — forged deadbeef SHA rejected"
-  printf '%s\n' '{"id":"F2","kind":"code","status":"closed","commit_shas":["'"$_c"'"],"code_delta":137}' > .runs/_st_ac2/batches.jsonl
+  printf '%s\n' '{"id":"F2","kind":"code","status":"closed","commit_shas":["'"$_docfix"'"],"code_delta":137}' > .runs/_st_ac2/batches.jsonl
   _expect _st_ac2 1 "AC-2 — inflated code_delta over a doc-only commit rejected"
   if [ -f ".runs/deliver-delivery-guard/batches.jsonl" ]; then
     _expect deliver-delivery-guard 0 "AC-3 — historical honest ledger (B1-B5) still passes"
