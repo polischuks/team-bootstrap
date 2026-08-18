@@ -1,0 +1,202 @@
+#!/usr/bin/env bash
+# check-review-ack.sh — verify-batch gate C (milestone closed-loop-fidelity, batch C1): a kind:code batch
+# cannot close without a recorded, INDEPENDENT, clean-context adversarial review of its diff. Closes the
+# retro's residual semantic class (F2 write-before-validate ordering, F6 aggregation/no-op) that no
+# structural fitness function sees — the post-code review the orchestrator can otherwise consolidate away.
+#
+# The reviewer runs in a fresh subagent context (P2) seeing only the diff + enumerated criteria, prompted
+# to REFUTE (Refute-or-Promote). The orchestrator records the outcome to the run marker:
+#   review_acks:        [{batch, reviewer, context, commit, verdict}]
+#   review_refutations: [{batch, class, outcome, finding_id}]   (flat; one per attempted refutation)
+#
+# For the in-flight kind:code batch, closing requires a review_acks entry whose:
+#   - reviewer is present AND ≠ the batch builder identity (marker `builder`, default "orchestrator"; OQ-4
+#     — CODEOWNERS/required-reviewer semantics: no self-review);
+#   - context == "clean" (saw only the diff+criteria, not the builder's reasoning);
+#   - commit resolves, is reachable from HEAD, and post-baseline (the review looked at the shipped code);
+#   - verdict == "go".
+# And EVERY review_refutations entry for this batch with outcome=="credible" must carry a finding_id that
+# resolves to a review_findings entry of severity ≥ MEDIUM — so check-disposition (gate B, ordered BEFORE
+# C in verify-batch) governs that live counterexample's waiver, not a bare present string (soundness B2 +
+# re-review #3). A credible refutation with no B-governed finding ⇒ fail (the self-approval bypass, closed).
+#
+# HONEST LIMIT (ADR-000X): the gate enforces the review's PRESENCE, independence, clean-context attestation,
+# commit anchor, and refutation governance — NOT the correctness of the verdict. The *who* (reviewer≠builder)
+# is a marker string, forgeable by the same orchestrator; the *when* (commit) is git-grounded. Parity with
+# seam_acks/risk_rank — presence enforced, honesty logged not proven.
+#
+# Graceful skips (exit 0): no active marker / not intends_code / in-flight batch not kind:code.
+#
+# Usage: bin/check-review-ack.sh [project-dir]  ·  bin/check-review-ack.sh --self-test
+# Exit:  0 governed / skip · 1 missing / self / blocked / ungoverned-credible-refutation · 64 bad usage
+set -uo pipefail
+
+here="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=bin/delivery-lib.sh
+. "$here/delivery-lib.sh"
+
+# _array_objects MK KEY → one flat {...} object per line for the JSON array at "KEY":[...] (flat objects only).
+_array_objects() {
+  local mk="$1" key="$2" arr
+  arr="$(printf '%s' "$mk" | grep -oE "\"$key\":[[:space:]]*\[[^]]*\]" | head -1)"
+  [ -n "$arr" ] || return 0
+  printf '%s' "$arr" | grep -oE '\{[^}]*\}'
+}
+# _obj_by MK KEY FIELD VALUE → the first object in array KEY whose FIELD == VALUE (rc 1 if none).
+_obj_by() {
+  local mk="$1" key="$2" field="$3" val="$4" obj
+  while IFS= read -r obj; do
+    [ -n "$obj" ] || continue
+    [ "$(field_str "$obj" "$field")" = "$val" ] && { printf '%s' "$obj"; return 0; }
+  done <<EOF
+$(_array_objects "$mk" "$key")
+EOF
+  return 1
+}
+_sev_ge_medium() { case "$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')" in MEDIUM|HIGH|CRITICAL) return 0 ;; esac; return 1; }
+
+# _inflight_batch → the in-flight ledger line (last announced; else last non-empty).
+_inflight_batch() {
+  local ledger line
+  ledger="$(resolve_ledger)"; [ -n "$ledger" ] && [ -f "$ledger" ] || return 0
+  line="$(grep '"status":[[:space:]]*"announced"' "$ledger" 2>/dev/null | tail -1)"
+  [ -n "$line" ] || line="$(grep -v '^[[:space:]]*$' "$ledger" 2>/dev/null | tail -1)"
+  printf '%s' "$line"
+}
+
+_evaluate() {
+  local marker mk bline bid bkind builder base_full head_full
+  marker="$(resolve_marker)"
+  [ -n "$marker" ] && [ -f "$marker" ] || { echo "check-review-ack: no active delivery run — skipping."; return 0; }
+  mk="$(cat "$marker" 2>/dev/null || true)"
+  [ "$(field_bool "$mk" intends_code)" = "true" ] || { echo "check-review-ack: marker not intends_code — skipping."; return 0; }
+
+  bline="$(_inflight_batch)"
+  [ -n "$bline" ] || { echo "check-review-ack: no in-flight batch — nothing to review."; return 0; }
+  bid="$(field_str "$bline" id)"; bkind="$(field_str "$bline" kind)"
+  [ "$bkind" = "code" ] || { echo "check-review-ack: in-flight batch '$bid' is kind=$bkind (not code) — skipping."; return 0; }
+
+  builder="$(field_str "$mk" builder)"; [ -n "$builder" ] || builder="orchestrator"
+  base_full="$(resolve_sha "$(field_str "$mk" baseline_sha)" 2>/dev/null || true)"
+  head_full="$(git rev-parse HEAD 2>/dev/null || true)"
+
+  # 1) require a review_acks entry for this batch
+  local ack reviewer context commit verdict cfull
+  if ! ack="$(_obj_by "$mk" review_acks batch "$bid")"; then
+    echo "  FAIL-CLOSED: kind:code batch '$bid' has NO review_acks entry — an independent clean-context review must run before it closes (no self-consolidated review; F2/F6)." >&2
+    return 1
+  fi
+  reviewer="$(field_str "$ack" reviewer)"; context="$(field_str "$ack" context)"; commit="$(field_str "$ack" commit)"; verdict="$(field_str "$ack" verdict)"
+
+  local viol=0
+  if [ -z "$reviewer" ] || [ "$reviewer" = "$builder" ]; then
+    echo "  FAIL: review_acks reviewer='$reviewer' empty or == builder '$builder' — no independence (reviewer must ≠ builder, OQ-4)." >&2; viol=$((viol + 1))
+  fi
+  [ "$context" = "clean" ] || { echo "  FAIL: review_acks context='$context' — must be 'clean' (reviewer saw only the diff + criteria, not the builder's reasoning)." >&2; viol=$((viol + 1)); }
+  [ "$verdict" = "go" ] || { echo "  FAIL: review_acks verdict='$verdict' — not 'go' (a blocked review cannot close the batch; escalate)." >&2; viol=$((viol + 1)); }
+
+  cfull="$(resolve_sha "$commit" 2>/dev/null || true)"
+  if [ -z "$cfull" ]; then
+    echo "  FAIL: review_acks commit '$commit' does not resolve." >&2; viol=$((viol + 1))
+  else
+    if [ -n "$head_full" ] && ! git merge-base --is-ancestor "$cfull" "$head_full" 2>/dev/null; then
+      echo "  FAIL: review_acks commit $commit not reachable from HEAD (the review must be of the shipped code)." >&2; viol=$((viol + 1))
+    fi
+    if [ -n "$base_full" ] && ! git merge-base --is-ancestor "$base_full" "$cfull" 2>/dev/null; then
+      echo "  FAIL: review_acks commit $commit is not post-baseline." >&2; viol=$((viol + 1))
+    fi
+  fi
+
+  # 2) every credible refutation for this batch must link to a B-governed (≥MEDIUM) finding
+  local robj rbatch rout rfid fobj fsev
+  while IFS= read -r robj; do
+    [ -n "$robj" ] || continue
+    rbatch="$(field_str "$robj" batch)"; [ "$rbatch" = "$bid" ] || continue
+    rout="$(field_str "$robj" outcome)"
+    case "$(printf '%s' "$rout" | tr '[:upper:]' '[:lower:]')" in credible) : ;; *) continue ;; esac
+    rfid="$(field_str "$robj" finding_id)"
+    if [ -z "$rfid" ]; then
+      echo "  FAIL: a CREDIBLE refutation on batch '$bid' has no finding_id — a live counterexample must be recorded as a review_findings entry so gate B governs it (soundness B2)." >&2; viol=$((viol + 1)); continue
+    fi
+    if ! fobj="$(_obj_by "$mk" review_findings id "$rfid")"; then
+      echo "  FAIL: credible refutation finding_id='$rfid' resolves to no review_findings entry (B never governed it)." >&2; viol=$((viol + 1)); continue
+    fi
+    fsev="$(field_str "$fobj" severity)"
+    if ! _sev_ge_medium "$fsev"; then
+      echo "  FAIL: credible refutation finding_id='$rfid' links a $fsev finding — must be MEDIUM+ to be in gate B's jurisdiction (re-review #3)." >&2; viol=$((viol + 1)); continue
+    fi
+  done <<EOF
+$(_array_objects "$mk" review_refutations)
+EOF
+
+  if [ "$viol" -gt 0 ]; then
+    echo "  FAIL-CLOSED: batch '$bid' review-ack invalid ($viol issue(s)) — independent, clean-context, verdict:go review with governed refutations is required to close (F2/F6)." >&2
+    return 1
+  fi
+  echo "check-review-ack: batch '$bid' has a valid independent review (reviewer=$reviewer≠builder, context=clean, verdict=go, commit=$commit; credible refutations B-governed). OK."
+  return 0
+}
+
+# --- self-test ---------------------------------------------------------------
+if [ "${1:-}" = "--self-test" ]; then
+  fail=0; T="$(mktemp -d)"; mkdir -p "$T/.runs/r"
+  ( cd "$T" && git init -q && git config user.email t@t && git config user.name t
+    echo a > f.txt && git add . && git commit -qm c0
+    echo b >> f.txt && git add . && git commit -qm c1 ) >/dev/null 2>&1
+  BASE="$(cd "$T" && git rev-parse --short HEAD~1)"; C1="$(cd "$T" && git rev-parse --short HEAD)"
+  _marker() { printf '%s\n' "$1" > "$T/.runs/r/RUN"; }
+  _batch()  { printf '%s\n' "$1" > "$T/.runs/r/batches.jsonl"; }
+  _run() { ( cd "$T" && TEAM_BOOTSTRAP_RUN=r "$here/check-review-ack.sh" . >/dev/null 2>&1 ); echo $?; }
+  _chk() { if [ "$2" = "$3" ]; then echo "  PASS (exit $2) $1"; else echo "  FAIL (exit $2 want $3) $1" >&2; fail=$((fail + 1)); fi; }
+
+  _batch '{"id":"C1","kind":"code","status":"announced"}'
+  M='"run":"r","intends_code":true,"builder":"orchestrator","baseline_sha":"'"$BASE"'"'
+  AOK='"review_acks":[{"batch":"C1","reviewer":"code-reviewer","context":"clean","commit":"'"$C1"'","verdict":"go"}]'
+
+  # AC-6 — no review_acks entry → fail
+  _marker "{$M}"
+  _chk "AC-6 kind:code + no review_acks → fail" "$(_run)" 1
+  # AC-6 — valid independent review, verdict go, anchored → pass
+  _marker "{$M,$AOK}"
+  _chk "AC-6 independent clean go review (anchored) → pass" "$(_run)" 0
+  # AC-7 — reviewer == builder (self-review) → fail
+  _marker '{'"$M"',"review_acks":[{"batch":"C1","reviewer":"orchestrator","context":"clean","commit":"'"$C1"'","verdict":"go"}]}'
+  _chk "AC-7 self-review (reviewer==builder) → fail" "$(_run)" 1
+  # AC-7 — verdict blocked → fail
+  _marker '{'"$M"',"review_acks":[{"batch":"C1","reviewer":"code-reviewer","context":"clean","commit":"'"$C1"'","verdict":"blocked"}]}'
+  _chk "AC-7 verdict blocked → fail" "$(_run)" 1
+  # AC-7 — context not clean → fail
+  _marker '{'"$M"',"review_acks":[{"batch":"C1","reviewer":"code-reviewer","context":"dirty","commit":"'"$C1"'","verdict":"go"}]}'
+  _chk "AC-7 context not clean → fail" "$(_run)" 1
+  # AC-7 — commit not post-baseline (uses BASE, which is the baseline itself → not strictly after) still reachable;
+  #         use an unresolvable commit → fail
+  _marker '{'"$M"',"review_acks":[{"batch":"C1","reviewer":"code-reviewer","context":"clean","commit":"deadbeef","verdict":"go"}]}'
+  _chk "AC-7 unresolvable commit → fail" "$(_run)" 1
+  # AC-7 — credible refutation WITHOUT a linked finding → fail (self-approval bypass closed)
+  _marker '{'"$M"','"$AOK"',"review_refutations":[{"batch":"C1","class":"ordering","outcome":"credible"}]}'
+  _chk "AC-7 credible refutation, no finding_id → fail" "$(_run)" 1
+  # AC-7 — credible refutation linked to a LOW finding → fail (outside B jurisdiction)
+  _marker '{'"$M"','"$AOK"',"review_findings":[{"id":"F9","severity":"LOW","disposition":"downgraded"}],"review_refutations":[{"batch":"C1","class":"ordering","outcome":"credible","finding_id":"F9"}]}'
+  _chk "AC-7 credible refutation → LOW finding → fail" "$(_run)" 1
+  # AC-6 — credible refutation linked to a MEDIUM finding (B-governed) → pass
+  _marker '{'"$M"','"$AOK"',"review_findings":[{"id":"F9","severity":"MEDIUM","disposition":"downgraded"}],"review_refutations":[{"batch":"C1","class":"ordering","outcome":"credible","finding_id":"F9"}]}'
+  _chk "AC-6 credible refutation → MEDIUM finding → pass" "$(_run)" 0
+  # non-credible refutation (outcome none) → pass, no finding needed
+  _marker '{'"$M"','"$AOK"',"review_refutations":[{"batch":"C1","class":"ordering","outcome":"none"}]}'
+  _chk "non-credible refutation → pass" "$(_run)" 0
+  # skip — in-flight batch is kind:doc → skip
+  _batch '{"id":"Z","kind":"doc","status":"announced"}'
+  _marker "{$M}"
+  _chk "skip: kind:doc batch → pass" "$(_run)" 0
+  # skip — no marker
+  _batch '{"id":"C1","kind":"code","status":"announced"}'; rm -f "$T/.runs/r/RUN"
+  _chk "skip: no active marker → pass" "$(_run)" 0
+
+  rm -rf "$T"
+  if [ "$fail" -eq 0 ]; then echo "check-review-ack --self-test: OK"; exit 0; fi
+  echo "check-review-ack --self-test: $fail case(s) FAILED" >&2; exit 1
+fi
+
+root="${1:-.}"
+cd "$root" 2>/dev/null || { echo "check-review-ack: bad dir '$root'" >&2; exit 64; }
+if _evaluate; then exit 0; else exit 1; fi
