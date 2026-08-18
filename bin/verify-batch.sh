@@ -101,7 +101,7 @@ stamp_batch_closed() {
 
   local shas_json="[]"
   [ -n "$shas" ] && shas_json="[\"$(printf '%s' "$shas" | sed 's/,/","/g')\"]"
-  local gates="quality-gate=ok;orphans=ok;architecture=ok;gate-integrity=ok;tdd=ok;version-sync=ok;diff-coverage=ok;mutation=ok;enforcement=ok;completeness=ok;seam-ack=ok;disposition=ok;review-ack=ok;delivery=ok"
+  local gates="quality-gate=ok;orphans=ok;architecture=ok;gate-integrity=ok;tdd=ok;version-sync=ok;diff-coverage=ok;mutation=ok;enforcement=ok;completeness=ok;seam-ack=ok;disposition=ok;review-ack=ok;role-dispatch=ok;delivery=ok"
 
   local newline
   newline="$(printf '%s' "$target" \
@@ -172,6 +172,7 @@ gate "completeness (task_ids [x], B)"        "$here/check-completeness.sh" .
 gate "seam-ack (high-risk seam read, C)"     "$here/check-seam-ack.sh" .
 gate "disposition (MEDIUM+ finding governed, B)" "$here/check-disposition.sh" .
 gate "review-ack (independent review of diff, C)" "$here/check-review-ack.sh" .
+gate "role-dispatch (reviewer subagent ran, not inline collapse)" "$here/check-role-dispatch.sh" .
 gate "delivery (no unearned closure)"        "$here/check-delivery.sh" .
 
 if [ "$fails" -gt 0 ]; then

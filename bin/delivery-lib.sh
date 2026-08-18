@@ -119,6 +119,33 @@ json_has_obj_field() {
 # Abbrev-safe: the historical ledger stores 7-char SHAs.
 resolve_sha() { git rev-parse --verify -q "$1^{commit}" 2>/dev/null; }
 
+# --- exec-role-integrity: the dedicated review subagent_type set (N3 single source) -----------
+# review_types → echo the review subagent_type slugs (one per line), from the SINGLE SOURCE
+# references/review-types.txt (blank lines and '#' comments stripped, surrounding space trimmed).
+# The path is resolved relative to THIS lib's own location (BASH_SOURCE), so every sourcing script —
+# record-dispatch (recorder), check-role-dispatch (gate), check-review-ack (corroboration) — reads the
+# exact same set and it cannot drift. Missing file ⇒ empty set (callers treat that as "nothing counts").
+review_types() {
+  local f; f="$(dirname "${BASH_SOURCE[0]}")/../references/review-types.txt"
+  [ -f "$f" ] || return 0
+  grep -vE '^[[:space:]]*(#|$)' "$f" 2>/dev/null | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -vE '^$' || true
+}
+
+# is_review_type SLUG → rc 0 if SLUG EXACTLY matches a review type (anchored, whole-slug), else 1.
+# Empty SLUG ⇒ 1. Exact match distinguishes a reviewer dispatch from a builder's (backend-developer,
+# general-purpose, stack specialists — none of which appear in review-types.txt).
+is_review_type() {
+  local slug="$1" t
+  [ -n "$slug" ] || return 1
+  while IFS= read -r t; do
+    [ -n "$t" ] || continue
+    [ "$slug" = "$t" ] && return 0
+  done <<EOF
+$(review_types)
+EOF
+  return 1
+}
+
 # risk_rank_int NAME → integer rank (higher = more load-bearing); empty if unknown.
 risk_rank_int() {
   case "$1" in

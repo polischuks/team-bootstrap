@@ -63,6 +63,13 @@ Per [subagent-dispatch.md](subagent-dispatch.md):
 
 - Default: **inline** — activate the role's instructions and proceed in the main thread.
 - Dispatch as subagent (Task tool) only for context-isolation triggers: research-heavy roles, parallel reviewers, deep audits.
+- **Exception — mandatory in `full`/`mvp` (v2.21.0, exec-role-integrity):** the four review roles
+  `integration-verifier`, `architecture-reviewer` (conformance), `regression-guardian`, and
+  `code-reviewer` are **not** inline-by-default in `full`/`mvp` — they **must** be dispatched as subagents
+  with an identifiable review `subagent_type` (`independent-reviewer` / [`review-types.txt`](review-types.txt)),
+  so the harness can observe the review pipeline ran (`bin/record-dispatch.sh` → `bin/check-role-dispatch.sh`).
+  Running them inline there yields zero reviewer dispatches and **fails the `role-dispatch` gate** as a
+  silent single-thread collapse (spec-169). In `single-thread`, P1 sanctions inline and the gate skips.
 
 When the dispatch decision is "subagent", resolve the concrete `subagent_type` from the role's `preferred_subagent_types` frontmatter per [subagent-mapping.md](subagent-mapping.md):
 

@@ -129,3 +129,26 @@ transcribes them to the run marker. `check-review-ack.sh` blocks closure without
 batch, or a review that leaves a credible refutation unresolved, emits `verdict:blocked` → **human ack**;
 the orchestrator never self-closes over a blocked review (P5). Cross-model review is optional hardening for
 irreversible/security batches; clean-context subagent independence is the enforced floor (P7, ADR-0006).
+
+## Harness-verified reviewer dispatch (v2.21.0, exec-role-integrity — REQUIRED in full/mvp)
+
+v2.20.0's `check-review-ack` proves an independent review *artifact* exists, but that artifact is an
+orchestrator-written marker string — forgeable (ADR-0006). This tightens it to a **harness-observed
+fact**: in `full`/`mvp`, the **four mandatory review roles** — `integration-verifier`,
+`architecture-reviewer` (conformance), `regression-guardian`, `code-reviewer` — **must** be dispatched as
+subagents with an **identifiable review `subagent_type`** (the dedicated `independent-reviewer`, or another
+type in the single source [`review-types.txt`](review-types.txt)), **never** inline and never as generic
+`general-purpose`. A `PreToolUse[Agent]` hook (`bin/record-dispatch.sh`) records each reviewer-typed
+dispatch to `.runs/<run>/dispatch.jsonl`, and `bin/check-role-dispatch.sh` (a `verify-batch` gate) **fails
+closed + announces to the user** when a `full`/`mvp` `kind:code` batch closes with **zero** reviewer-typed
+dispatches — the signature of the spec-169 silent collapse to single-thread.
+
+**Why this is a contract change:** running a review role *inline* in `full`/`mvp` now produces zero
+reviewer dispatches and is therefore a **catchable degradation**, not a sanctioned shortcut. In
+`single-thread` the opposite holds — P1 sanctions inline roles as phase boundaries, so the gate **skips**
+it entirely.
+
+**Honest limit (ADR-000Z):** `subagent_type` is the model's dispatch argument, not a harness-minted value.
+So this is **degradation-proof, not forgery-proof** — it catches a total inline collapse, not a decoy
+review-typed no-op dispatch (that residual stays the ADR-0006 quality/willingness limit). It proves a
+reviewer was *dispatched and independent* (≠ builder type), not that the review was *good*.

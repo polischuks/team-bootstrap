@@ -8,7 +8,7 @@ tool_surface:
   deny: [Write, Edit]
   mcp: []
 permission_mode: ask
-preferred_subagent_types: [architect-reviewer, architect-review, backend-architect]
+preferred_subagent_types: [independent-reviewer, architect-reviewer, architect-review, backend-architect]
 thinking: extended
 ---
 

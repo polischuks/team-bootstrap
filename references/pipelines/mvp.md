@@ -14,6 +14,14 @@ Run roles in this order:
 10. `code-reviewer` ← **code quality, conventions, maintainability — mandatory review before release**
 11. `release-docs`
 
+> **Harness-verified reviewer dispatch (v2.21.0).** In `mvp`, the four mandatory review roles
+> (`integration-verifier`, `architecture-reviewer`, `regression-guardian`, `code-reviewer`) **must** be
+> dispatched as subagents with an identifiable review `subagent_type`
+> (`independent-reviewer` / [`review-types.txt`](../review-types.txt)), never inline. The `role-dispatch`
+> `verify-batch` gate (`bin/check-role-dispatch.sh`) fails a `kind:code` batch closed with **zero**
+> reviewer-typed dispatches and announces the single-thread collapse (spec-169). See
+> [subagent-dispatch.md](../subagent-dispatch.md#harness-verified-reviewer-dispatch-v2210-exec-role-integrity--required-in-fullmvp).
+
 ## Required Handoff Outputs
 
 | Role | Must produce before next role |

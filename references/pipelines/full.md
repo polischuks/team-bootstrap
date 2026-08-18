@@ -26,6 +26,14 @@ Run roles in this order:
 22. `stakeholder-communicator` ← **non-technical release notes**
 23. `documentation-agent`
 
+> **Harness-verified reviewer dispatch (v2.21.0).** The four mandatory review roles above —
+> `integration-verifier`, `architecture-reviewer`, `regression-guardian`, `code-reviewer` — **must** be
+> dispatched as subagents with an identifiable review `subagent_type`
+> (`independent-reviewer` / [`review-types.txt`](../review-types.txt)), never inline. A `PreToolUse[Agent]`
+> recorder + the `role-dispatch` `verify-batch` gate (`bin/check-role-dispatch.sh`) fail a `kind:code`
+> batch closed with **zero** reviewer-typed dispatches and announce that the run degraded to single-thread
+> (spec-169). See [subagent-dispatch.md](../subagent-dispatch.md#harness-verified-reviewer-dispatch-v2210-exec-role-integrity--required-in-fullmvp).
+
 ## Optional Roles (triggered by spec content, not part of normal flow)
 
 Inserted into the pipeline at the position noted in [role-matrix.md](../role-matrix.md):
