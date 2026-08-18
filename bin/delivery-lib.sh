@@ -146,6 +146,26 @@ EOF
   return 1
 }
 
+# reviewer_dispatch_count BID → count of .runs/<run>/dispatch.jsonl records (active run) credited to
+# batch BID whose subagent_type is a review type. Prints 0 (never errors) when there is no active
+# marker or no dispatch file. ONE definition of "a reviewer subagent was dispatched for this batch",
+# shared by check-role-dispatch (the gate) and check-review-ack (the v2.20.0 corroboration) so the
+# two cannot diverge on what counts as a reviewer dispatch (exec-role-integrity B3).
+reviewer_dispatch_count() {
+  local bid="$1" marker rundir disp line stype rbatch n=0
+  marker="$(resolve_marker)"; [ -n "$marker" ] || { printf '0'; return 0; }
+  rundir="$(dirname "$marker")"; disp="$rundir/dispatch.jsonl"
+  [ -f "$disp" ] || { printf '0'; return 0; }
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    stype="$(field_str "$line" subagent_type)"
+    is_review_type "$stype" || continue
+    rbatch="$(field_str "$line" batch)"
+    [ "$rbatch" = "$bid" ] && n=$((n + 1))
+  done < "$disp"
+  printf '%s' "$n"
+}
+
 # risk_rank_int NAME → integer rank (higher = more load-bearing); empty if unknown.
 risk_rank_int() {
   case "$1" in

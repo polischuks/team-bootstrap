@@ -37,23 +37,6 @@ _inflight_batch() {
   printf '%s' "$line"
 }
 
-# _reviewer_dispatches BID → count of dispatch.jsonl records credited to batch BID whose subagent_type
-# is a review type. Honors the N3 single source via is_review_type (never a hard-coded set here).
-_reviewer_dispatches() {
-  local bid="$1" marker rundir disp line stype rbatch n=0
-  marker="$(resolve_marker)"; [ -n "$marker" ] || { printf '0'; return 0; }
-  rundir="$(dirname "$marker")"; disp="$rundir/dispatch.jsonl"
-  [ -f "$disp" ] || { printf '0'; return 0; }
-  while IFS= read -r line; do
-    [ -n "$line" ] || continue
-    stype="$(field_str "$line" subagent_type)"
-    is_review_type "$stype" || continue
-    rbatch="$(field_str "$line" batch)"
-    [ "$rbatch" = "$bid" ] && n=$((n + 1))
-  done < "$disp"
-  printf '%s' "$n"
-}
-
 _evaluate() {
   local marker mk pipeline bline bid bkind cnt
   marker="$(resolve_marker)"
@@ -72,7 +55,7 @@ _evaluate() {
   bid="$(field_str "$bline" id)"; bkind="$(field_str "$bline" kind)"
   [ "$bkind" = "code" ] || { echo "check-role-dispatch: in-flight batch '$bid' is kind=$bkind (not code) — skipping."; return 0; }
 
-  cnt="$(_reviewer_dispatches "$bid")"
+  cnt="$(reviewer_dispatch_count "$bid")"   # shared delivery-lib definition (single source, B3)
   if [ "${cnt:-0}" -eq 0 ]; then
     # AC-4 — the degradation message MUST reach the user (stdout), not only stderr.
     echo "check-role-dispatch: DEGRADED — $pipeline/code batch '$bid' closed with ZERO independent-review-typed subagent dispatches. The run degraded to single-thread: no reviewer ran in a fresh context (builder ≠ reviewer was not honored). Dispatch the required review roles as subagents with a dedicated review type (references/review-types.txt) before closing, or run single-thread if one mind is intended."

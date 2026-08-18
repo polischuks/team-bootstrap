@@ -118,6 +118,23 @@ _evaluate() {
     fi
   fi
 
+  # 1b) HARNESS CORROBORATION (exec-role-integrity B3): in full/mvp, the review_acks `reviewer` claim
+  # must be backed by a harness-recorded reviewer-typed DISPATCH for this batch (dispatch.jsonl,
+  # reviewer_dispatch_count) — not merely a marker string. This upgrades the v2.20.0 forgeable-marker
+  # residual (ADR-0006): a review that never dispatched an independent subagent cannot close. single-
+  # thread is EXEMPT — P1 sanctions inline reviewers there, which dispatch nothing. Honest limit (N2/
+  # ADR-0006): this proves *a* reviewer subagent of the right type ran, not that it is byte-identical
+  # to `reviewer` nor that the review was substantive.
+  local pipeline
+  pipeline="$(field_str "$mk" pipeline)"
+  case "$pipeline" in
+    full|mvp)
+      if [ "$(reviewer_dispatch_count "$bid")" -eq 0 ]; then
+        echo "  FAIL: review_acks for '$bid' names reviewer='$reviewer' but NO reviewer-typed subagent dispatch was recorded for this batch ($pipeline) — the review claim is not harness-corroborated (a marker string alone is forgeable; exec-role-integrity B3, harness-verified reviewer dispatch)." >&2
+        viol=$((viol + 1))
+      fi ;;
+  esac
+
   # 2a) fail-closed parse-integrity guard (independent review, round 2). A naive single-regex object
   # extractor cannot survive arbitrary value punctuation: the first fix rotated the vulnerable char from
   # ']' to '{'/'}'. Rather than chase a total regex, make ambiguity a SAFE REJECTION. "outcome" is unique
@@ -242,6 +259,22 @@ if [ "${1:-}" = "--self-test" ]; then
   # skip — no marker
   _batch '{"id":"C1","kind":"code","status":"announced"}'; rm -f "$T/.runs/r/RUN"
   _chk "skip: no active marker → pass" "$(_run)" 0
+
+  # exec-role-integrity B3 — full/mvp: a review_acks entry must be corroborated by a reviewer-typed
+  # DISPATCH record (dispatch.jsonl) for the batch; single-thread is exempt (inline reviewers).
+  _batch '{"id":"C1","kind":"code","status":"announced"}'
+  MF='"run":"r","pipeline":"full","intends_code":true,"builder":"orchestrator","baseline_sha":"'"$BASE"'"'
+  rm -f "$T/.runs/r/dispatch.jsonl"
+  _marker "{$MF,$AOK}"
+  _chk "B3 full + review_acks + no reviewer dispatch → fail" "$(_run)" 1
+  printf '{"batch":"C1","subagent_type":"backend-developer"}\n' > "$T/.runs/r/dispatch.jsonl"
+  _chk "B3 full + review_acks + builder-only dispatch → fail" "$(_run)" 1
+  printf '{"batch":"C1","subagent_type":"code-reviewer"}\n' > "$T/.runs/r/dispatch.jsonl"
+  _chk "B3 full + review_acks + reviewer-typed dispatch → pass" "$(_run)" 0
+  rm -f "$T/.runs/r/dispatch.jsonl"
+  _marker '{"run":"r","pipeline":"single-thread","intends_code":true,"builder":"orchestrator","baseline_sha":"'"$BASE"'",'"$AOK"'}'
+  _chk "B3 single-thread + review_acks + no dispatch → pass (exempt)" "$(_run)" 0
+  rm -f "$T/.runs/r/dispatch.jsonl"
 
   rm -rf "$T"
   if [ "$fail" -eq 0 ]; then echo "check-review-ack --self-test: OK"; exit 0; fi
