@@ -25,6 +25,11 @@
 # is a marker string, forgeable by the same orchestrator; the *when* (commit) is git-grounded. Parity with
 # seam_acks/risk_rank — presence enforced, honesty logged not proven.
 #
+# Parse note: refutation governance is fail-CLOSED on value punctuation — a raw `{` `}` `[` `]` inside a
+# refutation field value (e.g. class/finding_id) makes the jq-free parse reject the record (safe direction:
+# blocks, never leaks). Keep refutation field values free of raw braces/brackets. Forged/invalid-JSON
+# markers fall inside the HONEST LIMIT below (a marker is orchestrator-written, not machine-proven).
+#
 # Graceful skips (exit 0): no active marker / not intends_code / in-flight batch not kind:code.
 #
 # Usage: bin/check-review-ack.sh [project-dir]  ·  bin/check-review-ack.sh --self-test
@@ -224,6 +229,12 @@ if [ "${1:-}" = "--self-test" ]; then
   _chk "REGRESSION '}' in value → parse-integrity guard → fail" "$(_run)" 1
   _marker '{'"$M"','"$AOK"',"review_refutations":[{"batch":"C1","class":"a{b","outcome":"credible","finding_id":""}]}'
   _chk "REGRESSION '{' in value → parse-integrity guard → fail" "$(_run)" 1
+  # PIN (independent review round 3, safe-direction usability limit): a legitimately-GOVERNED credible
+  # refutation whose value contains a raw brace ALSO fails-closed (the guard cannot tell it from a break).
+  # This is the safe direction (blocks, never leaks). Pinned so a future "usability fix" that makes braces
+  # parse cannot silently reintroduce a fail-open without turning this red. Avoid raw {}/[] in values.
+  _marker '{'"$M"','"$AOK"',"review_findings":[{"id":"F9","severity":"MEDIUM","disposition":"downgraded"}],"review_refutations":[{"batch":"C1","class":"map{k}v","outcome":"credible","finding_id":"F9"}]}'
+  _chk "PIN '{' in value even when governed → fail-closed (safe direction)" "$(_run)" 1
   # skip — in-flight batch is kind:doc → skip
   _batch '{"id":"Z","kind":"doc","status":"announced"}'
   _marker "{$M}"
