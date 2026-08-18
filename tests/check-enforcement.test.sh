@@ -50,5 +50,15 @@ if [ "$rc" -eq 1 ]; then echo "  PASS A2 governed waiver missing category → ex
   echo "  FAIL A2 missing-category expected exit 1, got $rc (AC-2)" >&2; fail=$((fail + 1)); fi
 rm -rf "$T"
 
+# AC-3 — asserts a seam-touch + valid host_structural waiver is exempt from the hard-require tier → exit 0
+T="$(mktemp -d)"; mkdir -p "$T/.runs/r"
+printf '{"run":"r","intends_code":true,"high_risk_seams":[{"seam":"s","paths":["bin/x.sh"]}],"enforcement_ack":true,"enforcement_ack_by":"x","enforcement_ack_reason":"r","enforcement_ack_expires":"2999-01-01","enforcement_ack_category":"host_structural"}\n' > "$T/.runs/r/RUN"
+printf '# AGENTS\n\n- Lint: `true`\n' > "$T/AGENTS.md"
+printf '{"id":"B1","kind":"code","risk_rank":"feature","files":["bin/x.sh"],"status":"announced"}\n' > "$T/.runs/r/batches.jsonl"
+( cd "$T" && TEAM_BOOTSTRAP_RUN=r TEAM_BOOTSTRAP_NOW=2026-08-18 "$gate" . >/dev/null 2>&1 ); rc=$?
+if [ "$rc" -eq 0 ]; then echo "  PASS smoke: seam-touch + host_structural → exempt → exit 0 (AC-3)"; else
+  echo "  FAIL smoke: AC-3 seam host_structural expected 0, got $rc" >&2; fail=$((fail + 1)); fi
+rm -rf "$T"
+
 [ "$fail" -eq 0 ] && { echo "check-enforcement.test.sh: OK"; exit 0; }
 echo "check-enforcement.test.sh: $fail failure(s)" >&2; exit 1

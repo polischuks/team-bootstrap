@@ -84,7 +84,7 @@ _evaluate() {
     case "$wexp" in [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) : ;; *)
       echo "  FAIL: finding $fid waiver expires='$wexp' is not YYYY-MM-DD." >&2; viol=$((viol + 1)); continue ;; esac
     if [[ "$wexp" < "$now" ]]; then
-      echo "  FAIL: finding $fid waiver EXPIRED ($wexp < $now) — re-acknowledge (ADR-000Y)." >&2; viol=$((viol + 1)); continue
+      echo "  FAIL: finding $fid waiver EXPIRED ($wexp < $now) — re-acknowledge (ADR-0007)." >&2; viol=$((viol + 1)); continue
     fi
     wc_full="$(resolve_sha "$wcommit" 2>/dev/null || true)"
     if [ -z "$wc_full" ]; then

@@ -128,4 +128,4 @@ transcribes them to the run marker. `check-review-ack.sh` blocks closure without
 (reviewer≠builder, context:clean, verdict:go, commit anchored). **Escalation:** an `irreversible`-classed
 batch, or a review that leaves a credible refutation unresolved, emits `verdict:blocked` → **human ack**;
 the orchestrator never self-closes over a blocked review (P5). Cross-model review is optional hardening for
-irreversible/security batches; clean-context subagent independence is the enforced floor (P7, ADR-000X).
+irreversible/security batches; clean-context subagent independence is the enforced floor (P7, ADR-0006).

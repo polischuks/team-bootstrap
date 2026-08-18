@@ -20,7 +20,7 @@
 # C in verify-batch) governs that live counterexample's waiver, not a bare present string (soundness B2 +
 # re-review #3). A credible refutation with no B-governed finding ⇒ fail (the self-approval bypass, closed).
 #
-# HONEST LIMIT (ADR-000X): the gate enforces the review's PRESENCE, independence, clean-context attestation,
+# HONEST LIMIT (ADR-0006): the gate enforces the review's PRESENCE, independence, clean-context attestation,
 # commit anchor, and refutation governance — NOT the correctness of the verdict. The *who* (reviewer≠builder)
 # is a marker string, forgeable by the same orchestrator; the *when* (commit) is git-grounded. Parity with
 # seam_acks/risk_rank — presence enforced, honesty logged not proven.

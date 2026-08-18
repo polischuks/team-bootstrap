@@ -187,7 +187,7 @@ in the marker-write path — the exact seam C guards. See [ADR-0005](../docs/adr
 A second retrospective found gate A **worked but deprecated into routine**: a `feature|doc` batch passed
 on a bare `enforcement_ack:true`, and the dogfood project re-acked the same gaps every run as "expected"
 — the detector fired, but the ack became a perpetual free pass (F4 at the meta level). v2.20.0 makes the
-waiver *governed* ([ADR-000Y](../docs/adr/000Y-time-boxed-waivers.md)):
+waiver *governed* ([ADR-0007](../docs/adr/0007-time-boxed-waivers.md)):
 
 - **Complete + dated.** A valid `enforcement_ack` now requires `enforcement_ack_by`,
   `enforcement_ack_reason`, `enforcement_ack_expires` (`YYYY-MM-DD`), and `enforcement_ack_category ∈

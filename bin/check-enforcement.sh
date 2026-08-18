@@ -17,7 +17,7 @@
 #   enforcement_ack:true, enforcement_ack_by, enforcement_ack_reason, enforcement_ack_expires (YYYY-MM-DD),
 #   enforcement_ack_category ∈ {host_structural, deferred}. A waiver past `expires` (vs a passed-in
 #   `TEAM_BOOTSTRAP_NOW`, default system date), or missing any field, is treated as NO ack. This stops the
-#   ack becoming a standing default — it must be dated and re-acknowledged (ADR-000Y).
+#   ack becoming a standing default — it must be dated and re-acknowledged (ADR-0007).
 #
 # CATEGORY IS DERIVED, NOT TRUSTED. `host_structural` (the tool provably cannot exist on host) is only
 # legitimate when NO gap dimension has a declared+resolvable tool. If a gap dimension's command IS
@@ -168,7 +168,7 @@ _evaluate() {
     case "$ackexp" in
       [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9])
         if [[ "$ackexp" < "$now" ]]; then
-          echo "check-enforcement: enforcement waiver EXPIRED ($ackexp < $now) — re-acknowledge with a future expiry (ADR-000Y)." >&2
+          echo "check-enforcement: enforcement waiver EXPIRED ($ackexp < $now) — re-acknowledge with a future expiry (ADR-0007)." >&2
         else
           ack_valid="true"
         fi ;;
