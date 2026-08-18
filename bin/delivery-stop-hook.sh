@@ -43,13 +43,13 @@ if [ "${1:-}" = "--self-test" ]; then
   _expect "${d}_block" 2 "block — active run + announced-unclosed kind:code → exit 2"
   # allow: active marker + all code closed
   printf '%s\n' '{"run":"c","intends_code":true,"source":"harness"}' > ".runs/${d}_closed/RUN"
-  printf '%s\n' '{"id":"B1","kind":"code","status":"closed","commit_shas":["0ad81d9"],"code_delta":5}' > ".runs/${d}_closed/batches.jsonl"
+  printf '%s\n' "{\"id\":\"B1\",\"kind\":\"code\",\"status\":\"closed\",\"commit_shas\":[\"$(git rev-parse --short HEAD 2>/dev/null)\"],\"code_delta\":5}" > ".runs/${d}_closed/batches.jsonl"
   _expect "${d}_closed" 0 "allow — active run + all kind:code closed → exit 0"
   # allow: no marker at all (the on-by-default-safe / omitted-marker path)
   _expect "${d}_nomarker" 0 "allow — no active marker → exit 0 (no-op)"
   # allow: direct run (no ledger) that committed real code since baseline → delivered
   mkdir -p ".runs/${d}_direct"
-  printf '%s\n' '{"run":"dr","intends_code":true,"source":"harness","baseline_sha":"f104f0b"}' > ".runs/${d}_direct/RUN"
+  printf '%s\n' "{\"run\":\"dr\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$(git rev-parse --short "$(git rev-list --max-parents=0 HEAD 2>/dev/null | tail -1)" 2>/dev/null)\"}" > ".runs/${d}_direct/RUN"
   _expect "${d}_direct" 0 "allow — direct run, no ledger, code since baseline → exit 0"
   # block: armed run that delivered nothing (no ledger, no code since baseline=HEAD)
   mkdir -p ".runs/${d}_empty"

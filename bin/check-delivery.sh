@@ -36,6 +36,11 @@ here="$(cd "$(dirname "$0")" && pwd)"
 # --- self-test ---------------------------------------------------------------
 if [ "${1:-}" = "--self-test" ]; then
   st_root="$(pwd)"; fail=0
+  # dynamic, resolvable SHAs from the CURRENT repo — decoupled from history so the self-test survives
+  # a history rewrite / shallow clone (previously hardcoded real SHAs, which a filter-repo purge invalidated).
+  _c="$(git rev-parse --short HEAD 2>/dev/null)"
+  _c1="$(git rev-parse --short HEAD~1 2>/dev/null)"
+  _root="$(git rev-parse --short "$(git rev-list --max-parents=0 HEAD 2>/dev/null | tail -1)" 2>/dev/null)"
   _expect() { # runname expected_exit desc
     local rn="$1" exp="$2" desc="$3" got
     TEAM_BOOTSTRAP_RUN="$rn" "$0" "$st_root" >/dev/null 2>&1; got=$?
@@ -47,7 +52,7 @@ if [ "${1:-}" = "--self-test" ]; then
   # F-A recompute (no marker → binding off) -----------------------------------
   printf '%s\n' '{"id":"F1","kind":"code","status":"closed","commit_shas":["deadbeef"],"code_delta":137}' > .runs/_st_ac1/batches.jsonl
   _expect _st_ac1 1 "AC-1 — forged deadbeef SHA rejected"
-  printf '%s\n' '{"id":"F2","kind":"code","status":"closed","commit_shas":["4d4a42d"],"code_delta":137}' > .runs/_st_ac2/batches.jsonl
+  printf '%s\n' '{"id":"F2","kind":"code","status":"closed","commit_shas":["'"$_c"'"],"code_delta":137}' > .runs/_st_ac2/batches.jsonl
   _expect _st_ac2 1 "AC-2 — inflated code_delta over a doc-only commit rejected"
   if [ -f ".runs/deliver-delivery-guard/batches.jsonl" ]; then
     _expect deliver-delivery-guard 0 "AC-3 — historical honest ledger (B1-B5) still passes"
@@ -69,11 +74,11 @@ if [ "${1:-}" = "--self-test" ]; then
   # F-2 commit-to-batch binding (active marker) -------------------------------
   printf '%s\n' '{"run":"_st_f2i","intends_code":true,"source":"harness"}' > .runs/_st_f2i/RUN
   printf '%s\n%s\n' \
-    '{"id":"C1","kind":"code","status":"closed","commit_shas":["e6bba5d"],"code_delta":5}' \
-    '{"id":"C2","kind":"code","status":"closed","commit_shas":["e6bba5d"],"code_delta":5}' > .runs/_st_f2i/batches.jsonl
+    '{"id":"C1","kind":"code","status":"closed","commit_shas":["'"$_c"'"],"code_delta":5}' \
+    '{"id":"C2","kind":"code","status":"closed","commit_shas":["'"$_c"'"],"code_delta":5}' > .runs/_st_f2i/batches.jsonl
   _expect _st_f2i 1 "F-2 — a commit reused across two closed batches → rejected"
-  printf '%s\n' '{"run":"_st_f2ii","intends_code":true,"source":"harness","baseline_sha":"f104f0b"}' > .runs/_st_f2ii/RUN
-  printf '%s\n' '{"id":"C1","kind":"code","status":"closed","commit_shas":["e6bba5d"],"code_delta":5}' > .runs/_st_f2ii/batches.jsonl
+  printf '%s\n' '{"run":"_st_f2ii","intends_code":true,"source":"harness","baseline_sha":"'"$_c"'"}' > .runs/_st_f2ii/RUN
+  printf '%s\n' '{"id":"C1","kind":"code","status":"closed","commit_shas":["'"$_root"'"],"code_delta":5}' > .runs/_st_f2ii/batches.jsonl
   _expect _st_f2ii 1 "F-2 — a commit predating the run baseline → rejected"
   # F-D recorded-ack + F-E risk_rank ordering -----------------------------------
   printf '%s\n' '{"run":"_st_ac7","intends_code":true,"source":"harness","precond":{"exit":2,"items":[],"ack":false}}' > .runs/_st_ac7/RUN
@@ -81,14 +86,14 @@ if [ "${1:-}" = "--self-test" ]; then
   _expect _st_ac7 1 "AC-7 — unacknowledged Phase-A advisory + announced batch → blocked"
   printf '%s\n' '{"run":"_st_ac9","intends_code":true,"source":"harness"}' > .runs/_st_ac9/RUN
   printf '%s\n%s\n' \
-    '{"id":"C1","kind":"code","status":"closed","commit_shas":["e6bba5d"],"code_delta":5,"risk_rank":"feature"}' \
-    '{"id":"C2","kind":"code","status":"closed","commit_shas":["a9b9a8b"],"code_delta":5,"risk_rank":"irreversible"}' > .runs/_st_ac9/batches.jsonl
+    '{"id":"C1","kind":"code","status":"closed","commit_shas":["'"$_c"'"],"code_delta":5,"risk_rank":"feature"}' \
+    '{"id":"C2","kind":"code","status":"closed","commit_shas":["'"$_c1"'"],"code_delta":5,"risk_rank":"irreversible"}' > .runs/_st_ac9/batches.jsonl
   _expect _st_ac9 1 "AC-9 — a higher-rank code batch closing after a lower-rank one → rejected"
   # R-2 — a resolvable but UNREACHABLE-from-HEAD commit (dangling / sibling) must not close
   dangling="$(git commit-tree "HEAD^{tree}" -m "dangling probe" 2>/dev/null || true)"
   if [ -n "$dangling" ]; then
     mkdir -p .runs/_st_r2
-    printf '%s\n' '{"run":"_st_r2","intends_code":true,"source":"harness","baseline_sha":"f104f0b"}' > .runs/_st_r2/RUN
+    printf '%s\n' '{"run":"_st_r2","intends_code":true,"source":"harness","baseline_sha":"'"$_c"'"}' > .runs/_st_r2/RUN
     printf '%s\n' "{\"id\":\"C1\",\"kind\":\"code\",\"status\":\"closed\",\"commit_shas\":[\"$dangling\"],\"code_delta\":1}" > .runs/_st_r2/batches.jsonl
     _expect _st_r2 1 "R-2 — commit unreachable from HEAD rejected (sibling/discarded)"
     rm -rf .runs/_st_r2
@@ -97,7 +102,7 @@ if [ "${1:-}" = "--self-test" ]; then
   fi
   # R-1 — a marker-less run must report WEAK (marker=absent), not "git-verified"
   mkdir -p .runs/_st_r1
-  printf '%s\n' '{"id":"C1","kind":"code","status":"closed","commit_shas":["e6bba5d"],"code_delta":1}' > .runs/_st_r1/batches.jsonl
+  printf '%s\n' '{"id":"C1","kind":"code","status":"closed","commit_shas":["'"$_c"'"],"code_delta":1}' > .runs/_st_r1/batches.jsonl
   case "$(TEAM_BOOTSTRAP_RUN=_st_r1 "$0" "$st_root" 2>/dev/null || true)" in
     *"marker=absent"*) echo "  PASS (msg) R-1 — marker-less run reports WEAK [marker=absent], not git-verified" ;;
     *) echo "  FAIL R-1 — marker-less success did not enumerate marker=absent" >&2; fail=$((fail + 1)) ;;
@@ -107,7 +112,7 @@ if [ "${1:-}" = "--self-test" ]; then
   # line must enumerate predate=OFF — never claim full F-2 when the predate anchor did not run.
   mkdir -p .runs/_st_n1
   printf '%s\n' '{"run":"_st_n1","intends_code":true,"source":"harness"}' > .runs/_st_n1/RUN
-  printf '%s\n' '{"id":"C1","kind":"code","status":"closed","commit_shas":["e6bba5d"],"code_delta":1,"risk_rank":"feature"}' > .runs/_st_n1/batches.jsonl
+  printf '%s\n' '{"id":"C1","kind":"code","status":"closed","commit_shas":["'"$_c"'"],"code_delta":1,"risk_rank":"feature"}' > .runs/_st_n1/batches.jsonl
   case "$(TEAM_BOOTSTRAP_RUN=_st_n1 "$0" "$st_root" 2>/dev/null || true)" in
     *"predate=OFF"*) echo "  PASS (msg) N-1 — active-marker-no-baseline reports predate=OFF (not full F-2)" ;;
     *) echo "  FAIL N-1 — success line claimed more than was enforced" >&2; fail=$((fail + 1)) ;;
@@ -117,7 +122,7 @@ if [ "${1:-}" = "--self-test" ]; then
   # resolvable baseline is delivery (git-grounded), not fail-closed — this makes the guard fire
   # uniformly for `/team-bootstrap single-thread …`, which writes no batch ledger.
   mkdir -p .runs/_st_dr1
-  printf '%s\n' '{"run":"_st_dr1","intends_code":true,"source":"harness","baseline_sha":"f104f0b"}' > .runs/_st_dr1/RUN
+  printf '%s\n' '{"run":"_st_dr1","intends_code":true,"source":"harness","baseline_sha":"'"$_root"'"}' > .runs/_st_dr1/RUN
   _expect _st_dr1 0 "direct-run — armed, no ledger, code since baseline → delivered (exit 0)"
   rm -rf .runs/_st_dr1
   mkdir -p .runs/_st_dr2
