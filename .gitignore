@@ -14,3 +14,9 @@ assets/
 
 # local Claude Code session config (not tracked)
 .claude/
+
+# development artifacts — filled speckit specs & design/research docs (kept LOCAL, out of the public plugin tree)
+# product examples stay tracked: specs/README.md, specs/TEMPLATE/
+specs/*/
+!specs/TEMPLATE/
+!specs/TEMPLATE/**
