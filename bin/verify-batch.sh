@@ -52,7 +52,7 @@ stamp_batch_closed() {
   [ -n "$ledger" ] && [ -f "$ledger" ] || return 0
 
   local target
-  target="$(grep -n '"status":"announced"' "$ledger" 2>/dev/null | tail -1 | sed -E 's/^[0-9]+://')"
+  target="$(grep -nE '"status":[[:space:]]*"announced"' "$ledger" 2>/dev/null | tail -1 | sed -E 's/^[0-9]+://')"
   [ -n "$target" ] || return 0   # nothing in flight to close
 
   # per-batch commit range: since the PREVIOUS closed batch's newest commit (so each batch's
@@ -105,7 +105,7 @@ stamp_batch_closed() {
 
   local newline
   newline="$(printf '%s' "$target" \
-    | sed 's/"status":"announced"/"status":"closed"/' \
+    | sed -E 's/"status":[[:space:]]*"announced"/"status":"closed"/' \
     | sed 's/}[[:space:]]*$/,"commit_shas":'"$shas_json"',"code_delta":'"$delta"',"gate_results":"'"$gates"'"}/')"
 
   local tmp; tmp="$(mktemp)"
@@ -137,6 +137,24 @@ if [ "${1:-}" = "--self-test" ]; then
     echo "  PASS commit_shas is IMPL-only ($got) — test-only RED excluded, window = baseline"
   else echo "  FAIL commit_shas=$got (want IMPL=$impl present, RED=$red absent)" >&2; fail=$((fail + 1)); fi
   rm -rf "$T"
+
+  # whitespace tolerance: an announced entry with a SPACE after the colon (any JSON serializer using
+  # default separators) must still be stamped closed — peer gates match '"status":[[:space:]]*"announced"',
+  # so stamp_batch_closed must not be stricter (else the batch stays announced with no stamp, a silent no-op).
+  T2="$(mktemp -d)"
+  ( cd "$T2" && git init -q && git config user.email t@t && git config user.name t
+    echo base > app.sh && git add . && git commit -qm c0
+    echo more >> app.sh && git add . && git commit -qm impl ) >/dev/null 2>&1
+  b2="$(cd "$T2" && git rev-parse --short HEAD~1)"
+  mkdir -p "$T2/.runs/r"
+  printf '{"run":"r","intends_code":true,"baseline_sha":"%s"}\n' "$b2" > "$T2/.runs/r/RUN"
+  printf '{"id":"B1","kind":"code","status": "announced"}\n' > "$T2/.runs/r/batches.jsonl"
+  ( cd "$T2" && TEAM_BOOTSTRAP_RUN=r stamp_batch_closed ) 2>/dev/null
+  if grep -q '"status":"closed"' "$T2/.runs/r/batches.jsonl"; then
+    echo "  PASS spaced '\"status\": \"announced\"' stamped closed (whitespace-tolerant)"
+  else echo "  FAIL spaced status left unstamped: $(cat "$T2/.runs/r/batches.jsonl")" >&2; fail=$((fail + 1)); fi
+  rm -rf "$T2"
+
   if [ "$fail" -eq 0 ]; then echo "verify-batch --self-test: OK"; exit 0; fi
   echo "verify-batch --self-test: $fail case(s) FAILED" >&2; exit 1
 fi
