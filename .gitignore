@@ -11,3 +11,6 @@ __pycache__/
 l2p-artifacts/
 temp/
 assets/
+
+# local Claude Code session config (not tracked)
+.claude/
