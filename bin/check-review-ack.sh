@@ -42,6 +42,12 @@ _array_objects() {
   [ -n "$arr" ] || return 0
   printf '%s' "$arr" | grep -oE '\{[^}]*\}'
 }
+# _refutation_objects MK → one refutation object per line, matched by SIGNATURE (contains "outcome") rather
+# than by isolating the array bounds. This tolerates a `]` inside a field value (e.g. class:"predicate[0]"),
+# which the array-bounds parse (`\[[^]]*\]`, stops at first `]`) would truncate — a FAIL-OPEN the review
+# found: a truncated review_refutations array silently drops a credible refutation. `[^{}]` allows `]` in
+# values; "outcome" is unique to refutation objects (acks carry verdict/reviewer, findings carry severity).
+_refutation_objects() { printf '%s' "$1" | grep -oE '\{[^{}]*"outcome":[^{}]*\}'; }
 # _obj_by MK KEY FIELD VALUE → the first object in array KEY whose FIELD == VALUE (rc 1 if none).
 _obj_by() {
   local mk="$1" key="$2" field="$3" val="$4" obj
@@ -112,8 +118,10 @@ _evaluate() {
   while IFS= read -r robj; do
     [ -n "$robj" ] || continue
     rbatch="$(field_str "$robj" batch)"; [ "$rbatch" = "$bid" ] || continue
-    rout="$(field_str "$robj" outcome)"
-    case "$(printf '%s' "$rout" | tr '[:upper:]' '[:lower:]')" in credible) : ;; *) continue ;; esac
+    # normalize outcome: strip surrounding whitespace before matching, so "credible " (trailing space from
+    # a sloppy generator) is not misclassed as non-credible — another FAIL-OPEN the review found.
+    rout="$(field_str "$robj" outcome | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]')"
+    case "$rout" in credible) : ;; *) continue ;; esac
     rfid="$(field_str "$robj" finding_id)"
     if [ -z "$rfid" ]; then
       echo "  FAIL: a CREDIBLE refutation on batch '$bid' has no finding_id — a live counterexample must be recorded as a review_findings entry so gate B governs it (soundness B2)." >&2; viol=$((viol + 1)); continue
@@ -126,7 +134,7 @@ _evaluate() {
       echo "  FAIL: credible refutation finding_id='$rfid' links a $fsev finding — must be MEDIUM+ to be in gate B's jurisdiction (re-review #3)." >&2; viol=$((viol + 1)); continue
     fi
   done <<EOF
-$(_array_objects "$mk" review_refutations)
+$(_refutation_objects "$mk")
 EOF
 
   if [ "$viol" -gt 0 ]; then
@@ -184,6 +192,13 @@ if [ "${1:-}" = "--self-test" ]; then
   # non-credible refutation (outcome none) → pass, no finding needed
   _marker '{'"$M"','"$AOK"',"review_refutations":[{"batch":"C1","class":"ordering","outcome":"none"}]}'
   _chk "non-credible refutation → pass" "$(_run)" 0
+  # REGRESSION (independent review, credible #1): a ']' inside a refutation value must NOT truncate the
+  # parse and silently drop a credible refutation (was FAIL-OPEN). Credible + ']' in class + no finding → fail.
+  _marker '{'"$M"','"$AOK"',"review_refutations":[{"batch":"C1","class":"predicate[0]","outcome":"credible","finding_id":""}]}'
+  _chk "REGRESSION ']' in value does not drop credible refutation → fail" "$(_run)" 1
+  # REGRESSION (independent review, credible #2): 'credible ' with trailing space must still be governed → fail.
+  _marker '{'"$M"','"$AOK"',"review_refutations":[{"batch":"C1","class":"ordering","outcome":"credible "}]}'
+  _chk "REGRESSION 'credible ' (trailing space) still governed → fail" "$(_run)" 1
   # skip — in-flight batch is kind:doc → skip
   _batch '{"id":"Z","kind":"doc","status":"announced"}'
   _marker "{$M}"
