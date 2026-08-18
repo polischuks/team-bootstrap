@@ -128,9 +128,14 @@ _evaluate() {
   local pipeline
   pipeline="$(field_str "$mk" pipeline)"
   case "$pipeline" in
-    full|mvp)
+    single-thread) : ;;   # P1: inline reviewers dispatch nothing — the only EXEMPT pipeline
+    *)
+      # full/mvp AND any unrecognized/absent pipeline require the dispatch corroboration. An intends_code
+      # kind:code batch whose pipeline cannot be confirmed single-thread must NOT fall back to the weaker
+      # marker-only (v2.20.0) check — that would fail OPEN on undeterminable input (review FIX#1). A
+      # well-formed harness marker always records single-thread|mvp|full.
       if [ "$(reviewer_dispatch_count "$bid")" -eq 0 ]; then
-        echo "  FAIL: review_acks for '$bid' names reviewer='$reviewer' but NO reviewer-typed subagent dispatch was recorded for this batch ($pipeline) — the review claim is not harness-corroborated (a marker string alone is forgeable; exec-role-integrity B3, harness-verified reviewer dispatch)." >&2
+        echo "  FAIL: review_acks for '$bid' names reviewer='$reviewer' but NO reviewer-typed subagent dispatch was recorded for this batch (pipeline='$pipeline') — the review claim is not harness-corroborated (a marker string alone is forgeable; exec-role-integrity B3). single-thread is the only exempt pipeline; an unrecognized pipeline fails closed." >&2
         viol=$((viol + 1))
       fi ;;
   esac
@@ -199,7 +204,10 @@ if [ "${1:-}" = "--self-test" ]; then
   _chk() { if [ "$2" = "$3" ]; then echo "  PASS (exit $2) $1"; else echo "  FAIL (exit $2 want $3) $1" >&2; fail=$((fail + 1)); fi; }
 
   _batch '{"id":"C1","kind":"code","status":"announced"}'
-  M='"run":"r","intends_code":true,"builder":"orchestrator","baseline_sha":"'"$BASE"'"'
+  # Base marker: single-thread so these cases exercise the ARTIFACT logic (reviewer≠builder, verdict,
+  # commit, refutations) WITHOUT triggering the full/mvp dispatch corroboration (which is covered by the
+  # B3 cases below with an explicit full marker). single-thread reviewers run inline — dispatch-exempt.
+  M='"run":"r","pipeline":"single-thread","intends_code":true,"builder":"orchestrator","baseline_sha":"'"$BASE"'"'
   AOK='"review_acks":[{"batch":"C1","reviewer":"code-reviewer","context":"clean","commit":"'"$C1"'","verdict":"go"}]'
 
   # AC-6 — no review_acks entry → fail
@@ -274,6 +282,13 @@ if [ "${1:-}" = "--self-test" ]; then
   rm -f "$T/.runs/r/dispatch.jsonl"
   _marker '{"run":"r","pipeline":"single-thread","intends_code":true,"builder":"orchestrator","baseline_sha":"'"$BASE"'",'"$AOK"'}'
   _chk "B3 single-thread + review_acks + no dispatch → pass (exempt)" "$(_run)" 0
+  # FIX#1 — an UNKNOWN/absent pipeline (malformed marker) on an intends_code code batch must fail-closed
+  # (require corroboration), not fall back to the marker-only check.
+  rm -f "$T/.runs/r/dispatch.jsonl"
+  _marker '{"run":"r","pipeline":"audit","intends_code":true,"builder":"orchestrator","baseline_sha":"'"$BASE"'",'"$AOK"'}'
+  _chk "B3 unknown pipeline (audit) + review_acks + no dispatch → fail-closed" "$(_run)" 1
+  _marker '{"run":"r","intends_code":true,"builder":"orchestrator","baseline_sha":"'"$BASE"'",'"$AOK"'}'
+  _chk "B3 absent pipeline + review_acks + no dispatch → fail-closed" "$(_run)" 1
   rm -f "$T/.runs/r/dispatch.jsonl"
 
   rm -rf "$T"

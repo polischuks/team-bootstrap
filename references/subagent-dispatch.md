@@ -148,7 +148,7 @@ reviewer dispatches and is therefore a **catchable degradation**, not a sanction
 `single-thread` the opposite holds — P1 sanctions inline roles as phase boundaries, so the gate **skips**
 it entirely.
 
-**Honest limit (ADR-000Z):** `subagent_type` is the model's dispatch argument, not a harness-minted value.
+**Honest limit (ADR-0008):** `subagent_type` is the model's dispatch argument, not a harness-minted value.
 So this is **degradation-proof, not forgery-proof** — it catches a total inline collapse, not a decoy
 review-typed no-op dispatch (that residual stays the ADR-0006 quality/willingness limit). It proves a
 reviewer was *dispatched and independent* (≠ builder type), not that the review was *good*.

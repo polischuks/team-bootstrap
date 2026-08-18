@@ -7,7 +7,8 @@
 # user was told "delivered, gates passed" while the role pipeline never ran). This hook makes "a
 # reviewer-typed subagent was DISPATCHED" a harness-observed fact instead of a claim.
 #
-# Registered as a PreToolUse hook matched on the Agent (subagent-dispatch) tool. On each dispatch it
+# Registered as a PreToolUse hook matched on the subagent-dispatch tool (hooks.json matcher `Agent|Task`,
+# covering both the current `Agent` tool name and the legacy `Task` name). On each dispatch it
 # reads tool_input.subagent_type from the hook stdin; when that type is a dedicated review type
 # (delivery-lib is_review_type ← references/review-types.txt, the N3 single source) it appends
 #   {"batch":"<in-flight batch id>","subagent_type":"<type>"}
@@ -21,7 +22,7 @@
 #   - SubagentStop is flaky (#27755). PreToolUse[Agent] reliably carries tool_input.subagent_type at
 #     dispatch, foreground and background. So the signal is dispatch OCCURRENCE of a review type.
 #
-# HONEST LIMIT (ADR-000Z): subagent_type is model-authored → degradation-proof, NOT forgery-proof; and
+# HONEST LIMIT (ADR-0008): subagent_type is model-authored → degradation-proof, NOT forgery-proof; and
 # recording at dispatch proves the reviewer was LAUNCHED, not that it completed or was good (NF1).
 #
 # Safety: this hook must never disrupt a dispatch. It ALWAYS exits 0 (recording only — no deadlock, per
@@ -101,6 +102,9 @@ fi
 
 # --- hook entry: read the PreToolUse payload from stdin, record, never block ----
 [ "${TEAM_BOOTSTRAP_DELIVERY_GATE:-on}" = "off" ] && exit 0
-payload="$(cat 2>/dev/null || true)"
+# Bound the read: a dispatch payload with a large prompt is still only a few KB of leading JSON, and
+# subagent_type sits near the front of tool_input. Reading a bounded prefix keeps this recording hook
+# cheap and caps a pathological stdin; the head-of-object fields we parse are always within it.
+payload="$(head -c 1048576 2>/dev/null || true)"
 record_dispatch "$payload"
 exit 0

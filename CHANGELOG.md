@@ -30,6 +30,18 @@ All notable changes to team-bootstrap. Format follows [Keep a Changelog](https:/
   [`references/subagent-dispatch.md`](references/subagent-dispatch.md), `orchestrator.md`, `pipelines/{full,mvp}.md`.
 - `bin/check-delivery.sh` AC-2 self-test fixture decoupled from HEAD size (synthesized doc-only commit).
 
+### Hardening (post-review)
+- **Fail-closed on undeterminable input.** An `intends_code` `kind:code` batch whose pipeline is neither
+  `full`/`mvp` nor the sanctioned `single-thread` (a malformed marker) now **fails closed** in both
+  `check-role-dispatch.sh` and `check-review-ack.sh`'s dispatch corroboration — previously it silently
+  skipped (a fail-open against the fail-closed design).
+- **Empty batch id is non-matchable.** `reviewer_dispatch_count` returns 0 for an empty `bid`, so a
+  malformed ledger entry with no `id` can no longer be satisfied by an orphan `{"batch":""}` dispatch record.
+- Disclosed the enforcement floor explicitly (ADR-0008, `pipelines/{full,mvp}.md`, `enforcement.md`): the
+  gate verifies **≥1** reviewer-typed dispatch (the total-collapse signature), **not that all four roles
+  dispatched**, and is **in-session only** (`.runs/` gitignored ⇒ no CI re-run). `head -c` bound on the
+  recorder's stdin; `ADR-000Z` placeholder → `ADR-0008` across all files.
+
 ### Honest limit
 - `subagent_type` is model-authored ⇒ the role-execution gate is **degradation-proof, not forgery-proof**
   (catches a total inline collapse, not a decoy review-typed no-op dispatch) and proves the reviewer was

@@ -13,7 +13,7 @@
 # (backend-developer / general-purpose / stack specialists — none in review-types.txt) does NOT satisfy it.
 # Attribution is by the in-flight batch id the recorder stamped at dispatch time (soundness B4).
 #
-# HONEST LIMITS (ADR-000Z): subagent_type is model-authored ⇒ DEGRADATION-proof, NOT forgery-proof (a decoy
+# HONEST LIMITS (ADR-0008): subagent_type is model-authored ⇒ DEGRADATION-proof, NOT forgery-proof (a decoy
 # review-typed no-op dispatch satisfies it — the ADR-0006 quality/willingness limit); and a dispatch proves
 # the reviewer was LAUNCHED, not that it completed or was good (NF1 — completion rests on check-review-ack).
 #
@@ -45,15 +45,27 @@ _evaluate() {
   [ "$(field_bool "$mk" intends_code)" = "true" ] || { echo "check-role-dispatch: marker not intends_code — skipping."; return 0; }
 
   pipeline="$(field_str "$mk" pipeline)"
-  case "$pipeline" in
-    full|mvp) : ;;
-    *) echo "check-role-dispatch: pipeline='$pipeline' is not full/mvp — independence-via-subagent is not the contract here (P1); skipping."; return 0 ;;
-  esac
+  # single-thread is the sanctioned one-mind contract (P1) — it never runs roles as independent subagents,
+  # so role-dispatch does not apply. This is a KNOWN pipeline, not an undeterminable one.
+  [ "$pipeline" = "single-thread" ] && { echo "check-role-dispatch: pipeline=single-thread — one mind is the sanctioned contract (P1); skipping."; return 0; }
 
   bline="$(_inflight_batch)"
   [ -n "$bline" ] || { echo "check-role-dispatch: no in-flight batch — nothing to check."; return 0; }
   bid="$(field_str "$bline" id)"; bkind="$(field_str "$bline" kind)"
   [ "$bkind" = "code" ] || { echo "check-role-dispatch: in-flight batch '$bid' is kind=$bkind (not code) — skipping."; return 0; }
+
+  # The batch is now intends_code + kind:code. full/mvp enforce reviewer independence below; an
+  # UNKNOWN/absent pipeline on such a batch is a malformed marker whose execution model cannot be
+  # certified — FAIL-CLOSED, never a silent skip (a well-formed harness marker always records
+  # full|mvp|single-thread; skipping here would fail OPEN on exactly the undeterminable input the
+  # fail-closed design forbids — review FIX#1).
+  case "$pipeline" in
+    full|mvp) : ;;
+    *)
+      echo "check-role-dispatch: UNVERIFIABLE — pipeline='$pipeline' is not a recognized code pipeline (full|mvp|single-thread) on an intends_code kind:code batch '$bid'. The run's execution model cannot be certified; failing closed rather than skipping a possibly-full run that collapsed."
+      echo "  FAIL-CLOSED: unrecognized pipeline '$pipeline' on intends_code code batch '$bid' — cannot verify reviewer independence (malformed marker)." >&2
+      return 1 ;;
+  esac
 
   cnt="$(reviewer_dispatch_count "$bid")"   # shared delivery-lib definition (single source, B3)
   if [ "${cnt:-0}" -eq 0 ]; then
@@ -116,6 +128,28 @@ if [ "${1:-}" = "--self-test" ]; then
   # not intends_code → skip
   _marker '{"run":"r","pipeline":"full","intends_code":false,"source":"harness"}'
   _chk "not intends_code → skip" "$(_run)" 0
+
+  # FIX#1 (review) — an intends_code kind:code batch whose pipeline is UNKNOWN/absent must FAIL-CLOSED,
+  # not silently skip (a well-formed harness marker always records full|mvp|single-thread; anything else
+  # is malformed and its execution model cannot be certified).
+  _batch '{"id":"B1","kind":"code","status":"announced"}'; rm -f "$T/.runs/r/dispatch.jsonl"
+  _marker '{"run":"r","pipeline":"audit","intends_code":true,"source":"harness","baseline_sha":"'"$base"'"}'
+  _chk "FIX#1 unknown pipeline (audit) + intends_code + code → fail-closed" "$(_run)" 1
+  _marker '{"run":"r","intends_code":true,"source":"harness","baseline_sha":"'"$base"'"}'
+  _chk "FIX#1 absent pipeline + intends_code + code → fail-closed" "$(_run)" 1
+  # single-thread stays a SANCTIONED skip (must NOT be swept up by the unknown-pipeline fail-closed)
+  _marker '{"run":"r","pipeline":"single-thread","intends_code":true,"source":"harness","baseline_sha":"'"$base"'"}'
+  _chk "FIX#1 single-thread still skips (sanctioned, not unknown)" "$(_run)" 0
+  # a non-code batch under an unknown pipeline still skips (no code to certify)
+  _marker '{"run":"r","pipeline":"audit","intends_code":true,"source":"harness","baseline_sha":"'"$base"'"}'
+  _batch '{"id":"Z","kind":"doc","status":"announced"}'
+  _chk "FIX#1 unknown pipeline + kind:doc → skip (no code)" "$(_run)" 0
+
+  # FIX#3 (review) — an EMPTY batch id (malformed ledger) must not be satisfied by an orphan batch:""
+  # dispatch record → fail-closed (empty bid is non-matchable).
+  _marker "{$MK}"; _batch '{"kind":"code","status":"announced"}'    # no id
+  _disp '{"batch":"","subagent_type":"code-reviewer"}'
+  _chk "FIX#3 empty bid not satisfied by orphan batch:\"\" record → fail-closed" "$(_run)" 1
 
   rm -rf "$T"
   if [ "$fail" -eq 0 ]; then echo "check-role-dispatch --self-test: OK"; exit 0; fi

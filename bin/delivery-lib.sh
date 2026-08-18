@@ -153,6 +153,9 @@ EOF
 # two cannot diverge on what counts as a reviewer dispatch (exec-role-integrity B3).
 reviewer_dispatch_count() {
   local bid="$1" marker rundir disp line stype rbatch n=0
+  # An empty batch id (malformed ledger entry with no "id") is NON-MATCHABLE: never credit it with an
+  # orphan {"batch":""} dispatch record — that would be a false pass on a malformed ledger (review FIX#3).
+  [ -n "$bid" ] || { printf '0'; return 0; }
   marker="$(resolve_marker)"; [ -n "$marker" ] || { printf '0'; return 0; }
   rundir="$(dirname "$marker")"; disp="$rundir/dispatch.jsonl"
   [ -f "$disp" ] || { printf '0'; return 0; }

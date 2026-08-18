@@ -66,6 +66,16 @@ Record role execution at the **`Agent`-tool dispatch boundary**, keyed on the re
   it *completed* or was *good*. A reviewer dispatched with the right type that then hangs passes this gate;
   completion rests on `check-review-ack`'s `verdict:go` (honest case) and quality on 0006 + the refutation
   doctrine.
+- **≥1, not all four (disclosed floor):** the doctrine asks all four review roles to dispatch as subagents,
+  but the gate fails only on **zero** reviewer-typed dispatches — it verifies that *an* independent review
+  ran, not that *every* required role did. A partial collapse (e.g. 1 of 4 roles dispatched, the other three
+  folded inline) passes. This is deliberate: zero-vs-nonzero is the spec-169 total-collapse signature and is
+  robust; a per-role count would need per-role attribution the dispatch record does not carry. Raising the
+  bar to a required-role count is future hardening, not a property this gate claims today.
+- **In-session only (no CI backstop):** like the delivery/TDD layers, this gate is marker- and
+  `dispatch.jsonl`-gated, and `.runs/` is gitignored — so a fresh CI checkout has no dispatch record and the
+  gate skips. Enforcement is in-session (the harness records the dispatch as the run happens); it is **not**
+  reproduced by CI unless the run commits its `.runs/` artifacts.
 - No constitution bump: this hardens P2/P3/P6/P10 as already written. Asset version MINOR (2.21.0) — an
   additive `verify-batch` gate + a non-blocking recorder + a new `dispatch.jsonl` surface, marker-gated and
   scoped, backward-compatible.

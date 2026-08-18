@@ -19,7 +19,9 @@ Run roles in this order:
 > dispatched as subagents with an identifiable review `subagent_type`
 > (`independent-reviewer` / [`review-types.txt`](../review-types.txt)), never inline. The `role-dispatch`
 > `verify-batch` gate (`bin/check-role-dispatch.sh`) fails a `kind:code` batch closed with **zero**
-> reviewer-typed dispatches and announces the single-thread collapse (spec-169). See
+> reviewer-typed dispatches and announces the single-thread collapse (spec-169). *Enforcement floor:* the
+> gate verifies **≥1** reviewer-typed dispatch, **not that all four roles dispatched** — a partial collapse
+> is not caught (ADR-0008). See
 > [subagent-dispatch.md](../subagent-dispatch.md#harness-verified-reviewer-dispatch-v2210-exec-role-integrity--required-in-fullmvp).
 
 ## Required Handoff Outputs

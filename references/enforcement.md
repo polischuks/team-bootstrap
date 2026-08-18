@@ -22,7 +22,7 @@ claim. The delivery-occurred layer makes it a recorded machine fact instead.
 | **Always-on** | Stop hook → [`../bin/quality-gate.sh`](../bin/quality-gate.sh) | typecheck + lint red on completion | no (harness) |
 | **Batch gate** | [`../bin/verify-batch.sh`](../bin/verify-batch.sh) at each batch close | dead code (orphans), drift, green-by-skip, red-not-touching-tests (F1), under-covered change (F2), weak assertions (F3, opt-in) | LLM-invoked (see CI) |
 | **Delivery-occurred** | [`../bin/check-delivery.sh`](../bin/check-delivery.sh) inside `verify-batch.sh` + the ledger stamp | a `kind:code` batch announced but **never closed** by a pipeline run; a closure with zero code delta | in-session: **no**; CI: only if the run's ledger is committed (`.runs/` is gitignored by default) |
-| **Role-execution** | `PreToolUse` recorder → `.runs/<run>/dispatch.jsonl` + [`../bin/check-role-dispatch.sh`](../bin/check-role-dispatch.sh) inside `verify-batch.sh` | a `full`/`mvp` `kind:code` batch that dispatched **no reviewer subagent** — the silent collapse of the multi-role pipeline to single-thread (spec-169), **announced** to the user | in-session: **no** (marker-gated); degradation-proof, not forgery-proof (ADR [0008](../docs/adr/0008-harness-verified-role-execution.md)) |
+| **Role-execution** | `PreToolUse` recorder → `.runs/<run>/dispatch.jsonl` + [`../bin/check-role-dispatch.sh`](../bin/check-role-dispatch.sh) inside `verify-batch.sh` | a `full`/`mvp` `kind:code` batch that dispatched **no reviewer subagent** — the silent collapse of the multi-role pipeline to single-thread (spec-169), **announced** to the user | in-session: **no** (marker-gated); CI: **not** re-run (`.runs/` gitignored — no dispatch record survives a fresh checkout); degradation-proof, not forgery-proof (ADR [0008](../docs/adr/0008-harness-verified-role-execution.md)) |
 | **Independent backstop** | **CI** runs `verify-batch.sh` on every PR/push | everything above, from scratch, regardless of what the local run did | **no** — the merge blocks |
 
 ### How closure becomes a fact (delivery-occurred layer)
@@ -233,9 +233,15 @@ sanctioned, P1), and `check-review-ack`'s marker claim is now **corroborated** b
 Honest reach ([ADR-0008](../docs/adr/0008-harness-verified-role-execution.md)): `subagent_type` is
 model-authored, so this is **degradation-proof, not forgery-proof** — it catches a total inline collapse,
 not a decoy review-typed no-op dispatch; and it proves the reviewer was *dispatched*, not that it *completed*
-or was *good* (quality stays 0006 + the refutation doctrine). It is strictly stronger than a marker string,
+or was *good* (quality stays 0006 + the refutation doctrine). It fails on **zero** reviewer-typed dispatches
+(the total-collapse signature), so it verifies that *an* independent review ran, **not that all four required
+roles did** — a 1-of-4 partial collapse passes (a required-role count is future hardening). And, like the
+delivery layer, it is marker- and `dispatch.jsonl`-gated ⇒ **in-session only** (`.runs/` is gitignored, so a
+fresh CI checkout has no dispatch record and the gate skips). It is strictly stronger than a marker string,
 and it is the same prose→harness move this whole document embodies — now applied to **process**, not only
-outcomes.
+outcomes. On an `intends_code` `kind:code` batch whose pipeline is neither `full`/`mvp` nor the sanctioned
+`single-thread` (a malformed marker), the gate **fails closed** rather than skip — undeterminable input is
+never a silent pass.
 
 ## CI backstop (add to the target project)
 
