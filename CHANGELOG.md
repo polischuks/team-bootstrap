@@ -2,6 +2,45 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.26.0] - 2026-08-19
+
+### Added
+- **Control-surface protection — the gates cannot be silently disabled mid-run (`control-surface-protection`,
+  ADR-0012).** `check-seam-ack` now treats the single-source glob set in
+  [`references/control-surface.txt`](references/control-surface.txt) (read by
+  [`bin/delivery-lib.sh`](bin/delivery-lib.sh) `control_surface_globs()`, BASH_SOURCE-relative like
+  `review_types()`) as an **always-present high-risk seam**, unioned in **before** the "no high_risk_seams
+  recorded" early return. A `kind:code` batch (or any batch inside an `intends_code` run) whose git window
+  touches the plugin's own machinery — `bin/check-*.sh`, `bin/verify-batch.sh`, `bin/delivery-lib.sh`,
+  `bin/tdd-red.sh`, `bin/record-dispatch.sh`, `hooks/*.json`, `.claude`, `.mcp.json`, `AGENTS.md`,
+  `commands`, `agents`, or the list file itself — must record a `control-surface` seam-ack (naming the
+  shipped commit + a `file:line` note) or the batch cannot close. Extends P10 non-disableability from the
+  *delivered code* to the *machinery*. **No new gate** (consolidated into `check-seam-ack`; a parallel gate
+  would duplicate its validation chain and re-glob-blind it). Dogfooded from this milestone's own Batch A.
+- **CI-from-trusted-ref check, shipped as an EXAMPLE** ([`.github/control-surface-ci.sh`](.github/control-surface-ci.sh)
+  + [`.github/workflows/control-surface-guard.yml`](.github/workflows/control-surface-guard.yml)) — on a PR,
+  diffs control-surface files vs the trusted base and fails unless a commit carries a `Control-Surface-Ack:`
+  trailer. **Recommended repo/org posture, NOT a plugin guarantee:** non-circular only under GitHub
+  branch-protection (a same-repo PR runs its own workflow copy); the trailer is author-written → visibility
+  + human review, not prevention. Uniform with `sandbox-runtime` immutability.
+
+### Changed
+- **`bin/check-seam-ack.sh` hardened** (correctness fixes to the shipped gate): (a) **glob-aware**
+  `_intersects` — an explicit unquoted-`$token` `case` branch matches `bin/check-*.sh` / `hooks/*.json`
+  (the shipped quoted matcher was glob-blind), iterated line-by-line so globs never pathname-expand against
+  the CWD; both touch-detection and ack-validation route through it and cannot disagree; (b) **fail-closed**
+  `_batch_files` — an empty/unresolvable git window no longer falls back to the ledger's self-declared
+  `"files"` (a tamperer controls them). Inherited `--self-test` fixtures retargeted off the control surface
+  so the standing seam does not retroactively regress them.
+
+### Notes
+- No constitution bump (stays 1.0.1): operationalizes P3/P6/P10/P11 as already written. Enumeration
+  invariants unchanged (51 role playbooks / 6 pipelines); **no new gate script**. Honest limits recorded, not
+  hidden: the self-reference circular core (`check-seam-ack`/`verify-batch`/`delivery-lib`/the list) is
+  protected only under repo/org posture (CI-from-trusted-ref under branch-protection; `sandbox-runtime`), and
+  the seam-ack is forgeable-honest (declared + reviewable, not impossible) — the same ceiling as
+  `risk_rank`/`seam_acks`.
+
 ## [2.25.0] - 2026-08-19
 
 ### Added

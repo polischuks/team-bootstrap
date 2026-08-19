@@ -184,6 +184,44 @@ so F1/F2/F3 actually run (out of this plugin's scope — P7 — documented). Thi
 three on itself, and building A's marker rewrite surfaced + locked a real bash-5.2 `${//}` backslash-leak
 in the marker-write path — the exact seam C guards. See [ADR-0005](../docs/adr/0005-closure-fidelity-gates.md).
 
+### The control surface is a standing high-risk seam (v2.26.0)
+
+Every layer above protects the *delivered code*; nothing protected the **gates and hooks themselves**.
+`check-gate-integrity` catches *green-by-skip* but has no notion of the expected gate set, so a batch that
+edited `bin/check-*.sh` into vacuity or dropped a gate line from `verify-batch.sh` was caught by nothing.
+The control-surface-protection milestone ([ADR-0012](../docs/adr/0012-control-surface-protection.md))
+extends P10's non-disableability to the machinery itself — **without a new gate**. `check-seam-ack` now
+treats the single-source glob set in [`control-surface.txt`](control-surface.txt) (read by
+`delivery-lib.sh:control_surface_globs()`, BASH_SOURCE-relative like `review_types()`) as an
+**always-present** high-risk seam, unioned in *before* the "no high_risk_seams recorded" early return. So a
+`kind:code` batch (or, since the skip is keyed on the run-level `intends_code`, any batch inside a code run)
+whose git window touches `bin/check-*.sh`, `verify-batch.sh`, `delivery-lib.sh`, `tdd-red.sh`,
+`record-dispatch.sh`, `hooks/*.json`, `.claude`, `.mcp.json`, `AGENTS.md`, `commands`, `agents`, or the list
+file **must record a `control-surface` seam-ack** (naming the shipped commit + a `file:line` note) or the
+batch cannot close. Two hardening fixes back it: the matcher is now **glob-aware** (an unquoted-`$token`
+`case` branch, so `bin/check-*.sh`/`hooks/*.json` actually match — both detection and ack-validation route
+through it and cannot disagree), and the batch-file window is **fail-closed** (an empty/unresolvable git
+window never falls back to the ledger's self-declared `"files"`).
+
+**How to record it when you legitimately edit the machinery** (this repo does, every milestone): after the
+commit that ships the control-surface change, add to `.runs/<run>/RUN`:
+
+```json
+"seam_acks":[{"seam":"control-surface","commit":"<short-sha>","note":"path:line — what changed + why"}]
+```
+
+The commit must be reachable from HEAD, post-baseline, and actually touch a surface path (the same
+validation chain as any seam-ack). A non-`control-surface`-named ack does **not** satisfy the standing seam.
+
+**Honest boundary.** This makes a machinery change *declared + acked + reviewable*, not impossible. The
+enforcing gate is itself control surface and `verify-batch` runs the committed HEAD, so a batch that
+co-edits the **circular core** (`check-seam-ack`/`verify-batch`/`delivery-lib`/`control-surface.txt`) and
+drops the gate invocation escapes the in-plugin check (isolated tampering is caught; a co-committed core
+edit is not). Closing that is repo/org posture the plugin cannot force — a CI-from-trusted-ref check
+(shipped as an *example*, [`.github/control-surface-ci.sh`](../.github/control-surface-ci.sh)) that is
+non-circular **only under branch-protection**, plus org `sandbox-runtime` immutability. The headline is
+declaration discipline, not tamper-proofing.
+
 ### The enforcement ack is a governed, expiring waiver (v2.20.0)
 
 A second retrospective found gate A **worked but deprecated into routine**: a `feature|doc` batch passed

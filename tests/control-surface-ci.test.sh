@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# tests/control-surface-ci.test.sh — local reproduction of the CI-from-trusted-ref EXAMPLE
+# (.github/control-surface-ci.sh) — milestone control-surface-protection, Batch B. AC-CI, AC-Co.
+#
+# The example CI check fails a PR whose diff vs the trusted base touches the plugin control surface
+# UNLESS a commit carries a `Control-Surface-Ack:` trailer (author-written declaration). This test
+# reproduces that locally against fixture repos whose files match references/control-surface.txt globs.
+#
+# AC-Co is a DOC assertion (not an executable negative test): the co-committed circular-core edit is a
+# disclosed KNOWN GAP — verified here by asserting the script's own header discloses it honestly.
+set -uo pipefail
+here="$(cd "$(dirname "$0")/.." && pwd)"
+ci="$here/.github/control-surface-ci.sh"
+fail=0
+[ -x "$ci" ] || { echo "FAIL: $ci missing/not executable" >&2; exit 1; }
+
+_chk() { if [ "$2" = "$3" ]; then echo "  PASS (exit $2) $1"; else echo "  FAIL (exit $2 want $3) $1" >&2; fail=$((fail + 1)); fi; }
+
+# mk_repo TMP → git repo with a baseline commit; echo the baseline sha.
+mk_repo() {
+  local t="$1"
+  ( cd "$t" && git init -q && git config user.email t@t && git config user.name t \
+    && echo seed > seed && git add . && git commit -qm base ) >/dev/null 2>&1
+  ( cd "$t" && git rev-parse HEAD )
+}
+# _run TMP BASE → run the CI example in TMP against BASE; echo exit code.
+_run() { ( cd "$1" && "$ci" "$2" >/dev/null 2>&1 ); echo $?; }
+
+# --- AC-CI — control-surface file changed vs base, NO Control-Surface-Ack: trailer → FAIL.
+T="$(mktemp -d)"; base="$(mk_repo "$T")"
+( cd "$T" && mkdir -p bin && echo x > bin/check-newgate.sh && git add -A && git commit -qm "edit a gate" ) >/dev/null 2>&1
+_chk "AC-CI surface change, no declaration → FAIL" "$(_run "$T" "$base")" 1
+rm -rf "$T"
+
+# --- AC-CI — same change WITH a Control-Surface-Ack: trailer → PASS (visibility; human review still required).
+T="$(mktemp -d)"; base="$(mk_repo "$T")"
+( cd "$T" && mkdir -p bin && echo x > bin/check-newgate.sh && git add -A \
+  && git commit -qm "edit a gate
+
+Control-Surface-Ack: hardening the seam gate (declared machinery change)" ) >/dev/null 2>&1
+_chk "AC-CI surface change + Control-Surface-Ack: trailer → PASS" "$(_run "$T" "$base")" 0
+rm -rf "$T"
+
+# --- AC-CI — a non-surface change (src/app.py) vs base → PASS (nothing to guard).
+T="$(mktemp -d)"; base="$(mk_repo "$T")"
+( cd "$T" && mkdir -p src && echo x > src/app.py && git add -A && git commit -qm "app change" ) >/dev/null 2>&1
+_chk "AC-CI non-surface change → PASS" "$(_run "$T" "$base")" 0
+rm -rf "$T"
+
+# --- F1 regression — an ack trailer on a BASE-SIDE commit not in the PR must NOT satisfy the check.
+# base advances with an ack commit; the PR branches from BEFORE it and adds a surface file with NO ack.
+# Two-dot `git log base..HEAD` sees only the PR's commit (no ack) → FAIL. (Three-dot symmetric-diff would
+# wrongly pull in the base-side ack → false PASS.)
+T="$(mktemp -d)"; base0="$(mk_repo "$T")"
+( cd "$T" && git commit -q --allow-empty -m "unrelated main work
+
+Control-Surface-Ack: a DIFFERENT, base-side machinery change" ) >/dev/null 2>&1
+baseAck="$( cd "$T" && git rev-parse HEAD )"
+( cd "$T" && git checkout -q -b pr "$base0" && mkdir -p bin && echo x > bin/check-newgate.sh \
+  && git add -A && git commit -qm "PR edits a gate with NO ack" ) >/dev/null 2>&1
+_chk "F1 base-side ack trailer (not in PR) → still FAIL" "$(_run "$T" "$baseAck")" 1
+rm -rf "$T"
+
+# --- F2 — an unresolvable base ref fails LOUD (exit 1), never open (silent pass).
+T="$(mktemp -d)"; mk_repo "$T" >/dev/null
+_chk "F2 unresolvable base ref → FAIL (loud, not open)" "$(_run "$T" no-such-ref)" 1
+rm -rf "$T"
+
+# --- F-resid — disjoint history (no common ancestor) fails LOUD, never open. base is a real (resolvable)
+# SHA on the original line; HEAD is an orphan branch → the base resolves but they share no merge-base.
+T="$(mktemp -d)"; mk_repo "$T" >/dev/null
+origtip="$( cd "$T" && git rev-parse HEAD )"
+( cd "$T" && git checkout -q --orphan orphan && git rm -rfq . 2>/dev/null; mkdir -p bin \
+  && echo x > bin/check-newgate.sh && git add -A && git commit -qm "orphan surface edit" ) >/dev/null 2>&1
+_chk "F-resid disjoint base/HEAD → FAIL (loud, not open)" "$(_run "$T" "$origtip")" 1
+rm -rf "$T"
+
+# --- AC-Co — the disclosed KNOWN GAP is documented honestly in the script header (doc assertion).
+if grep -qiE 'Control-Surface-Ack' "$ci" \
+   && grep -qiE 'branch.protection' "$ci" \
+   && grep -qiE 'visibility.*not prevention|not prevention' "$ci" \
+   && grep -qiE 'co-committed|circular core|AC-Co' "$ci"; then
+  echo "  PASS AC-Co disclosed-gap + non-circular-only-under-branch-protection documented in the example"
+else
+  echo "  FAIL AC-Co honesty disclosure missing from $ci header" >&2; fail=$((fail + 1))
+fi
+
+[ "$fail" -eq 0 ] && { echo "control-surface-ci.test.sh: OK"; exit 0; }
+echo "control-surface-ci.test.sh: $fail failure(s)" >&2; exit 1

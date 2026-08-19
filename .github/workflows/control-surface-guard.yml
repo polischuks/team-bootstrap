@@ -1,0 +1,40 @@
+# control-surface-guard — EXAMPLE CI-from-trusted-ref check (milestone control-surface-protection).
+#
+# NOT a plugin guarantee — recommended repo/org POSTURE. It compares a PR's changed files vs the trusted
+# base (origin/main, which the PR cannot edit) to the plugin control surface and fails unless a commit
+# declares a sanctioned machinery change with a `Control-Surface-Ack:` trailer.
+#
+# HONEST LIMITS (make this real, not theatre):
+#   * This is non-circular ONLY under BRANCH-PROTECTION. A same-repo PR runs its own copy of this file,
+#     so unless the repo requires this check ("Require status checks to pass") AND reviews workflow edits,
+#     a PR can disable or rename it. Branch-protection is repo/org config the plugin cannot ship.
+#   * The `Control-Surface-Ack:` trailer is author-written → VISIBILITY + HUMAN REVIEW, not prevention.
+#   * AC-Co: a co-committed edit to the circular core (check-seam-ack / verify-batch / delivery-lib / the
+#     list) that also drops the in-plugin gate escapes the IN-PLUGIN check; this CI check under
+#     branch-protection is the backstop, itself conditional on branch-protection + human review.
+# See .github/control-surface-ci.sh for the logic (single source: references/control-surface.txt).
+
+name: control-surface-guard (example)
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  control-surface:
+    name: Control surface changes must be declared
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # full history so the merge-base with origin/main resolves for `git diff base...HEAD`.
+          fetch-depth: 0
+
+      - name: Ensure the trusted base ref is present
+        run: git fetch --no-tags origin main
+
+      - name: Fail undeclared control-surface changes vs origin/main
+        run: .github/control-surface-ci.sh origin/main
