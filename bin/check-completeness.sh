@@ -30,11 +30,27 @@ here="$(cd "$(dirname "$0")" && pwd)"
 _doc() { local f; for f in AGENTS.md CLAUDE.md; do [ -f "$f" ] && { printf '%s' "$f"; return 0; }; done; }
 _val() { grep -iE "^[[:space:]]*[-*]?[[:space:]]*$1:" "$2" 2>/dev/null | head -1 | sed -E 's/^[^:]*://' | tr -d '`' | xargs 2>/dev/null || true; }
 
-# _spec_from_marker → echo the spec.md path recorded in the marker `feature` (empty if none).
+# _feature_declared MK → rc 0 if the marker DECLARES a real spec path (non-empty and not the
+# no-spec sentinel `unknown`/`none`/`n/a`). A direct pipeline run (`/team-bootstrap single-thread …`)
+# records `feature:"unknown"` — genuinely no spec to check, a graceful skip, NOT a fail.
+_feature_declared() {
+  local feat; feat="$(field_str "$1" feature)"
+  case "$feat" in ''|unknown|Unknown|UNKNOWN|none|None|NONE|n/a|N/A|N/a) return 1 ;; *) return 0 ;; esac
+}
+
+# _spec_from_marker → echo the spec.md path from the marker `feature`, NORMALIZED. A /deliver arg is
+# often a bare directory/slug (`specs/<slug>`), not the spec.md file — recording that verbatim made the
+# tasks.md/spec.md lookup miss and the whole gate silently skip (the exec-role-integrity green-by-skip).
+# Rule: a value already ending in `.md` is used as-is; anything else (dir or slug, with/without a
+# trailing slash) gets `/spec.md` appended, so both forms resolve to the same file.
 _spec_from_marker() {
   local mk="$1" feat
   feat="$(field_str "$mk" feature)"
   [ -n "$feat" ] || return 0
+  case "$feat" in
+    *.md) : ;;                        # already a file path (spec.md or an explicit .md) — use as-is
+    *)    feat="${feat%/}/spec.md" ;; # dir or slug (± trailing slash) → the spec.md inside it
+  esac
   printf '%s' "$feat"
 }
 # _task_ids LINE → space-separated task_ids from a ledger entry's "task_ids":[…]. Isolate the bracket
@@ -91,10 +107,13 @@ _per_batch() {
   [ -n "$marker" ] && [ -f "$marker" ] || { echo "check-completeness: no active delivery run — skipping (governs armed runs)."; return 0; }
   mk="$(cat "$marker" 2>/dev/null || true)"
   [ "$(field_bool "$mk" intends_code)" = "true" ] || { echo "check-completeness: marker not intends_code — skipping."; return 0; }
+  # A run that declares NO spec (direct pipeline: feature unknown/empty) has nothing to check — skip.
+  _feature_declared "$mk" || { echo "check-completeness: marker declares no spec (feature unknown/empty) — direct/non-spec run, nothing to check per-batch."; return 0; }
   spec="$(_spec_from_marker "$mk")"
-  [ -n "$spec" ] || { echo "check-completeness: WARN — marker has no feature (spec path); cannot locate tasks.md — unenforceable." >&2; return 0; }
   tasks="$(dirname "$spec")/tasks.md"
-  [ -f "$tasks" ] || { echo "check-completeness: WARN — no $tasks; per-batch completeness unenforceable." >&2; return 0; }
+  # An armed run that DECLARES a feature whose tasks.md cannot be resolved is a green-by-skip hole, not a
+  # graceful no-op — FAIL LOUD (fix the marker feature path or add tasks.md), never silently pass.
+  [ -f "$tasks" ] || { echo "  FAIL-CLOSED: armed run declares feature '$(field_str "$mk" feature)' but no tasks.md at '$tasks' — per-batch completeness is unenforceable on a declared-spec run; this would be a green-by-skip. Point the marker feature at specs/<slug>/spec.md (or the dir) and ensure tasks.md exists." >&2; return 1; }
 
   ledger="$(resolve_ledger)"
   [ -n "$ledger" ] && [ -f "$ledger" ] || { echo "check-completeness: no ledger — nothing to check per-batch."; return 0; }
@@ -128,9 +147,13 @@ _final() {
   [ -n "$marker" ] && [ -f "$marker" ] || { echo "check-completeness --final: no active delivery run — skipping."; return 0; }
   mk="$(cat "$marker" 2>/dev/null || true)"
   [ "$(field_bool "$mk" intends_code)" = "true" ] || { echo "check-completeness --final: marker not intends_code — skipping."; return 0; }
+  # No spec declared (direct/non-spec run) → nothing to finalize-check (graceful skip).
+  _feature_declared "$mk" || { echo "check-completeness --final: marker declares no spec (feature unknown/empty) — nothing to finalize-check."; return 0; }
   spec="$(_spec_from_marker "$mk")"
-  [ -n "$spec" ] && [ -f "$spec" ] || { echo "check-completeness --final: WARN — no spec.md at '${spec:-?}'; unenforceable." >&2; return 0; }
   tasks="$(dirname "$spec")/tasks.md"
+  # Declared feature but spec.md / tasks.md missing → FAIL LOUD (green-by-skip guard), never skip.
+  [ -f "$spec" ] || { echo "  FAIL-CLOSED: armed run declares feature '$(field_str "$mk" feature)' but no spec.md at '$spec' — milestone completeness is unenforceable on a declared-spec run (green-by-skip). Point the marker feature at specs/<slug>/spec.md." >&2; return 1; }
+  [ -f "$tasks" ] || { echo "  FAIL-CLOSED: armed run declares feature but no tasks.md at '$tasks' — cannot verify task completion at finalization (green-by-skip guard)." >&2; return 1; }
 
   # (1) no [ ] remaining in tasks.md
   if [ -f "$tasks" ] && grep -qE '^[[:space:]]*-[[:space:]]*\[ \]' "$tasks" 2>/dev/null; then
@@ -209,6 +232,33 @@ if [ "${1:-}" = "--self-test" ]; then
   printf '# ISSUE-9\nassert i9\n' > "$T/tests/x.test.sh"
   _chk "AC-4 --final AcPattern override (ISSUE-9 asserted) → pass" "$(_runf)" 0
   rm -f "$T/AGENTS.md"
+
+  # dir-feature (regression: exec-role-integrity green-by-skip) — the marker records `feature` as the
+  # DIRECTORY (specs/demo), not spec.md. It must normalize to specs/demo/spec.md and ENFORCE, never skip.
+  rm -f "$T/AGENTS.md"
+  printf '# Spec\n\n- AC-1 foo\n' > "$T/specs/demo/spec.md"
+  printf '{"run":"r","intends_code":true,"source":"harness","feature":"specs/demo"}\n' > "$T/.runs/r/RUN"
+  _batch '{"id":"B1","kind":"code","task_ids":["T001","T002"],"status":"announced"}'
+  printf '# Tasks\n\n- [x] **T001** done\n- [x] **T002** done\n' > "$T/specs/demo/tasks.md"
+  _chk "dir-feature per-batch resolves + enforces (all [x]) → pass" "$(_runpb)" 0
+  printf '# Tasks\n\n- [x] **T001** done\n- [ ] **T002** undone\n' > "$T/specs/demo/tasks.md"
+  _chk "dir-feature per-batch resolves + enforces (one [ ]) → fail" "$(_runpb)" 1
+  printf '# Tasks\n\n- [x] **T001** done\n' > "$T/specs/demo/tasks.md"
+  printf '# AC-1\nassert ac1\n' > "$T/tests/x.test.sh"
+  _chk "dir-feature --final resolves spec.md + enforces → pass" "$(_runf)" 0
+  # feature WITH a trailing slash also normalizes
+  printf '{"run":"r","intends_code":true,"source":"harness","feature":"specs/demo/"}\n' > "$T/.runs/r/RUN"
+  _batch '{"id":"B1","kind":"code","task_ids":["T001"],"status":"announced"}'
+  _chk "dir-feature (trailing slash) per-batch → pass" "$(_runpb)" 0
+
+  # declared-but-unresolvable — an armed run that DECLARES a feature whose spec/tasks do NOT exist must
+  # FAIL-LOUD (green-by-skip guard), not skip. (feature=unknown / empty is the genuine no-spec case → skip.)
+  printf '{"run":"r","intends_code":true,"source":"harness","feature":"specs/ghost"}\n' > "$T/.runs/r/RUN"
+  _chk "declared feature, no tasks.md → per-batch FAIL (not skip)" "$(_runpb)" 1
+  _chk "declared feature, no spec.md → --final FAIL (not skip)" "$(_runf)" 1
+  printf '{"run":"r","intends_code":true,"source":"harness","feature":"unknown"}\n' > "$T/.runs/r/RUN"
+  _chk "feature=unknown (direct/non-spec run) per-batch → skip" "$(_runpb)" 0
+  _chk "feature=unknown (direct/non-spec run) --final → skip" "$(_runf)" 0
 
   # AC-6 — no active marker → skip (both modes)
   rm -f "$T/.runs/r/RUN"

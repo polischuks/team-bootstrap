@@ -2,6 +2,51 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.21.0] - 2026-08-18
+
+### Added
+- **Role-execution layer — harness-verified reviewer dispatch (`exec-role-integrity`, ADR-0008).** A
+  non-blocking `PreToolUse[Agent]` recorder ([`bin/record-dispatch.sh`](bin/record-dispatch.sh)) writes each
+  reviewer-typed subagent dispatch (`subagent_type` ∈ [`references/review-types.txt`](references/review-types.txt),
+  the single source) to `.runs/<run>/dispatch.jsonl`; a new `verify-batch` gate
+  ([`bin/check-role-dispatch.sh`](bin/check-role-dispatch.sh)) **fails closed and announces to the user**
+  when a `full`/`mvp` `kind:code` batch closes with **zero** reviewer-typed dispatches — the silent
+  collapse of the multi-role pipeline to single-thread (spec-169). Signal keys off dispatch **occurrence**
+  (no completion status: background dispatch yields `async_launched`, `SubagentStop` is flaky #27755).
+- **Dedicated review type + doctrine.** New plugin agent [`agents/independent-reviewer.md`](agents/independent-reviewer.md);
+  `full`/`mvp` mandate the four review roles (integration-verifier, architecture-reviewer, regression-guardian,
+  code-reviewer) dispatch as subagents with the dedicated review type. Adds the missing `subagent-mapping`
+  rows for integration-verifier + regression-guardian (previously orphaned to `general-purpose`,
+  indistinguishable from a builder).
+- **`check-review-ack` corroboration.** A `review_acks` entry is valid in `full`/`mvp` only when a
+  reviewer-typed dispatch is recorded for that batch — the marker `reviewer` claim must be
+  harness-corroborated, not a bare string (closes 0006's forgeable-marker residual for the dispatch
+  dimension). New shared `delivery-lib` `reviewer_dispatch_count()` — one definition used by both the gate
+  and the corroboration.
+
+### Changed
+- `verify-batch` gate list adds `role-dispatch` (after `review-ack`, before `delivery`).
+- Docs: [`references/hooks.md`](references/hooks.md), [`references/enforcement.md`](references/enforcement.md),
+  [`references/subagent-dispatch.md`](references/subagent-dispatch.md), `orchestrator.md`, `pipelines/{full,mvp}.md`.
+- `bin/check-delivery.sh` AC-2 self-test fixture decoupled from HEAD size (synthesized doc-only commit).
+
+### Hardening (post-review)
+- **Fail-closed on undeterminable input.** An `intends_code` `kind:code` batch whose pipeline is neither
+  `full`/`mvp` nor the sanctioned `single-thread` (a malformed marker) now **fails closed** in both
+  `check-role-dispatch.sh` and `check-review-ack.sh`'s dispatch corroboration — previously it silently
+  skipped (a fail-open against the fail-closed design).
+- **Empty batch id is non-matchable.** `reviewer_dispatch_count` returns 0 for an empty `bid`, so a
+  malformed ledger entry with no `id` can no longer be satisfied by an orphan `{"batch":""}` dispatch record.
+- Disclosed the enforcement floor explicitly (ADR-0008, `pipelines/{full,mvp}.md`, `enforcement.md`): the
+  gate verifies **≥1** reviewer-typed dispatch (the total-collapse signature), **not that all four roles
+  dispatched**, and is **in-session only** (`.runs/` gitignored ⇒ no CI re-run). `head -c` bound on the
+  recorder's stdin; `ADR-000Z` placeholder → `ADR-0008` across all files.
+
+### Honest limit
+- `subagent_type` is model-authored ⇒ the role-execution gate is **degradation-proof, not forgery-proof**
+  (catches a total inline collapse, not a decoy review-typed no-op dispatch) and proves the reviewer was
+  *dispatched*, not *completed* or *good* (ADR-0008, ADR-0006). No constitution bump (stays v1.0.1).
+
 ## [2.20.0] - 2026-08-18
 
 ### Added

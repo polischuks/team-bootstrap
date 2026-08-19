@@ -41,12 +41,37 @@ The harness — not the LLM — enforces `tool_surface` and `permission_mode` fr
 | `security-reviewer` | `security-auditor` | `infra/cloud-heavy → security-engineer`; `backend code → backend-security-coder`; `active exploitation/CTF context → penetration-tester`; `compliance frameworks → compliance-auditor` | `ad-security-reviewer`, `general-purpose` |
 | `qa-test-engineer` | `qa-expert` | `e2e/browser → ui-ux-tester`; `automation suites → test-automator`; `existing-code fix-ups → test-writer-fixer` | `test-engineer`, `general-purpose` |
 | `overengineering-reviewer` | `architect-reviewer` | — | `code-reviewer`, `architect-review`, `general-purpose` |
-| `code-reviewer` | `code-reviewer` | — | `architect-review`, `architect-reviewer`, `general-purpose` |
+| `code-reviewer` | `independent-reviewer` | — | `code-reviewer`, `architect-review`, `architect-reviewer`, `general-purpose` |
 | `release-manager` | `deployment-engineer` | — | `project-shipper`, `release-manager`, `general-purpose` |
 | `release-docs` | `project-shipper` | — | `deployment-engineer`, `docs-architect`, `general-purpose` |
 | `stakeholder-communicator` | `content-creator` | `customer-facing → support-responder` | `general-purpose` |
 | `documentation-agent` | `docs-architect` | `API reference → api-documenter`; `tutorials/learning paths → tutorial-engineer`; `exhaustive config refs → reference-builder`; `diagrams → mermaid-expert` | `general-purpose` |
 | `incident-responder` | `incident-responder` | `infra/k8s-heavy → devops-incident-responder`; `troubleshooting before resolution → devops-troubleshooter` | `error-detective`, `general-purpose` |
+
+## Harness-verified review roles (v2.21.0 — exec-role-integrity)
+
+The **four mandatory batch review roles** must dispatch as subagents with an **identifiable review
+type** in `full`/`mvp`, so the `PreToolUse[Agent]` recorder (`bin/record-dispatch.sh`) can observe that
+an independent review actually ran and the `role-dispatch` gate (`bin/check-role-dispatch.sh`) can catch
+a silent collapse to single-thread (spec-169). The primary for all four is the dedicated plugin agent
+[`independent-reviewer`](../agents/independent-reviewer.md) — a review type in the single source
+[`references/review-types.txt`](review-types.txt) that no builder ever dispatches. Two of these roles
+previously had **no mapping row** and fell through to `general-purpose` (indistinguishable from a
+builder — soundness N3); they are now mapped.
+
+| Role | Primary | Stack overrides | Fallbacks |
+| --- | --- | --- | --- |
+| `integration-verifier` | `independent-reviewer` | — | `code-reviewer`, `test-automator`, `qa-expert`, `general-purpose` |
+| `architecture-reviewer` | `independent-reviewer` | — | `architect-reviewer`, `architect-review`, `backend-architect` |
+| `regression-guardian` | `independent-reviewer` | — | `code-reviewer`, `test-automator`, `qa-expert`, `general-purpose` |
+| `code-reviewer` | `independent-reviewer` | — | `code-reviewer`, `architect-review`, `architect-reviewer`, `general-purpose` |
+
+The fallbacks are still review types where possible (`code-reviewer`, `architect-reviewer`,
+`architect-review` — all in `review-types.txt`), so the gate is satisfied even where the plugin agent
+is not yet loaded. `general-purpose` remains only as the terminal fallback for the two
+integration/regression roles; if a run is forced all the way to `general-purpose`, that dispatch is
+NOT review-typed and the `role-dispatch` gate will (correctly) not count it. **`single-thread` is out of
+scope** — P1 sanctions running these roles inline there, and the gate skips it.
 
 ## New roles added in v1.1 (item 5 from the upgrade plan)
 

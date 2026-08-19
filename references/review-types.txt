@@ -1,0 +1,36 @@
+# review-types.txt — the SINGLE SOURCE OF TRUTH for "which subagent_type counts as an independent
+# review dispatch" (milestone exec-role-integrity, v2.21.0). One slug per line; blank lines and
+# lines beginning with '#' are ignored; matching is exact (anchored, whole-slug).
+#
+# Read by (and ONLY by) delivery-lib.sh review_types()/is_review_type(), which back:
+#   - bin/record-dispatch.sh   — the non-blocking PreToolUse[Agent] recorder
+#   - bin/check-role-dispatch.sh — the verify-batch role-dispatch gate
+#   - references/subagent-dispatch.md / subagent-mapping.md — the doctrine the reviewers dispatch by
+# Keeping the set here (not duplicated in each script) is soundness fix N3: the doctrine, the
+# recorder, and the gate cannot drift apart.
+#
+# HONEST LIMIT (ADR-0008): subagent_type is the model's dispatch ARGUMENT, not a harness-minted value.
+# So this signal is DEGRADATION-proof (an orchestrator that collapses review to inline dispatches NO
+# review-typed subagent — the spec-169 failure — is caught) but NOT forgery-proof (a decoy review-typed
+# no-op dispatch would satisfy it — the ADR-0006 quality/willingness limit). It proves a reviewer was
+# DISPATCHED and independent (≠ builder type), not that the review was good.
+#
+# Membership rationale (N3): the dedicated `independent-reviewer` type is the going-forward MANDATE for
+# all four review roles (so integration-verifier/regression-guardian stop resolving to general-purpose,
+# indistinguishable from a builder). The host review slugs below are ALSO honored so the gate cannot
+# false-block a run that dispatched a host review agent, and so this milestone can dogfood before the
+# plugin agent is loaded. This is NOT a leak: every slug here maps only to a REVIEW-family role
+# (code-reviewer, architecture-reviewer, overengineering-reviewer, and the architecture roles that
+# resolve to architect-reviewer — which --isolate CAN dispatch as a subagent; that is still a review
+# dispatch, which is exactly what the gate wants to see). The load-bearing guarantee is anti-builder:
+# NO builder role maps to any slug here (builders use backend-developer / general-purpose / stack
+# specialists), so a builder dispatch never satisfies the gate.
+
+# --- dedicated plugin-scoped review type (the going-forward mandate) ---
+team-bootstrap:independent-reviewer
+independent-reviewer
+
+# --- host review agent types the four review roles resolve to today ---
+code-reviewer
+architect-reviewer
+architect-review

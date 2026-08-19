@@ -50,16 +50,22 @@ if [ -z "$pipeline" ]; then
   [ "$is_deliver" -eq 1 ] && pipeline="full" || exit 0   # /deliver defaults to full; bare skill needs a token
 fi
 
-# Derive the run name from a specs/<slug>/… path in the prompt; else a stable fallback.
-spec="$(printf '%s' "$payload" | grep -oE 'specs/[A-Za-z0-9._-]+/[A-Za-z0-9._/-]*' | head -1)"
-run="$(printf '%s' "$spec" | sed -E 's#specs/([^/]+)/.*#\1#')"
+# Derive the run name + feature from a specs/<slug>[/…] path in the prompt; else a stable fallback.
+# The trailing path is OPTIONAL: `/deliver full specs/<slug>` (a bare directory, no /spec.md) must still
+# be captured — else `feature` falls to "unknown" and the completeness gate can only skip (green-by-skip;
+# see check-completeness.sh). Both `specs/<slug>` and `specs/<slug>/spec.md` derive run=<slug>.
+spec="$(printf '%s' "$payload" | grep -oE 'specs/[A-Za-z0-9._-]+(/[A-Za-z0-9._/-]*)?' | head -1)"
+run="$(printf '%s' "$spec" | sed -E 's#^specs/([^/]+).*#\1#')"
 [ -n "$run" ] || run="deliver-run"
 
 marker=".runs/$run/RUN"
 [ -f "$marker" ] && exit 0                      # idempotent: never clobber baseline_sha
 mkdir -p ".runs/$run" 2>/dev/null || exit 0
 base="$(git rev-parse --short HEAD 2>/dev/null || true)"
+# Normalize the feature to the spec.md PATH check-completeness expects: a bare dir/slug gets /spec.md
+# appended (a value already ending in .md is left as-is; no specs path ⇒ "unknown", the no-spec sentinel).
 feat="${spec:-unknown}"
+case "$feat" in unknown|*.md) : ;; *) feat="${feat%/}/spec.md" ;; esac
 # Write baseline_sha only when HEAD resolves. A bogus "unknown" would silently disarm the
 # predate check (R-3); omitting it is honest — reachable-from-HEAD (R-2) still anchors closure.
 if [ -n "$base" ]; then

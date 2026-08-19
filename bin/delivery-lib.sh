@@ -119,6 +119,56 @@ json_has_obj_field() {
 # Abbrev-safe: the historical ledger stores 7-char SHAs.
 resolve_sha() { git rev-parse --verify -q "$1^{commit}" 2>/dev/null; }
 
+# --- exec-role-integrity: the dedicated review subagent_type set (N3 single source) -----------
+# review_types → echo the review subagent_type slugs (one per line), from the SINGLE SOURCE
+# references/review-types.txt (blank lines and '#' comments stripped, surrounding space trimmed).
+# The path is resolved relative to THIS lib's own location (BASH_SOURCE), so every sourcing script —
+# record-dispatch (recorder), check-role-dispatch (gate), check-review-ack (corroboration) — reads the
+# exact same set and it cannot drift. Missing file ⇒ empty set (callers treat that as "nothing counts").
+review_types() {
+  local f; f="$(dirname "${BASH_SOURCE[0]}")/../references/review-types.txt"
+  [ -f "$f" ] || return 0
+  grep -vE '^[[:space:]]*(#|$)' "$f" 2>/dev/null | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -vE '^$' || true
+}
+
+# is_review_type SLUG → rc 0 if SLUG EXACTLY matches a review type (anchored, whole-slug), else 1.
+# Empty SLUG ⇒ 1. Exact match distinguishes a reviewer dispatch from a builder's (backend-developer,
+# general-purpose, stack specialists — none of which appear in review-types.txt).
+is_review_type() {
+  local slug="$1" t
+  [ -n "$slug" ] || return 1
+  while IFS= read -r t; do
+    [ -n "$t" ] || continue
+    [ "$slug" = "$t" ] && return 0
+  done <<EOF
+$(review_types)
+EOF
+  return 1
+}
+
+# reviewer_dispatch_count BID → count of .runs/<run>/dispatch.jsonl records (active run) credited to
+# batch BID whose subagent_type is a review type. Prints 0 (never errors) when there is no active
+# marker or no dispatch file. ONE definition of "a reviewer subagent was dispatched for this batch",
+# shared by check-role-dispatch (the gate) and check-review-ack (the v2.20.0 corroboration) so the
+# two cannot diverge on what counts as a reviewer dispatch (exec-role-integrity B3).
+reviewer_dispatch_count() {
+  local bid="$1" marker rundir disp line stype rbatch n=0
+  # An empty batch id (malformed ledger entry with no "id") is NON-MATCHABLE: never credit it with an
+  # orphan {"batch":""} dispatch record — that would be a false pass on a malformed ledger (review FIX#3).
+  [ -n "$bid" ] || { printf '0'; return 0; }
+  marker="$(resolve_marker)"; [ -n "$marker" ] || { printf '0'; return 0; }
+  rundir="$(dirname "$marker")"; disp="$rundir/dispatch.jsonl"
+  [ -f "$disp" ] || { printf '0'; return 0; }
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    stype="$(field_str "$line" subagent_type)"
+    is_review_type "$stype" || continue
+    rbatch="$(field_str "$line" batch)"
+    [ "$rbatch" = "$bid" ] && n=$((n + 1))
+  done < "$disp"
+  printf '%s' "$n"
+}
+
 # risk_rank_int NAME → integer rank (higher = more load-bearing); empty if unknown.
 risk_rank_int() {
   case "$1" in
