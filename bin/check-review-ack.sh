@@ -137,6 +137,17 @@ _evaluate() {
       if [ "$(reviewer_dispatch_count "$bid")" -eq 0 ]; then
         echo "  FAIL: review_acks for '$bid' names reviewer='$reviewer' but NO reviewer-typed subagent dispatch was recorded for this batch (pipeline='$pipeline') — the review claim is not harness-corroborated (a marker string alone is forgeable; exec-role-integrity B3). single-thread is the only exempt pipeline; an unrecognized pipeline fails closed." >&2
         viol=$((viol + 1))
+      fi
+      # all-four-role-dispatch T4 — per-role PARITY: under ENFORCE, a review_acks claim needs the batch to
+      # cover EVERY mandated role (roles_covered ⊇ mandated_roles), not merely ≥1 dispatch. In warn (default
+      # until references/role-dispatch-enforce is committed) the ≥1 corroboration above is the floor. Mirrors
+      # the role-dispatch gate via the same delivery-lib helpers (N3 — no drift).
+      if [ "$(role_floor_mode)" = "enforce" ]; then
+        local _miss; _miss="$(missing_roles "$pipeline" "$bid")"
+        if [ -n "$_miss" ]; then
+          echo "  FAIL: review_acks for '$bid' (pipeline='$pipeline', enforce) is missing mandated review role(s) [$_miss] — the per-role floor requires every mandated role dispatched under its dedicated review type, not just ≥1 (all-four-role-dispatch)." >&2
+          viol=$((viol + 1))
+        fi
       fi ;;
   esac
 
@@ -201,7 +212,10 @@ if [ "${1:-}" = "--self-test" ]; then
   _marker() { printf '%s\n' "$1" > "$T/.runs/r/RUN"; }
   _batch()  { printf '%s\n' "$1" > "$T/.runs/r/batches.jsonl"; }
   _run() { ( cd "$T" && TEAM_BOOTSTRAP_RUN=r "$here/check-review-ack.sh" . >/dev/null 2>&1 ); echo $?; }
+  _disp() { printf '%s\n' "$1" > "$T/.runs/r/dispatch.jsonl"; }
   _chk() { if [ "$2" = "$3" ]; then echo "  PASS (exit $2) $1"; else echo "  FAIL (exit $2 want $3) $1" >&2; fail=$((fail + 1)); fi; }
+  # R4-1: enforce marker at a temp path so no case touches the shipped references/role-dispatch-enforce.
+  unset TEAM_BOOTSTRAP_ROLE_FLOOR; export TEAM_BOOTSTRAP_ROLE_ENFORCE_MARKER="$T/enforce-marker"; rm -f "$T/enforce-marker"
 
   _batch '{"id":"C1","kind":"code","status":"announced"}'
   # Base marker: single-thread so these cases exercise the ARTIFACT logic (reviewer≠builder, verdict,
@@ -290,6 +304,27 @@ if [ "${1:-}" = "--self-test" ]; then
   _marker '{"run":"r","intends_code":true,"builder":"orchestrator","baseline_sha":"'"$BASE"'",'"$AOK"'}'
   _chk "B3 absent pipeline + review_acks + no dispatch → fail-closed" "$(_run)" 1
   rm -f "$T/.runs/r/dispatch.jsonl"
+
+  # --- all-four-role-dispatch T4: per-role parity under ENFORCE (roles_covered ⊇ mandated) ----------
+  _batch '{"id":"C1","kind":"code","status":"announced"}'
+  _cover4rev() { { printf '{"batch":"C1","subagent_type":"integration-verifier"}\n'
+    printf '{"batch":"C1","subagent_type":"architecture-reviewer"}\n'
+    printf '{"batch":"C1","subagent_type":"regression-guardian"}\n'
+    printf '{"batch":"C1","subagent_type":"tb-code-reviewer"}\n'; } > "$T/.runs/r/dispatch.jsonl"; }
+  _marker "{$MF,$AOK}"
+  # WARN (marker absent): a ≥1 generic dispatch still passes (parity fires only under enforce)
+  _disp '{"batch":"C1","subagent_type":"code-reviewer"}'; rm -f "$T/enforce-marker"
+  _chk "T4 warn: ≥1 generic dispatch → pass (parity off)" "$(_run)" 0
+  # ENFORCE: generic-only (≥1 ok, ∅ roles) → fail (missing all mandated)
+  touch "$T/enforce-marker"
+  _chk "T4 enforce: generic-only → fail (roles_covered ⊉ mandated)" "$(_run)" 1
+  # ENFORCE: all four roles covered → pass
+  _cover4rev
+  _chk "T4 enforce: all four roles covered → pass" "$(_run)" 0
+  # ENFORCE: missing one role → fail
+  _disp '{"batch":"C1","subagent_type":"tb-code-reviewer"}'
+  _chk "T4 enforce: only one role → fail (missing 3)" "$(_run)" 1
+  rm -f "$T/enforce-marker" "$T/.runs/r/dispatch.jsonl"
 
   rm -rf "$T"
   if [ "$fail" -eq 0 ]; then echo "check-review-ack --self-test: OK"; exit 0; fi
