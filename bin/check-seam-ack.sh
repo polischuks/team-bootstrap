@@ -106,22 +106,29 @@ _commit_touches_seam() {
 }
 
 _evaluate() {
-  local marker mk seams cs_globs files bf_rc viol=0 name paths_str paths_nl touched f ackc ackfull bfull
+  local marker mk seams tgt_root cs_lines files bf_rc viol=0 name paths_str paths_nl touched f ackc ackfull bfull wbase
   marker="$(resolve_marker)"
   [ -n "$marker" ] && [ -f "$marker" ] || { echo "check-seam-ack: no active delivery run — skipping (governs armed runs)."; return 0; }
   mk="$(cat "$marker" 2>/dev/null || true)"
   [ "$(field_bool "$mk" intends_code)" = "true" ] || { echo "check-seam-ack: marker not intends_code — skipping."; return 0; }
   bfull="$(resolve_sha "$(field_str "$mk" baseline_sha)")"
+  # F1: the ack must anchor within the CURRENT batch window (current_batch_base..HEAD, the SAME window
+  # _batch_files diffs), not merely post-baseline — otherwise an earlier batch's ack silently covers a
+  # later batch's surface edit. First batch: current_batch_base == baseline, so this is a no-op there.
+  wbase="$(resolve_sha "$(current_batch_base)")"; [ -n "$wbase" ] || wbase="$bfull"
 
   seams="$(_seam_objects "$mk")"
-  # Standing control-surface seam (control-surface-protection): the control_surface_globs set is an
-  # ALWAYS-PRESENT high-risk seam, unioned in BEFORE the "no high_risk_seams" early-return so it fires
-  # even when the marker records zero high_risk_seams. Its ack must be named 'control-surface'
-  # specifically (AC-Legacy — a different seam-ack does not satisfy it). The globs are space-joined into
-  # the same NAME<TAB>paths line shape _seam_objects emits (surface tokens never contain spaces).
-  cs_globs="$(control_surface_globs 2>/dev/null | tr '\n' ' ' | sed -E 's/[[:space:]]+$//')"
-  if [ -n "$cs_globs" ]; then
-    seams="$(printf '%s\n' "$seams" "$(printf 'control-surface\t%s' "$cs_globs")" | grep -vE '^[[:space:]]*$')"
+  # Standing control-surface seam (control-surface-protection): an ALWAYS-PRESENT high-risk seam, unioned
+  # in BEFORE the "no high_risk_seams" early-return so it fires even when the marker records zero seams.
+  # Its ack must be named 'control-surface' specifically (AC-Legacy). Two review fixes:
+  #   F2 — the glob set is read from the TARGET repo being delivered (its OWN references/control-surface.txt),
+  #        not the plugin's: a target that does not ship the file gets no standing seam (no false-positive
+  #        on a target's generically-named files). team-bootstrap ships it, so self-delivery is covered.
+  #   F4 — emit ONE seam line per glob (no space-join), so the parse never assumes tokens are space-free.
+  tgt_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)"
+  cs_lines="$(control_surface_globs_in "$tgt_root" | awk 'NF{print "control-surface\t" $0}')"
+  if [ -n "$cs_lines" ]; then
+    seams="$(printf '%s\n%s\n' "$seams" "$cs_lines" | grep -vE '^[[:space:]]*$')"
   fi
   [ -n "$seams" ] || { echo "check-seam-ack: no high_risk_seams recorded (and no control surface) — nothing to guard."; return 0; }
 
@@ -157,8 +164,8 @@ EOF
     elif ! git merge-base --is-ancestor "$ackfull" HEAD 2>/dev/null; then
       echo "  FAIL: seam '$name' ack commit '$ackc' is not reachable from HEAD — the ack must name a commit shipped in this run (AC-5, B5)." >&2
       viol=$((viol + 1))
-    elif [ -n "$bfull" ] && { [ "$ackfull" = "$bfull" ] || ! git merge-base --is-ancestor "$bfull" "$ackfull" 2>/dev/null; }; then
-      echo "  FAIL: seam '$name' ack commit '$ackc' is not after the run baseline — the ack must anchor to this run's shipped change, not pre-existing history (AC-5, B5)." >&2
+    elif [ -n "$wbase" ] && { [ "$ackfull" = "$wbase" ] || ! git merge-base --is-ancestor "$wbase" "$ackfull" 2>/dev/null; }; then
+      echo "  FAIL: seam '$name' ack commit '$ackc' is not within the current batch window ($wbase..HEAD) — the ack must anchor to a commit shipped by THIS batch, not an earlier batch's ack nor pre-existing history (F1/AC-5/B5)." >&2
       viol=$((viol + 1))
     elif ! _commit_touches_seam "$ackfull" "$paths_nl"; then
       echo "  FAIL: seam '$name' ack commit '$ackc' did not change the seam's paths — the ack must name the commit that shipped the seam change, not a resolvable-but-unrelated commit like the baseline (AC-5, B5)." >&2
@@ -232,8 +239,11 @@ if [ "${1:-}" = "--self-test" ]; then
   # standing seam (read from references/control-surface.txt, BASH_SOURCE-relative) fires with NO marker
   # high_risk_seams recorded — the union-before-early-return path (r4).
   CS="$(mktemp -d)"
+  # The TARGET repo declares its OWN control surface (F2): copy the real list into the fixture so the
+  # standing seam (now read target-relative) fires. A target WITHOUT this file gets no standing seam.
   ( cd "$CS" && git init -q && git config user.email t@t && git config user.name t
-    echo s > seed && git add . && git commit -qm base ) >/dev/null 2>&1
+    echo s > seed && mkdir -p references && cp "$here/../references/control-surface.txt" references/control-surface.txt
+    git add . && git commit -qm base ) >/dev/null 2>&1
   csbase="$(cd "$CS" && git rev-parse --short HEAD)"
   ( cd "$CS" && mkdir -p bin && echo x > bin/check-newgate.sh && git add . && git commit -qm "edit a new gate" ) >/dev/null 2>&1
   cscode="$(cd "$CS" && git rev-parse --short HEAD)"

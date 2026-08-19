@@ -17,11 +17,14 @@ fail=0
 _run() { ( cd "$1" && TEAM_BOOTSTRAP_RUN=r "$gate" . >/dev/null 2>&1 ); echo $?; }
 _chk() { if [ "$2" = "$3" ]; then echo "  PASS (exit $2) $1"; else echo "  FAIL (exit $2 want $3) $1" >&2; fail=$((fail + 1)); fi; }
 
-# mk_repo TMP → init a git repo with a baseline commit; echo the baseline short sha.
+# mk_repo TMP → init a git repo with a baseline commit; echo the baseline short sha. The repo declares
+# its OWN control surface by shipping references/control-surface.txt (copied from the real list), because
+# the standing seam is read TARGET-relative (F2) — a repo without this file is not subject to it.
 mk_repo() {
   local t="$1"
   ( cd "$t" && git init -q && git config user.email t@t && git config user.name t \
-    && echo seed > seed && git add . && git commit -qm base ) >/dev/null 2>&1
+    && echo seed > seed && mkdir -p references && cp "$here/references/control-surface.txt" references/control-surface.txt \
+    && git add . && git commit -qm base ) >/dev/null 2>&1
   ( cd "$t" && git rev-parse --short HEAD )
 }
 # commit_change TMP PATH → create/modify PATH and commit it; echo the new short sha.

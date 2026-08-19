@@ -266,8 +266,25 @@ review_types() {
 # Tokens are matched by check-seam-ack.sh:_intersects (equals / under-dir / glob, `*` spans `/`).
 control_surface_globs() {
   local f; f="$(dirname "${BASH_SOURCE[0]}")/../references/control-surface.txt"
-  [ -f "$f" ] || return 0
-  grep -vE '^[[:space:]]*(#|$)' "$f" 2>/dev/null | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -vE '^$' || true
+  _read_surface_list "$f"
+}
+
+# control_surface_globs_in DIR → the control-surface glob set from DIR/references/control-surface.txt —
+# the TARGET repo's OWN declaration, not the plugin's. The control surface is a property of the repo being
+# DELIVERED: a target that does not ship this file is not subject to any standing control-surface seam, so
+# the standing seam never false-positives on a target's generically-named files (AGENTS.md, .claude, …).
+# team-bootstrap ships the file for its own (self-)delivery, so the seam fires there. Missing file ⇒ empty.
+# (Distinct from control_surface_globs(), which is plugin/BASH_SOURCE-relative — used by the CI example,
+# whose copy already runs from the repo under check, so the two coincide there.)
+control_surface_globs_in() {
+  _read_surface_list "${1:-.}/references/control-surface.txt"
+}
+
+# _read_surface_list FILE → the surface globs in FILE (one/line; '#' comments + blank lines stripped,
+# surrounding whitespace trimmed). Empty if FILE is absent. Single source for both readers above.
+_read_surface_list() {
+  [ -f "$1" ] || return 0
+  grep -vE '^[[:space:]]*(#|$)' "$1" 2>/dev/null | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -vE '^$' || true
 }
 
 # role_of_slug SLUG → the role attributed to SLUG (column 2), or EMPTY if SLUG is a generic (no column 2)
