@@ -25,10 +25,18 @@
 # Exit:  0 no surface change, or a declared+trailered change · 1 undeclared surface change · 64 bad usage
 set -uo pipefail
 
+[ "$#" -le 1 ] || { echo "usage: control-surface-ci.sh [base-ref]" >&2; exit 64; }
 base="${1:-origin/main}"
 here="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=bin/delivery-lib.sh
 . "$here/bin/delivery-lib.sh"
+
+# Fail LOUD, never open, if the trusted base cannot be resolved (F2): a bad/absent base ref must not be
+# read as "nothing changed" and silently pass — in CI a narrowed fetch can leave origin/main unresolved.
+if ! git rev-parse --verify -q "$base^{commit}" >/dev/null 2>&1; then
+  echo "control-surface-ci: FAIL — trusted base ref '$base' does not resolve; cannot compare (fetch it, e.g. 'git fetch origin main'). Failing closed, not open." >&2
+  exit 1
+fi
 
 # _hits FILE → rc 0 if FILE matches any control-surface token (equals / under-dir / glob, * spans /).
 # Mirrors the authoritative matcher bin/check-seam-ack.sh:_intersects; iterated line-by-line so glob
@@ -62,7 +70,10 @@ if [ -z "$touched" ]; then
   exit 0
 fi
 
-if git log --format='%B' "$base"...HEAD 2>/dev/null | grep -qiE '^[[:space:]]*Control-Surface-Ack:'; then
+# Two-dot: ONLY commits introduced by this PR (reachable from HEAD, not from base). Three-dot here would
+# be `git log`'s SYMMETRIC DIFFERENCE and would match an ack trailer on a base-side commit not in the PR
+# (F1 false-pass). The trailer key is canonical/case-sensitive (no -i).
+if git log --format='%B' "$base..HEAD" 2>/dev/null | grep -qE '^[[:space:]]*Control-Surface-Ack:'; then
   echo "control-surface-ci: control surface touched [$touched] AND a 'Control-Surface-Ack:' declaration is present — OK (visibility; independent human review still required — this trailer is not prevention)."
   exit 0
 fi

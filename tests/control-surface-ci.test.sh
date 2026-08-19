@@ -47,6 +47,25 @@ T="$(mktemp -d)"; base="$(mk_repo "$T")"
 _chk "AC-CI non-surface change → PASS" "$(_run "$T" "$base")" 0
 rm -rf "$T"
 
+# --- F1 regression — an ack trailer on a BASE-SIDE commit not in the PR must NOT satisfy the check.
+# base advances with an ack commit; the PR branches from BEFORE it and adds a surface file with NO ack.
+# Two-dot `git log base..HEAD` sees only the PR's commit (no ack) → FAIL. (Three-dot symmetric-diff would
+# wrongly pull in the base-side ack → false PASS.)
+T="$(mktemp -d)"; base0="$(mk_repo "$T")"
+( cd "$T" && git commit -q --allow-empty -m "unrelated main work
+
+Control-Surface-Ack: a DIFFERENT, base-side machinery change" ) >/dev/null 2>&1
+baseAck="$( cd "$T" && git rev-parse HEAD )"
+( cd "$T" && git checkout -q -b pr "$base0" && mkdir -p bin && echo x > bin/check-newgate.sh \
+  && git add -A && git commit -qm "PR edits a gate with NO ack" ) >/dev/null 2>&1
+_chk "F1 base-side ack trailer (not in PR) → still FAIL" "$(_run "$T" "$baseAck")" 1
+rm -rf "$T"
+
+# --- F2 — an unresolvable base ref fails LOUD (exit 1), never open (silent pass).
+T="$(mktemp -d)"; mk_repo "$T" >/dev/null
+_chk "F2 unresolvable base ref → FAIL (loud, not open)" "$(_run "$T" no-such-ref)" 1
+rm -rf "$T"
+
 # --- AC-Co — the disclosed KNOWN GAP is documented honestly in the script header (doc assertion).
 if grep -qiE 'Control-Surface-Ack' "$ci" \
    && grep -qiE 'branch.protection' "$ci" \
