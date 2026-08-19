@@ -43,12 +43,15 @@ _seam_objects() {
   done < <(printf '%s' "$mk" | grep -oE '"seam":[[:space:]]*"[^"]*"[[:space:]]*,[[:space:]]*"paths":[[:space:]]*\[[^]]*\]')
 }
 
-# _ack_commit MK SEAM → the commit recorded in the seam_acks entry for SEAM (empty if none). Matches a
-# "seam":"SEAM" immediately followed by "commit" — a seam_acks object, never a high_risk_seams one.
-_ack_commit() {
+# _ack_commits MK SEAM → EVERY commit recorded in a seam_acks entry for SEAM, one per line (empty if
+# none). Matches a "seam":"SEAM" immediately followed by "commit" — a seam_acks object, never a
+# high_risk_seams one. ALL are returned (not just the first): the standing control-surface seam is acked
+# once PER batch, so the marker accumulates several control-surface acks over a run — the current batch is
+# satisfied if ANY of them is valid for its window (F1), not only the earliest-recorded one.
+_ack_commits() {
   local mk="$1" seam="$2"
   printf '%s' "$mk" | grep -oE "\"seam\":[[:space:]]*\"$seam\"[[:space:]]*,[[:space:]]*\"commit\":[[:space:]]*\"[^\"]*\"" \
-    | head -1 | grep -oE '"commit":[[:space:]]*"[^"]*"' | sed -E 's/.*"([^"]*)"$/\1/'
+    | grep -oE '"commit":[[:space:]]*"[^"]*"' | sed -E 's/.*"([^"]*)"$/\1/'
 }
 
 # _batch_files → the in-flight batch's git-changed files on stdout, with a fail-closed return code.
@@ -106,7 +109,7 @@ _commit_touches_seam() {
 }
 
 _evaluate() {
-  local marker mk seams tgt_root cs_lines files bf_rc viol=0 name paths_str paths_nl touched f ackc ackfull bfull wbase
+  local marker mk seams tgt_root cs_lines files bf_rc viol=0 name paths_str paths_nl touched f acks ac acf okc reason bfull wbase
   marker="$(resolve_marker)"
   [ -n "$marker" ] && [ -f "$marker" ] || { echo "check-seam-ack: no active delivery run — skipping (governs armed runs)."; return 0; }
   mk="$(cat "$marker" 2>/dev/null || true)"
@@ -153,25 +156,28 @@ $files
 EOF
     [ "$touched" -eq 1 ] || continue
 
-    ackc="$(_ack_commit "$mk" "$name")"
-    ackfull="$(resolve_sha "$ackc")"
-    if [ -z "$ackc" ]; then
-      echo "  FAIL: batch touches high-risk seam '$name' but no seam_acks entry names it — record a read-in-the-shipped-code ack (seam + commit that changed the seam + file:line note) before closing (AC-5)." >&2
-      viol=$((viol + 1))
-    elif [ -z "$ackfull" ]; then
-      echo "  FAIL: seam_acks entry for '$name' cites commit '$ackc' that git cannot resolve — the ack must be anchored to a real shipped commit (AC-5)." >&2
-      viol=$((viol + 1))
-    elif ! git merge-base --is-ancestor "$ackfull" HEAD 2>/dev/null; then
-      echo "  FAIL: seam '$name' ack commit '$ackc' is not reachable from HEAD — the ack must name a commit shipped in this run (AC-5, B5)." >&2
-      viol=$((viol + 1))
-    elif [ -n "$wbase" ] && { [ "$ackfull" = "$wbase" ] || ! git merge-base --is-ancestor "$wbase" "$ackfull" 2>/dev/null; }; then
-      echo "  FAIL: seam '$name' ack commit '$ackc' is not within the current batch window ($wbase..HEAD) — the ack must anchor to a commit shipped by THIS batch, not an earlier batch's ack nor pre-existing history (F1/AC-5/B5)." >&2
-      viol=$((viol + 1))
-    elif ! _commit_touches_seam "$ackfull" "$paths_nl"; then
-      echo "  FAIL: seam '$name' ack commit '$ackc' did not change the seam's paths — the ack must name the commit that shipped the seam change, not a resolvable-but-unrelated commit like the baseline (AC-5, B5)." >&2
-      viol=$((viol + 1))
+    # The seam is satisfied if ANY recorded ack for it is fully valid FOR THIS BATCH: resolvable +
+    # reachable-from-HEAD + within the current batch window ($wbase..HEAD, F1) + actually changed the
+    # seam's paths (B5). Iterate every ack (the standing seam accrues one per batch); keep the last
+    # failure reason only to explain a total miss.
+    acks="$(_ack_commits "$mk" "$name")"
+    okc=""; reason="no seam_acks entry names it — record a read-in-the-shipped-code ack (seam + the commit that changed the seam + a file:line note) for THIS batch before closing"
+    while IFS= read -r ac; do
+      [ -n "$ac" ] || continue
+      acf="$(resolve_sha "$ac")"
+      if [ -z "$acf" ]; then reason="cites commit '$ac' that git cannot resolve"; continue; fi
+      if ! git merge-base --is-ancestor "$acf" HEAD 2>/dev/null; then reason="ack commit '$ac' is not reachable from HEAD"; continue; fi
+      if [ -n "$wbase" ] && { [ "$acf" = "$wbase" ] || ! git merge-base --is-ancestor "$wbase" "$acf" 2>/dev/null; }; then reason="ack commit '$ac' is not within the current batch window ($wbase..HEAD) — not shipped by THIS batch (an earlier batch's ack does not carry over)"; continue; fi
+      if ! _commit_touches_seam "$acf" "$paths_nl"; then reason="ack commit '$ac' did not change the seam's paths (a resolvable-but-unrelated commit proves nothing was read)"; continue; fi
+      okc="$ac"; break
+    done <<EOF
+$acks
+EOF
+    if [ -n "$okc" ]; then
+      echo "check-seam-ack: seam '$name' touched — ack commit $okc resolves, is reachable from HEAD, in the current batch window, and changed the seam."
     else
-      echo "check-seam-ack: seam '$name' touched — ack commit $ackc resolves, is reachable from HEAD, post-baseline, and changed the seam."
+      echo "  FAIL: batch touches high-risk seam '$name' but $reason (F1/AC-5/B5)." >&2
+      viol=$((viol + 1))
     fi
   done <<EOF
 $seams

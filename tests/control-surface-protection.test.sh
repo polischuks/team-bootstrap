@@ -120,6 +120,15 @@ marker "$T" "{\"run\":\"r\",\"intends_code\":true,\"source\":\"harness\",\"basel
 _chk "F1 batch-1 ack does NOT cover batch-2 surface edit → FAIL (window-scoped)" "$(_run "$T")" 1
 rm -rf "$T"
 
+# --- F1b (review fix) — ANY-valid: with several control-surface acks recorded (the standing seam accrues
+# one per batch), the batch passes if AT LEAST ONE is valid for its window — not only the first-recorded.
+# Marker carries a stale ack (the baseline, out-of-window + touches no seam) AND a valid one (the surface
+# commit). Order stale-first so a first-match-only reader would wrongly fail. → PASS.
+T="$(mktemp -d)"; base="$(mk_repo "$T")"; code="$(commit_change "$T" bin/check-newgate.sh)"
+marker "$T" "{\"run\":\"r\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$base\",\"seam_acks\":[{\"seam\":\"control-surface\",\"commit\":\"$base\",\"note\":\"stale prior-batch ack\"},{\"seam\":\"control-surface\",\"commit\":\"$code\",\"note\":\"bin/check-newgate.sh:1 this batch\"}]}"; ledger_code "$T"
+_chk "F1b stale ack + valid in-window ack → PASS (any-valid)" "$(_run "$T")" 0
+rm -rf "$T"
+
 # --- F2 (review fix) — a TARGET repo that does not ship references/control-surface.txt is NOT subject to
 # the plugin's standing seam: editing its own generically-named AGENTS.md → skip (PASS), not a false FAIL.
 # (The control surface is a property of the repo being delivered; the plugin's own list is not imposed on
