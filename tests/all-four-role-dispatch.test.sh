@@ -93,8 +93,9 @@ echo "check-delivery self-test survives a doc-only HEAD (Batch C robustness, HEA
 # regardless of THIS repo's HEAD (a tests/*.sh change here would otherwise make HEAD non-doc and mask it).
 D_hd="$(mktemp -d)"
 ( cd "$D_hd" && git init -q && git config user.email t@t && git config user.name t
-  printf 'echo x\n' > s.sh && git add . && git commit -qm code
-  printf 'doc\n' > d.md && git add . && git commit -qm doc ) >/dev/null 2>&1   # HEAD = doc-only
+  printf 'echo a\n' > s1.sh && git add . && git commit -qm code1
+  printf 'echo b\n' > s2.sh && git add . && git commit -qm code2
+  printf 'doc\n' > d.md && git add . && git commit -qm doc ) >/dev/null 2>&1   # HEAD = doc atop prior code
 if ( cd "$D_hd" && bash "$here/../bin/check-delivery.sh" --self-test ) >/dev/null 2>&1; then
   echo "  PASS check-delivery --self-test green under a doc-only HEAD"
 else

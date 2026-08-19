@@ -38,8 +38,15 @@ if [ "${1:-}" = "--self-test" ]; then
   st_root="$(pwd)"; fail=0
   # dynamic, resolvable SHAs from the CURRENT repo — decoupled from history so the self-test survives
   # a history rewrite / shallow clone (previously hardcoded real SHAs, which a filter-repo purge invalidated).
-  _c="$(git rev-parse --short HEAD 2>/dev/null)"
-  _c1="$(git rev-parse --short HEAD~1 2>/dev/null)"
+  # Anchor the delta-BEARING fixtures to the most recent NON-DOC commit reachable from HEAD, NOT raw HEAD:
+  # a doc-final batch (docs/agents-only) makes HEAD's recomputed non-doc delta 0, which would read the
+  # code_delta:1 fixtures below as FORGED (the doc-final-delivery self-test break). Non-doc boundary mirrors
+  # _is_doc_path (delivery-lib.sh). Falls back to HEAD when no non-doc commit exists.
+  _nondoc_rev() { git rev-list -1 "$1" -- . ':(exclude)*.md' ':(exclude)*.mdx' ':(exclude)*.txt' ':(exclude)docs' ':(exclude)references' ':(exclude)LICENSE' ':(exclude)CHANGELOG*' 2>/dev/null; }
+  _c="$(_nondoc_rev HEAD)"
+  if [ -n "$_c" ]; then _c="$(git rev-parse --short "$_c" 2>/dev/null)"; else _c="$(git rev-parse --short HEAD 2>/dev/null)"; fi
+  _c1="$(_nondoc_rev "${_c}~1")"
+  if [ -n "$_c1" ]; then _c1="$(git rev-parse --short "$_c1" 2>/dev/null)"; else _c1="$(git rev-parse --short HEAD~1 2>/dev/null)"; fi
   _root="$(git rev-parse --short "$(git rev-list --max-parents=0 HEAD 2>/dev/null | tail -1)" 2>/dev/null)"
   # AC-2 needs a commit whose non-doc delta is provably BELOW the inflated stamp (137). Reusing $_c
   # (=HEAD) is fragile: when HEAD is a large code commit the recompute exceeds 137 and the inflation
