@@ -107,9 +107,9 @@ _commit_or_merge_on_default() {
   while IFS= read -r seg; do
     [ -n "$seg" ] || continue
     seg="${seg#"${seg%%[![:space:]]*}"}"                       # ltrim
-    while printf '%s' "$seg" | grep -qE '^[A-Za-z_][A-Za-z0-9_]*='; do
-      seg="${seg#* }"; seg="${seg#"${seg%%[![:space:]]*}"}"    # drop a leading ENV=val token
-    done
+    # drop leading ENV=val assignments (value may be "quoted" — incl. spaces — or bare-nonspace)
+    local envre='^([A-Za-z_][A-Za-z0-9_]*=("[^"]*"|[^[:space:]]*)[[:space:]]+)+'
+    [[ "$seg" =~ $envre ]] && seg="${seg:${#BASH_REMATCH[0]}}"
     tok="${seg%%[[:space:]]*}"
     case "$tok" in git|*/git) ;; *) continue ;; esac           # first token must be git
     # shellcheck disable=SC2086
@@ -171,6 +171,7 @@ if [ "${1:-}" = "--self-test" ]; then
   _on main
   _chk "$(_g "$(P 'git commit -m hi')")"                       2 "commit on default → block"
   _chk "$(_g "$(P 'git -C . commit -m hi')")"                  2 "git -C . commit on default → block"
+  _chk "$(_g '{"tool_name":"Bash","tool_input":{"command":"GIT_AUTHOR_NAME=\"A B\" git commit -m x"}}')" 2 "quoted-space env prefix commit on default → block"
   _chk "$(_g "$(P 'git merge x')")"                            2 "merge on default → block"
   _chk "$(_g "$(P 'git add -A\ngit commit -m x')")"            2 "multi-line commit on default → block (newline split)"
   _chk "$(_g '{"tool_name":"Bash","tool_input":{"command":"echo \"hi\" && git commit -m x"}}')" 2 "quoted-echo && commit → block (decode)"

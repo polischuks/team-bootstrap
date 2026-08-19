@@ -42,6 +42,8 @@ _on main
 _chk "$(_g "$(P 'git commit -m hi')")"            2 "git commit on main → block"
 _chk "$(_g "$(P 'git -C . commit -m hi')")"       2 "git -C . commit on main → block"
 _chk "$(_g "$(P 'FOO=bar git commit -m hi')")"    2 "env-prefixed git commit on main → block"
+_chk "$(_g '{"tool_name":"Bash","tool_input":{"command":"GIT_AUTHOR_NAME=\"A B\" git commit -m x"}}')" 2 \
+  "quoted-space env prefix (GIT_AUTHOR_NAME=\"A B\") git commit on main → block (review finding #1)"
 _chk "$(_g "$(P 'git merge feature')")"           2 "git merge on main → block"
 _chk "$(_g "$(P 'echo done && git commit -m hi')")" 2 "chained '&& git commit' on main → block"
 # multi-line: JSON \n decodes to a real newline; the newline splitter must still find the commit (round-2 BF1)
