@@ -186,6 +186,32 @@ roles_covered() {
   printf '%s' "$seen"
 }
 
+# role_floor_mode → 'enforce' | 'warn' — the per-role floor mode (all-four-role-dispatch). Precedence
+# (R5-NB4): an explicit TEAM_BOOTSTRAP_ROLE_FLOOR wins; else it is 'enforce' iff the committed evidence
+# marker references/role-dispatch-enforce is present (BASH_SOURCE-relative — plugin-global, so one
+# committed marker flips it for everyone), else 'warn'. TEAM_BOOTSTRAP_ROLE_ENFORCE_MARKER overrides the
+# marker PATH (tests only — R4-1: committing the real marker must never change a self-test outcome).
+role_floor_mode() {
+  case "${TEAM_BOOTSTRAP_ROLE_FLOOR:-}" in
+    enforce) printf 'enforce'; return 0 ;;
+    warn)    printf 'warn'; return 0 ;;
+  esac
+  local m="${TEAM_BOOTSTRAP_ROLE_ENFORCE_MARKER:-$(dirname "${BASH_SOURCE[0]}")/../references/role-dispatch-enforce}"
+  [ -f "$m" ] && printf 'enforce' || printf 'warn'
+}
+
+# missing_roles PIPELINE BID → space-separated mandated roles NOT covered by BID's dispatches (empty if
+# all covered or the pipeline mandates none). The per-role gap both the role-dispatch gate and the
+# review-ack parity read from one place (N3 — no drift).
+missing_roles() {
+  local pipeline="$1" bid="$2" covered r missing=""
+  covered="$(roles_covered "$bid")"
+  for r in $(mandated_roles "$pipeline"); do
+    case " $covered " in *" $r "*) ;; *) missing="${missing:+$missing }$r" ;; esac
+  done
+  printf '%s' "$missing"
+}
+
 # is_review_type SLUG → rc 0 if SLUG EXACTLY matches a review type (anchored, whole-slug), else 1.
 # Empty SLUG ⇒ 1. Exact match distinguishes a reviewer dispatch from a builder's (backend-developer,
 # general-purpose, stack specialists — none of which appear in review-types.txt).
