@@ -22,8 +22,8 @@ claim. The delivery-occurred layer makes it a recorded machine fact instead.
 | **Always-on** | Stop hook → [`../bin/quality-gate.sh`](../bin/quality-gate.sh) | typecheck + lint red on completion | no (harness) |
 | **Batch gate** | [`../bin/verify-batch.sh`](../bin/verify-batch.sh) at each batch close | dead code (orphans), drift, green-by-skip, red-not-touching-tests (F1), under-covered change (F2), weak assertions (F3, opt-in) | LLM-invoked (see CI) |
 | **Delivery-occurred** | [`../bin/check-delivery.sh`](../bin/check-delivery.sh) inside `verify-batch.sh` + the ledger stamp | a `kind:code` batch announced but **never closed** by a pipeline run; a closure with zero code delta | in-session: **no**; CI: only if the run's ledger is committed (`.runs/` is gitignored by default) |
-| **Role-execution** | `PreToolUse` recorder → `.runs/<run>/dispatch.jsonl` + [`../bin/check-role-dispatch.sh`](../bin/check-role-dispatch.sh) inside `verify-batch.sh` | a `full`/`mvp` `kind:code` batch that dispatched **no reviewer subagent** — the silent collapse of the multi-role pipeline to single-thread (spec-169), **announced** to the user | in-session: **no** (marker-gated); CI: **not** re-run (`.runs/` gitignored — no dispatch record survives a fresh checkout); degradation-proof, not forgery-proof (ADR [0008](../docs/adr/0008-harness-verified-role-execution.md)) |
-| **Setup-readiness (Phase 0)** | [`../bin/check-preflight.sh`](../bin/check-preflight.sh) at Phase 0 records a `preflight` marker verdict; [`../bin/check-delivery.sh`](../bin/check-delivery.sh) blocks batch-announce while it is absent / failing-unacked / unreadable | a `/deliver` run against an **unscaffolded** project (no constitution / `specs/` / `feature.json` / `docs/adr/` / armed marker) — the downstream gates would no-op (P10 green-by-skip) | in-session: **no** (marker-gated); CI: `check-preflight` still runnable as a scaffold linter, but the *enforcement* is marker-gated (ADR [0009](../docs/adr/0009-preflight-setup-gate.md)) |
+| **Role-execution** | `PreToolUse` recorder → `.runs/<run>/dispatch.jsonl` + [`../bin/check-role-dispatch.sh`](../bin/check-role-dispatch.sh) inside `verify-batch.sh` | a `full`/`mvp` `kind:code` batch that dispatched **no reviewer subagent** — the silent collapse of the multi-role pipeline to single-thread (spec-169), **announced** to the user | in-session: **no** (marker-gated); CI: **not** re-run (`.runs/` gitignored — no dispatch record survives a fresh checkout); degradation-proof, not forgery-proof (ADR [0008](../docs/adr/0008-harness-verified-role-execution.md); per-role floor under enforce, ADR [0009](../docs/adr/0009-per-role-dispatch-floor.md)) |
+| **Setup-readiness (Phase 0)** | [`../bin/check-preflight.sh`](../bin/check-preflight.sh) at Phase 0 records a `preflight` marker verdict; [`../bin/check-delivery.sh`](../bin/check-delivery.sh) blocks batch-announce while it is absent / failing-unacked / unreadable | a `/deliver` run against an **unscaffolded** project (no constitution / `specs/` / `feature.json` / `docs/adr/` / armed marker) — the downstream gates would no-op (P10 green-by-skip) | in-session: **no** (marker-gated); CI: `check-preflight` still runnable as a scaffold linter, but the *enforcement* is marker-gated (ADR [0010](../docs/adr/0010-preflight-setup-gate.md)) |
 | **Independent backstop** | **CI** runs `verify-batch.sh` on every PR/push | everything above, from scratch, regardless of what the local run did | **no** — the merge blocks |
 
 ### How closure becomes a fact (delivery-occurred layer)
@@ -234,9 +234,15 @@ sanctioned, P1), and `check-review-ack`'s marker claim is now **corroborated** b
 Honest reach ([ADR-0008](../docs/adr/0008-harness-verified-role-execution.md)): `subagent_type` is
 model-authored, so this is **degradation-proof, not forgery-proof** — it catches a total inline collapse,
 not a decoy review-typed no-op dispatch; and it proves the reviewer was *dispatched*, not that it *completed*
-or was *good* (quality stays 0006 + the refutation doctrine). It fails on **zero** reviewer-typed dispatches
-(the total-collapse signature), so it verifies that *an* independent review ran, **not that all four required
-roles did** — a 1-of-4 partial collapse passes (a required-role count is future hardening). And, like the
+or was *good* (quality stays 0006 + the refutation doctrine). **Per-role floor (v2.22.0, ADR-0009):** the ≥1
+total-collapse fail is the hard floor; **under enforce** the gate additionally requires **every mandated role**
+covered (`full` = all four dedicated types `integration-verifier`/`architecture-reviewer`/`regression-guardian`/
+`tb-code-reviewer`; `mvp` = `code-reviewer` + `regression-guardian`), so a 1-of-4 partial collapse is caught.
+Attribution needs distinct per-role slugs (`subagent_type` alone could not tell `integration-verifier` from
+`regression-guardian`). It ships in **warn** — announces the missing roles, does not fail — flipping to enforce
+only when the committed `references/role-dispatch-enforce` marker is present (after a dispatch probe confirms
+four-distinct-slug adoption; the plugin cannot force dispatch, so enforce is reachable only once measured).
+Per-role raises the **degradation** floor, not the forgery bar. And, like the
 delivery layer, it is marker- and `dispatch.jsonl`-gated ⇒ **in-session only** (`.runs/` is gitignored, so a
 fresh CI checkout has no dispatch record and the gate skips). It is strictly stronger than a marker string,
 and it is the same prose→harness move this whole document embodies — now applied to **process**, not only

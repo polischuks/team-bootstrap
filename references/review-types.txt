@@ -15,18 +15,29 @@
 # no-op dispatch would satisfy it — the ADR-0006 quality/willingness limit). It proves a reviewer was
 # DISPATCHED and independent (≠ builder type), not that the review was good.
 #
-# Membership rationale (N3): the dedicated `independent-reviewer` type is the going-forward MANDATE for
-# all four review roles (so integration-verifier/regression-guardian stop resolving to general-purpose,
-# indistinguishable from a builder). The host review slugs below are ALSO honored so the gate cannot
-# false-block a run that dispatched a host review agent, and so this milestone can dogfood before the
-# plugin agent is loaded. This is NOT a leak: every slug here maps only to a REVIEW-family role
-# (code-reviewer, architecture-reviewer, overengineering-reviewer, and the architecture roles that
-# resolve to architect-reviewer — which --isolate CAN dispatch as a subagent; that is still a review
-# dispatch, which is exactly what the gate wants to see). The load-bearing guarantee is anti-builder:
-# NO builder role maps to any slug here (builders use backend-developer / general-purpose / stack
-# specialists), so a builder dispatch never satisfies the gate.
+# Membership + the OPTIONAL role column (all-four-role-dispatch, v2.22.0): a line is `slug` OR
+# `slug<TAB>role`. Column 1 (the slug) is what is RECORDED (is_review_type); an optional TAB-separated
+# column 2 is the ATTRIBUTED role (role_of_slug), read by the per-role floor. Only the four dedicated
+# slugs below carry a role and attribute; the generics carry no role — they satisfy the legacy ≥1
+# total-collapse floor but do NOT attribute to a specific role.
+#
+# MANDATE (supersedes exec-role-integrity's "independent-reviewer for all four" — ADR-0008 → the
+# all-four-role-dispatch ADR): each of the FOUR mandatory review roles dispatches under its OWN dedicated
+# type — integration-verifier / architecture-reviewer / regression-guardian / tb-code-reviewer — because
+# `subagent_type` alone could not otherwise attribute a dispatch to a role (integration-verifier and
+# regression-guardian shared byte-identical preferred types; independent-reviewer was shared by all four).
+# The bare `independent-reviewer` and host review slugs remain honored for the ≥1 floor during the
+# warn→enforce ramp (the gate defaults to WARN until references/role-dispatch-enforce is committed, after
+# the dispatch probe confirms four-distinct-slug adoption). Each dedicated slug is listed in BOTH forms
+# (team-bootstrap:<slug> AND bare <slug>) because the team-bootstrap: prefix is not reliably delivered in
+# subagent_type; the code-review slug is `tb-code-reviewer`, NOT bare `code-reviewer`, to stay attributable
+# even when bare. Load-bearing guarantee is anti-builder: NO builder role maps to any slug here.
+#
+# HONEST LIMIT carried forward: per-role raises the DEGRADATION floor (a partial 1-of-4 collapse is now
+# caught under enforce), NOT the FORGERY bar — four decoy no-op dispatches under the four dedicated types
+# still satisfy it (ADR-0006/0008 quality-willingness limit). Dispatch ≠ completion (check-review-ack).
 
-# --- dedicated plugin-scoped review type (the going-forward mandate) ---
+# --- generic review types: satisfy the ≥1 floor, do NOT attribute per-role (no role column) ---
 team-bootstrap:independent-reviewer
 independent-reviewer
 
@@ -34,3 +45,19 @@ independent-reviewer
 code-reviewer
 architect-reviewer
 architect-review
+
+# --- dedicated per-role review types (milestone all-four-role-dispatch): slug<TAB>role ---
+# The role column attributes a dispatch to ONE of the four MANDATED review roles (the per-role floor
+# that raises exec-role-integrity's ≥1 total-collapse floor). Generics above carry NO role column, so
+# they satisfy ≥1 but do not attribute. Both string forms are listed per slug because the
+# `team-bootstrap:` prefix is not reliably delivered in tool_input.subagent_type. Slugs are
+# collision-free with the host generics (the code-review role uses `tb-code-reviewer`, NOT bare
+# `code-reviewer`). Read via delivery-lib.sh role_of_slug (column 2, tab-safe).
+team-bootstrap:integration-verifier	integration-verifier
+integration-verifier	integration-verifier
+team-bootstrap:architecture-reviewer	architecture-reviewer
+architecture-reviewer	architecture-reviewer
+team-bootstrap:regression-guardian	regression-guardian
+regression-guardian	regression-guardian
+team-bootstrap:tb-code-reviewer	code-reviewer
+tb-code-reviewer	code-reviewer

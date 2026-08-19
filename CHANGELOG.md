@@ -2,10 +2,10 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.22.0] - 2026-08-19
+## [2.23.0] - 2026-08-19
 
 ### Added
-- **Setup-readiness layer — Phase 0 gate (`preflight-setup-phase`, ADR-0009).** A first-class
+- **Setup-readiness layer — Phase 0 gate (`preflight-setup-phase`, ADR-0010).** A first-class
   [`bin/check-preflight.sh`](bin/check-preflight.sh) runs **before Phase A** and fails **closed** when a
   project is not scaffolded for the pre-implementation flow (constitution resolved via `feature.json`,
   `specs/`, parseable `feature.json`, `docs/adr/`, an armed run marker; `specs/TEMPLATE/`/`AGENTS.md`/
@@ -33,6 +33,31 @@ All notable changes to team-bootstrap. Format follows [Keep a Changelog](https:/
   in the spec was **descoped** as unreachable at the enforcement layer (a non-git target fails
   `check-preflight` with no run to ack; a bad baseline is warn-only) — all `preflight` verdicts are ackable
   via `preflight.ack`.
+
+## [2.22.0] - 2026-08-19
+
+### Added
+- **Per-role dispatch floor (`all-four-role-dispatch`, ADR-0009).** Raises the role-dispatch gate from ≥1
+  reviewer dispatch (the exec-role-integrity total-collapse floor) to **every mandated review role dispatched**
+  under its **own dedicated collision-free type** — `integration-verifier`, `architecture-reviewer`,
+  `regression-guardian`, `tb-code-reviewer` (`agents/<role>.md`). `references/review-types.txt` gains an
+  optional `<TAB>role` column; `delivery-lib.sh` gains `role_of_slug` / `roles_covered` / `mandated_roles` /
+  `missing_roles` / `role_floor_mode`. `check-role-dispatch.sh` + `check-review-ack.sh` fail a `full`/`mvp`
+  `kind:code` batch missing any mandated role (`full` = all four; `mvp` = `code-reviewer` +
+  `regression-guardian`); the ≥1 total-collapse floor stays **hard under both modes**.
+- **warn → enforce ramp, mechanically gated on the committed `references/role-dispatch-enforce` marker** (no
+  version tripwire). Ships in **warn** (marker absent) — announces missing roles, does not fail — until a
+  dispatch probe confirms four-distinct-slug adoption and the marker is committed (a governed, evidenced flip).
+  Overrides: `TEAM_BOOTSTRAP_ROLE_FLOOR` (mode), `TEAM_BOOTSTRAP_ROLE_ENFORCE_MARKER` (path, tests only).
+
+### Changed
+- **Doctrine supersedes ADR-0008's "all four dispatch under `independent-reviewer`" mandate** — each role now
+  dispatches under its own dedicated type (`references/{review-types.txt, subagent-dispatch.md, subagent-mapping.md,
+  orchestrator.md, pipelines/full.md, pipelines/mvp.md}`); generics remain honored for the ≥1 floor during the
+  warn ramp. Honest limit carried forward: per-role raises the **degradation** floor, not the **forgery** bar.
+- **`check-delivery.sh` self-test robustness** — anchors its delta-bearing fixtures to the most recent non-doc
+  commit reachable from HEAD (mirrors `_is_doc_path`), so a doc-final batch (a doc-only HEAD) no longer reads
+  the `code_delta:1` fixtures as forged. Latent bug surfaced by delivering a doc batch.
 
 ## [2.21.0] - 2026-08-18
 

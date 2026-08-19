@@ -17,11 +17,13 @@ Run roles in this order:
 > **Harness-verified reviewer dispatch (v2.21.0).** In `mvp`, the four mandatory review roles
 > (`integration-verifier`, `architecture-reviewer`, `regression-guardian`, `code-reviewer`) **must** be
 > dispatched as subagents with an identifiable review `subagent_type`
-> (`independent-reviewer` / [`review-types.txt`](../review-types.txt)), never inline. The `role-dispatch`
-> `verify-batch` gate (`bin/check-role-dispatch.sh`) fails a `kind:code` batch closed with **zero**
-> reviewer-typed dispatches and announces the single-thread collapse (spec-169). *Enforcement floor:* the
-> gate verifies **≥1** reviewer-typed dispatch, **not that all four roles dispatched** — a partial collapse
-> is not caught (ADR-0008). See
+> **each under its own dedicated type** — `mvp` mandates the subset `code-reviewer` (dispatch
+> **`tb-code-reviewer`**) + `regression-guardian` (all-four-role-dispatch, v2.22.0), never inline. The
+> `role-dispatch` `verify-batch` gate (`bin/check-role-dispatch.sh`) fails a `kind:code` batch closed with
+> **zero** reviewer-typed dispatches and announces the single-thread collapse (spec-169). *Enforcement floor:*
+> ≥1 is the hard floor; **under enforce** (marker `references/role-dispatch-enforce` committed after the
+> dispatch probe) the gate additionally requires the mandated **per-role** set covered — ships **warn** until
+> then. See
 > [subagent-dispatch.md](../subagent-dispatch.md#harness-verified-reviewer-dispatch-v2210-exec-role-integrity--required-in-fullmvp).
 
 ## Required Handoff Outputs

@@ -1,4 +1,4 @@
-# 0009 — Phase 0 setup-readiness gate (fail-closed before Phase A)
+# 0010 — Phase 0 setup-readiness gate (fail-closed before Phase A)
 
 - **Status:** Accepted
 - **Date:** 2026-08-19

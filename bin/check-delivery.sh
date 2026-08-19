@@ -38,8 +38,15 @@ if [ "${1:-}" = "--self-test" ]; then
   st_root="$(pwd)"; fail=0
   # dynamic, resolvable SHAs from the CURRENT repo — decoupled from history so the self-test survives
   # a history rewrite / shallow clone (previously hardcoded real SHAs, which a filter-repo purge invalidated).
-  _c="$(git rev-parse --short HEAD 2>/dev/null)"
-  _c1="$(git rev-parse --short HEAD~1 2>/dev/null)"
+  # Anchor the delta-BEARING fixtures to the most recent NON-DOC commit reachable from HEAD, NOT raw HEAD:
+  # a doc-final batch (docs/agents-only) makes HEAD's recomputed non-doc delta 0, which would read the
+  # code_delta:1 fixtures below as FORGED (the doc-final-delivery self-test break). Non-doc boundary mirrors
+  # _is_doc_path (delivery-lib.sh). Falls back to HEAD when no non-doc commit exists.
+  _nondoc_rev() { git rev-list -1 "$1" -- . ':(exclude)*.md' ':(exclude)*.mdx' ':(exclude)*.txt' ':(exclude)docs' ':(exclude)references' ':(exclude)LICENSE' ':(exclude)CHANGELOG*' 2>/dev/null; }
+  _c="$(_nondoc_rev HEAD)"
+  if [ -n "$_c" ]; then _c="$(git rev-parse --short "$_c" 2>/dev/null)"; else _c="$(git rev-parse --short HEAD 2>/dev/null)"; fi
+  _c1="$(_nondoc_rev "${_c}~1")"
+  if [ -n "$_c1" ]; then _c1="$(git rev-parse --short "$_c1" 2>/dev/null)"; else _c1="$(git rev-parse --short HEAD~1 2>/dev/null)"; fi
   _root="$(git rev-parse --short "$(git rev-list --max-parents=0 HEAD 2>/dev/null | tail -1)" 2>/dev/null)"
   # AC-2 needs a commit whose non-doc delta is provably BELOW the inflated stamp (137). Reusing $_c
   # (=HEAD) is fragile: when HEAD is a large code commit the recompute exceeds 137 and the inflation
@@ -51,19 +58,6 @@ if [ "${1:-}" = "--self-test" ]; then
   _doctree=""; [ -n "$_docblob" ] && _doctree="$( { git ls-tree HEAD 2>/dev/null; printf '100644 blob %s\t__ac2_docfix.md\n' "$_docblob"; } | git mktree 2>/dev/null || true)"
   _docfix=""; [ -n "$_doctree" ] && _docfix="$(git commit-tree "$_doctree" -p HEAD -m 'doc-only fixture (AC-2)' 2>/dev/null || true)"
   [ -n "$_docfix" ] || _docfix="$_c"   # fallback: old behavior if object plumbing is unavailable
-  # PASS-fixtures need a REACHABLE code (non-doc) commit whose stamped delta the recompute accepts.
-  # $_c=HEAD is only non-doc when the batch under test ships code — during a DOC-ONLY batch (a pure
-  # deliver.md/AGENTS.md commit, no VERSION/JSON change) HEAD's non-doc delta is 0, so a $_c fixture
-  # is un-earnable (>0 required yet must be <= recompute 0). Walk back to the newest non-doc ancestor
-  # and stamp its ACTUAL recomputed delta (nondoc_delta_of_shas — the SAME function verify-batch stamps
-  # with), so these fixtures are green whether or not the batch under test is doc-only.
-  _codesha="$_c"; _codedelta="$(nondoc_delta_of_shas "$_c" 2>/dev/null || echo 0)"
-  if [ "${_codedelta:-0}" -lt 1 ]; then
-    for _s in $(git rev-list --max-count=40 HEAD 2>/dev/null); do
-      _ss="$(git rev-parse --short "$_s" 2>/dev/null)"; _sd="$(nondoc_delta_of_shas "$_ss" 2>/dev/null || echo 0)"
-      if [ "${_sd:-0}" -ge 1 ]; then _codesha="$_ss"; _codedelta="$_sd"; break; fi
-    done
-  fi
   _expect() { # runname expected_exit desc
     local rn="$1" exp="$2" desc="$3" got
     TEAM_BOOTSTRAP_RUN="$rn" "$0" "$st_root" >/dev/null 2>&1; got=$?
@@ -141,7 +135,7 @@ if [ "${1:-}" = "--self-test" ]; then
   fi
   # R-1 — a marker-less run must report WEAK (marker=absent), not "git-verified"
   mkdir -p .runs/_st_r1
-  printf '%s\n' '{"id":"C1","kind":"code","status":"closed","commit_shas":["'"$_codesha"'"],"code_delta":'"$_codedelta"'}' > .runs/_st_r1/batches.jsonl
+  printf '%s\n' '{"id":"C1","kind":"code","status":"closed","commit_shas":["'"$_c"'"],"code_delta":1}' > .runs/_st_r1/batches.jsonl
   case "$(TEAM_BOOTSTRAP_RUN=_st_r1 "$0" "$st_root" 2>/dev/null || true)" in
     *"marker=absent"*) echo "  PASS (msg) R-1 — marker-less run reports WEAK [marker=absent], not git-verified" ;;
     *) echo "  FAIL R-1 — marker-less success did not enumerate marker=absent" >&2; fail=$((fail + 1)) ;;
@@ -151,7 +145,7 @@ if [ "${1:-}" = "--self-test" ]; then
   # line must enumerate predate=OFF — never claim full F-2 when the predate anchor did not run.
   mkdir -p .runs/_st_n1
   printf '%s\n' '{"run":"_st_n1","intends_code":true,"source":"harness","preflight":{"exit":0,"gaps":[],"ack":false}}' > .runs/_st_n1/RUN
-  printf '%s\n' '{"id":"C1","kind":"code","status":"closed","commit_shas":["'"$_codesha"'"],"code_delta":'"$_codedelta"',"risk_rank":"feature"}' > .runs/_st_n1/batches.jsonl
+  printf '%s\n' '{"id":"C1","kind":"code","status":"closed","commit_shas":["'"$_c"'"],"code_delta":1,"risk_rank":"feature"}' > .runs/_st_n1/batches.jsonl
   case "$(TEAM_BOOTSTRAP_RUN=_st_n1 "$0" "$st_root" 2>/dev/null || true)" in
     *"predate=OFF"*) echo "  PASS (msg) N-1 — active-marker-no-baseline reports predate=OFF (not full F-2)" ;;
     *) echo "  FAIL N-1 — success line claimed more than was enforced" >&2; fail=$((fail + 1)) ;;

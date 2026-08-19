@@ -8,7 +8,7 @@ Two halves of "is this delivery viable?" are asked at two different times by two
 | [`bin/check-preconditions.sh`](../bin/check-preconditions.sh) | **deliver**ability | end of Phase A | "can the output *land*?" | `precond` |
 
 They are complementary, not redundant — different questions, different marker keys. See
-[ADR-0009](../docs/adr/0009-preflight-setup-gate.md).
+[ADR-0010](../docs/adr/0010-preflight-setup-gate.md).
 
 ## What Phase 0 checks
 

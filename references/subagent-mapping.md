@@ -53,18 +53,18 @@ The harness — not the LLM — enforces `tool_surface` and `permission_mode` fr
 The **four mandatory batch review roles** must dispatch as subagents with an **identifiable review
 type** in `full`/`mvp`, so the `PreToolUse[Agent]` recorder (`bin/record-dispatch.sh`) can observe that
 an independent review actually ran and the `role-dispatch` gate (`bin/check-role-dispatch.sh`) can catch
-a silent collapse to single-thread (spec-169). The primary for all four is the dedicated plugin agent
-[`independent-reviewer`](../agents/independent-reviewer.md) — a review type in the single source
-[`references/review-types.txt`](review-types.txt) that no builder ever dispatches. Two of these roles
-previously had **no mapping row** and fell through to `general-purpose` (indistinguishable from a
-builder — soundness N3); they are now mapped.
+a silent collapse to single-thread (spec-169). **Per-role dispatch (all-four-role-dispatch, v2.22.0):** the
+primary for each role is now its **own dedicated type** (`agents/<role>.md`) — attribution by role requires
+distinct slugs (`subagent_type` alone could not tell `integration-verifier` from `regression-guardian`, which
+shared identical preferred types). This **supersedes** exec-role-integrity's shared-`independent-reviewer`
+mapping. `independent-reviewer` stays as a fallback (satisfies the legacy ≥1 floor during the warn ramp).
 
-| Role | Primary | Stack overrides | Fallbacks |
+| Role | Primary (dedicated) | Stack overrides | Fallbacks |
 | --- | --- | --- | --- |
-| `integration-verifier` | `independent-reviewer` | — | `code-reviewer`, `test-automator`, `qa-expert`, `general-purpose` |
-| `architecture-reviewer` | `independent-reviewer` | — | `architect-reviewer`, `architect-review`, `backend-architect` |
-| `regression-guardian` | `independent-reviewer` | — | `code-reviewer`, `test-automator`, `qa-expert`, `general-purpose` |
-| `code-reviewer` | `independent-reviewer` | — | `code-reviewer`, `architect-review`, `architect-reviewer`, `general-purpose` |
+| `integration-verifier` | `integration-verifier` | — | `independent-reviewer`, `code-reviewer`, `general-purpose` |
+| `architecture-reviewer` | `architecture-reviewer` | — | `independent-reviewer`, `architect-reviewer`, `architect-review` |
+| `regression-guardian` | `regression-guardian` | — | `independent-reviewer`, `code-reviewer`, `general-purpose` |
+| `code-reviewer` | `tb-code-reviewer` | — | `independent-reviewer`, `code-reviewer`, `architect-review` |
 
 The fallbacks are still review types where possible (`code-reviewer`, `architect-reviewer`,
 `architect-review` — all in `review-types.txt`), so the gate is satisfied even where the plugin agent

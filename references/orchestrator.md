@@ -63,13 +63,17 @@ Per [subagent-dispatch.md](subagent-dispatch.md):
 
 - Default: **inline** — activate the role's instructions and proceed in the main thread.
 - Dispatch as subagent (Task tool) only for context-isolation triggers: research-heavy roles, parallel reviewers, deep audits.
-- **Exception — mandatory in `full`/`mvp` (v2.21.0, exec-role-integrity):** the four review roles
-  `integration-verifier`, `architecture-reviewer` (conformance), `regression-guardian`, and
-  `code-reviewer` are **not** inline-by-default in `full`/`mvp` — they **must** be dispatched as subagents
-  with an identifiable review `subagent_type` (`independent-reviewer` / [`review-types.txt`](review-types.txt)),
-  so the harness can observe the review pipeline ran (`bin/record-dispatch.sh` → `bin/check-role-dispatch.sh`).
-  Running them inline there yields zero reviewer dispatches and **fails the `role-dispatch` gate** as a
-  silent single-thread collapse (spec-169). In `single-thread`, P1 sanctions inline and the gate skips.
+- **Exception — mandatory in `full`/`mvp` (v2.21.0, exec-role-integrity; per-role since v2.22.0):** the four
+  review roles `integration-verifier`, `architecture-reviewer` (conformance), `regression-guardian`, and
+  `code-reviewer` are **not** inline-by-default in `full`/`mvp` — they **must** be dispatched as subagents,
+  **each under its OWN dedicated type** (`integration-verifier` / `architecture-reviewer` /
+  `regression-guardian` / **`tb-code-reviewer`** — `agents/<role>.md`; all-four-role-dispatch supersedes the
+  shared-`independent-reviewer` mandate), so the harness can attribute each role's dispatch
+  (`bin/record-dispatch.sh` → [`review-types.txt`](review-types.txt) role column → `bin/check-role-dispatch.sh`).
+  Running any inline yields a missing role: zero dispatches **fail the gate** (spec-169 collapse); a partial
+  collapse is announced under **warn** and **fails under enforce** (marker `references/role-dispatch-enforce`
+  committed after the dispatch probe). `mvp` mandates the subset `tb-code-reviewer` + `regression-guardian`.
+  In `single-thread`, P1 sanctions inline and the gate skips.
 
 When the dispatch decision is "subagent", resolve the concrete `subagent_type` from the role's `preferred_subagent_types` frontmatter per [subagent-mapping.md](subagent-mapping.md):
 

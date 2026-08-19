@@ -41,9 +41,10 @@ _feature_val() { [ -f "$1" ] && field_str "$(cat "$1" 2>/dev/null)" "$2"; }
 # Pure inspection of DIR; no cd side effects leak (marker lookup is scoped to DIR/.runs).
 _scan() {
   local dir="$1" fj con sd ad mkfile mk bs
-  # non-ackable: a project that is not a git repo cannot anchor a delivery run (batch-window diff).
+  # not a git repo: no run can be anchored here at all — check-preflight fails outright and there is no
+  # run marker to hold an ack (the non-git case is why the spec's separate "non-ackable class" is moot).
   if ! git -C "$dir" rev-parse --git-dir >/dev/null 2>&1; then
-    echo "HARD not a git repository — no delivery run can be anchored here (non-ackable)"
+    echo "HARD not a git repository — no delivery run can be anchored here (fix the repo; there is no run to ack)"
     return 0
   fi
   # feature.json present + minimally parseable

@@ -68,19 +68,44 @@ _evaluate() {
   esac
 
   cnt="$(reviewer_dispatch_count "$bid")"   # shared delivery-lib definition (single source, B3)
+  # The ≥1 total-collapse floor (exec-role-integrity) is HARD under BOTH warn and enforce — warn only
+  # relaxes the per-role UPGRADE below, never this (AC-8). A zero-dispatch batch is the spec-169 signature.
   if [ "${cnt:-0}" -eq 0 ]; then
     # AC-4 — the degradation message MUST reach the user (stdout), not only stderr.
     echo "check-role-dispatch: DEGRADED — $pipeline/code batch '$bid' closed with ZERO independent-review-typed subagent dispatches. The run degraded to single-thread: no reviewer ran in a fresh context (builder ≠ reviewer was not honored). Dispatch the required review roles as subagents with a dedicated review type (references/review-types.txt) before closing, or run single-thread if one mind is intended."
     echo "  FAIL-CLOSED: batch '$bid' — no reviewer-typed Agent dispatch recorded for its window (spec-169 collapse signature)." >&2
     return 1
   fi
-  echo "check-role-dispatch: batch '$bid' recorded $cnt independent-review-typed dispatch(es) — the $pipeline role pipeline ran (not collapsed to single-thread). OK."
+
+  # --- per-role floor (all-four-role-dispatch): every MANDATED role must be dispatched, not just >=1 ---
+  local mode mandated covered missing
+  mode="$(role_floor_mode)"
+  mandated="$(mandated_roles "$pipeline")"
+  covered="$(roles_covered "$bid")"
+  missing="$(missing_roles "$pipeline" "$bid")"
+  if [ -n "$missing" ]; then
+    if [ "$mode" = "enforce" ]; then
+      echo "check-role-dispatch: MISSING ROLES — $pipeline/code batch '$bid' dispatched roles [${covered:-none}] but the mandate requires [$mandated]; MISSING: [$missing]. Dispatch each missing role under its dedicated review type (references/review-types.txt) before closing."
+      echo "  FAIL-CLOSED: batch '$bid' missing mandated review role(s) [$missing] (per-role floor, enforce)." >&2
+      return 1
+    fi
+    # warn mode (default until references/role-dispatch-enforce is committed after the T5b adoption probe):
+    # the >=1 floor is satisfied; announce the per-role gap + record telemetry, but do not fail (AC-3).
+    echo "check-role-dispatch: warn (per-role) — batch '$bid' covered [${covered:-none}], missing mandated [$missing]. Ships warn; commit references/role-dispatch-enforce after the adoption probe to enforce. (>=1 floor satisfied.)"   # gate-integrity: sanctioned — warn-mode per-role upgrade
+    local rundir; rundir="$(dirname "$marker")"
+    printf '{"batch":"%s","covered":"%s","missing":"%s","mode":"warn"}\n' "$bid" "$covered" "$missing" >> "$rundir/role-telemetry.jsonl" 2>/dev/null || true
+    return 0
+  fi
+  echo "check-role-dispatch: batch '$bid' recorded $cnt reviewer dispatch(es) covering all mandated roles [$mandated] ($pipeline). OK."
   return 0
 }
 
 # --- self-test ---------------------------------------------------------------
 if [ "${1:-}" = "--self-test" ]; then
   fail=0; T="$(mktemp -d)"; mkdir -p "$T/.runs/r"
+  # R4-1: point the enforce marker at a temp path so NO self-test case touches the shipped
+  # references/role-dispatch-enforce (committing the real marker must never change a test outcome).
+  unset TEAM_BOOTSTRAP_ROLE_FLOOR; export TEAM_BOOTSTRAP_ROLE_ENFORCE_MARKER="$T/enforce-marker"; rm -f "$T/enforce-marker"
   ( cd "$T" && git init -q && git config user.email t@t && git config user.name t
     echo base > f && git add . && git commit -qm base ) >/dev/null 2>&1
   base="$(cd "$T" && git rev-parse --short HEAD)"
@@ -150,6 +175,44 @@ if [ "${1:-}" = "--self-test" ]; then
   _marker "{$MK}"; _batch '{"kind":"code","status":"announced"}'    # no id
   _disp '{"batch":"","subagent_type":"code-reviewer"}'
   _chk "FIX#3 empty bid not satisfied by orphan batch:\"\" record → fail-closed" "$(_run)" 1
+
+  # --- all-four-role-dispatch: per-role floor (T3), marker-gated warn/enforce -------------------
+  _marker "{$MK}"; _batch '{"id":"B1","kind":"code","status":"announced"}'
+  _cover4() { { printf '{"batch":"B1","subagent_type":"integration-verifier"}\n'
+    printf '{"batch":"B1","subagent_type":"architecture-reviewer"}\n'
+    printf '{"batch":"B1","subagent_type":"regression-guardian"}\n'
+    printf '{"batch":"B1","subagent_type":"tb-code-reviewer"}\n'; } > "$T/.runs/r/dispatch.jsonl"; }
+  _cover4; rm -f "$T/enforce-marker"
+  _chk "per-role warn (marker absent): all four roles covered → pass" "$(_run)" 0
+  touch "$T/enforce-marker"
+  _chk "per-role enforce: all four roles covered → pass" "$(_run)" 0
+  _disp '{"batch":"B1","subagent_type":"tb-code-reviewer"}'   # only code-reviewer role
+  _chk "AC-2/AC-4 enforce: only 1 mandated role → fail (missing 3)" "$(_run)" 1
+  rm -f "$T/enforce-marker"
+  _chk "AC-3 warn: only 1 mandated role → pass (warn, not fail)" "$(_run)" 0
+  { for _i in 1 2 3 4; do printf '{"batch":"B1","subagent_type":"tb-code-reviewer"}\n'; done; } > "$T/.runs/r/dispatch.jsonl"
+  touch "$T/enforce-marker"
+  _chk "AC-4 enforce: 4× same role → fail (per-role, NOT a bare count)" "$(_run)" 1
+  _disp '{"batch":"B1","subagent_type":"code-reviewer"}'   # generic: ≥1 ok but ∅ roles
+  _chk "AC-2 enforce: generic-only (≥1 ok, ∅ attributed) → fail" "$(_run)" 1
+  rm -f "$T/enforce-marker"
+  _chk "AC-3 warn: generic-only → pass (warn)" "$(_run)" 0
+  # AC-8 — the ≥1 total-collapse floor stays HARD under WARN: zero dispatch → fail even in warn
+  rm -f "$T/.runs/r/dispatch.jsonl" "$T/enforce-marker"
+  _chk "AC-8 warn + ZERO dispatch → still fail (≥1 floor hard under warn)" "$(_run)" 1
+  # mvp subset {code-reviewer, regression-guardian}: covering both → pass enforce; missing one → fail
+  _marker '{"run":"r","pipeline":"mvp","intends_code":true,"source":"harness","baseline_sha":"'"$base"'"}'
+  { printf '{"batch":"B1","subagent_type":"tb-code-reviewer"}\n'; printf '{"batch":"B1","subagent_type":"regression-guardian"}\n'; } > "$T/.runs/r/dispatch.jsonl"
+  touch "$T/enforce-marker"
+  _chk "mvp enforce: subset both covered → pass" "$(_run)" 0
+  _disp '{"batch":"B1","subagent_type":"tb-code-reviewer"}'   # missing regression-guardian
+  _chk "mvp enforce: subset missing one → fail" "$(_run)" 1
+  # override precedence (R5-NB4): TEAM_BOOTSTRAP_ROLE_FLOOR wins over marker presence
+  _marker "{$MK}"; { printf '{"batch":"B1","subagent_type":"tb-code-reviewer"}\n'; } > "$T/.runs/r/dispatch.jsonl"
+  touch "$T/enforce-marker"
+  _chk "override: FLOOR=warn beats marker-present → pass" "$( cd "$T" && TEAM_BOOTSTRAP_RUN=r TEAM_BOOTSTRAP_ROLE_FLOOR=warn "$here/check-role-dispatch.sh" . >/dev/null 2>&1; echo $? )" 0
+  rm -f "$T/enforce-marker"
+  _chk "override: FLOOR=enforce beats marker-absent → fail" "$( cd "$T" && TEAM_BOOTSTRAP_RUN=r TEAM_BOOTSTRAP_ROLE_FLOOR=enforce "$here/check-role-dispatch.sh" . >/dev/null 2>&1; echo $? )" 1
 
   rm -rf "$T"
   if [ "$fail" -eq 0 ]; then echo "check-role-dispatch --self-test: OK"; exit 0; fi
