@@ -51,49 +51,62 @@ _ack_commit() {
     | head -1 | grep -oE '"commit":[[:space:]]*"[^"]*"' | sed -E 's/.*"([^"]*)"$/\1/'
 }
 
-# _batch_files → the in-flight batch's changed files (git window), else the ledger entry's declared files.
+# _batch_files → the in-flight batch's git-changed files on stdout, with a fail-closed return code.
+# A tamper-relevant seam must NOT fall back to the ledger's self-declared "files" (a tamperer controls
+# them). So this is git-grounded ONLY, distinguishing (OQ-2 / AC-Empty):
+#   rc 0 — resolvable base, non-empty diff  → the changed files on stdout
+#   rc 3 — resolvable base, ZERO diff       → fail-closed (empty window; no declared-"files" fallback)
+#   rc 4 — unresolvable base                → diagnosed fail (cannot ground the diff in git)
 _batch_files() {
-  local base changed ledger line
+  local base changed
   base="$(current_batch_base)"
-  if [ -n "$base" ]; then
-    changed="$(git diff --name-only "$base" HEAD 2>/dev/null)"
-    [ -n "$changed" ] && { printf '%s\n' "$changed"; return 0; }
-  fi
-  ledger="$(resolve_ledger)"
-  [ -n "$ledger" ] && [ -f "$ledger" ] || return 0
-  line="$(grep '"status":[[:space:]]*"announced"' "$ledger" 2>/dev/null | tail -1)"
-  [ -n "$line" ] || line="$(grep -v '^[[:space:]]*$' "$ledger" 2>/dev/null | tail -1)"
-  printf '%s' "$line" | grep -oE '"files":[[:space:]]*\[[^]]*\]' | head -1 \
-    | grep -oE '\[[^]]*\]' | head -1 | grep -oE '"[^"]*"' | tr -d '"'
+  [ -n "$base" ] || return 4
+  git rev-parse --verify -q "$base^{commit}" >/dev/null 2>&1 || return 4
+  changed="$(git diff --name-only "$base" HEAD 2>/dev/null)"
+  [ -n "$changed" ] || return 3
+  printf '%s\n' "$changed"
+  return 0
 }
 
-# _intersects FILE PATHS… → rc 0 if FILE equals or is under any seam path (coarse, OQ-4).
+# _intersects FILE PATHS_NL → rc 0 if FILE equals, is under (directory-prefix), OR glob-matches any
+# path token in PATHS_NL (newline-delimited). OQ-5: the shipped equals/under-dir matcher was glob-BLIND
+# (its `"$p"` was quoted → `*` literal), silently under-matching bin/check-*.sh / hooks/*.json. The added
+# `case "$f" in $token)` branch (UNQUOTED $p → glob) fixes both detection and ack-validation at once,
+# since both go through here (BF2 — they can never disagree). Tokens are iterated line-by-line via
+# `while read` (NEVER `for t in $paths` — unquoted command-subst would pathname-EXPAND the globs against
+# the CWD before matching, NB2); `case` pattern-matching does not touch the filesystem, so globs stay
+# patterns. NOTE: `case`-glob `*` SPANS `/`, so hooks/*.json also matches hooks/nested/x.json — an
+# intended, fail-closed over-match (spec OQ-5).
 _intersects() {
-  local f="$1"; shift
-  local p
-  for p in "$@"; do
+  local f="$1" p
+  while IFS= read -r p; do
     [ -n "$p" ] || continue
     [ "$f" = "$p" ] && return 0
-    case "$f" in "$p"/*) return 0 ;; esac
-  done
+    case "$f" in
+      "$p"/*) return 0 ;;
+      $p)     return 0 ;;
+    esac
+  done <<EOF
+$2
+EOF
   return 1
 }
 
-# _commit_touches_seam FULLSHA PATHS… → rc 0 if the commit changed a file under any seam path.
-# The ack must name the commit that ACTUALLY shipped the seam change — not merely a resolvable SHA
-# (B5): a resolvable-but-unrelated commit, e.g. the run baseline, proves nothing was read.
+# _commit_touches_seam FULLSHA PATHS_NL → rc 0 if the commit changed a file matching any seam path
+# (newline-delimited, same glob-aware _intersects). The ack must name the commit that ACTUALLY shipped
+# the seam change — not merely a resolvable SHA (B5): a resolvable-but-unrelated commit, e.g. the run
+# baseline, proves nothing was read.
 _commit_touches_seam() {
-  local full="$1"; shift
-  local f
+  local full="$1" paths_nl="$2" f
   while IFS= read -r f; do
     [ -n "$f" ] || continue
-    _intersects "$f" "$@" && return 0
+    _intersects "$f" "$paths_nl" && return 0
   done < <(git show --name-only --format= "$full" 2>/dev/null)
   return 1
 }
 
 _evaluate() {
-  local marker mk seams files viol=0 name paths_str touched f ackc ackfull bfull
+  local marker mk seams cs_globs files bf_rc viol=0 name paths_str paths_nl touched f ackc ackfull bfull
   marker="$(resolve_marker)"
   [ -n "$marker" ] && [ -f "$marker" ] || { echo "check-seam-ack: no active delivery run — skipping (governs armed runs)."; return 0; }
   mk="$(cat "$marker" 2>/dev/null || true)"
@@ -101,19 +114,33 @@ _evaluate() {
   bfull="$(resolve_sha "$(field_str "$mk" baseline_sha)")"
 
   seams="$(_seam_objects "$mk")"
-  [ -n "$seams" ] || { echo "check-seam-ack: no high_risk_seams recorded — nothing to guard."; return 0; }
+  # Standing control-surface seam (control-surface-protection): the control_surface_globs set is an
+  # ALWAYS-PRESENT high-risk seam, unioned in BEFORE the "no high_risk_seams" early-return so it fires
+  # even when the marker records zero high_risk_seams. Its ack must be named 'control-surface'
+  # specifically (AC-Legacy — a different seam-ack does not satisfy it). The globs are space-joined into
+  # the same NAME<TAB>paths line shape _seam_objects emits (surface tokens never contain spaces).
+  cs_globs="$(control_surface_globs 2>/dev/null | tr '\n' ' ' | sed -E 's/[[:space:]]+$//')"
+  if [ -n "$cs_globs" ]; then
+    seams="$(printf '%s\n' "$seams" "$(printf 'control-surface\t%s' "$cs_globs")" | grep -vE '^[[:space:]]*$')"
+  fi
+  [ -n "$seams" ] || { echo "check-seam-ack: no high_risk_seams recorded (and no control surface) — nothing to guard."; return 0; }
 
-  files="$(_batch_files)"
-  [ -n "$files" ] || { echo "check-seam-ack: in-flight batch changed no files — nothing to intersect."; return 0; }
+  files="$(_batch_files)"; bf_rc=$?
+  case "$bf_rc" in
+    3) echo "  FAIL: a seam is under guard but the in-flight batch has a resolvable base with a ZERO git diff — a tamper-relevant gate will not fall back to the ledger's self-declared \"files\"; fail-closed (AC-Empty)." >&2; return 1 ;;
+    4) echo "  FAIL: cannot resolve the in-flight batch window base — a tamper-relevant gate must ground the diff in git, not trust a declared file list; fail-closed (AC-Empty)." >&2; return 1 ;;
+  esac
 
   while IFS="$(printf '\t')" read -r name paths_str; do
     [ -n "$name" ] || continue
+    # newline-delimit the seam's paths WITHOUT pathname-expanding any globs ("$paths_str" is quoted;
+    # surface tokens carry no spaces) — the glob-safe input _intersects expects (NB2).
+    paths_nl="$(printf '%s' "$paths_str" | tr ' ' '\n')"
     # does any changed file intersect this seam's paths?
     touched=0
-    # shellcheck disable=SC2086  # word-split paths_str into positional paths on purpose
     while IFS= read -r f; do
       [ -n "$f" ] || continue
-      if _intersects "$f" $paths_str; then touched=1; break; fi
+      if _intersects "$f" "$paths_nl"; then touched=1; break; fi
     done <<EOF
 $files
 EOF
@@ -121,7 +148,6 @@ EOF
 
     ackc="$(_ack_commit "$mk" "$name")"
     ackfull="$(resolve_sha "$ackc")"
-    # shellcheck disable=SC2086  # word-split paths_str into positional seam paths on purpose
     if [ -z "$ackc" ]; then
       echo "  FAIL: batch touches high-risk seam '$name' but no seam_acks entry names it — record a read-in-the-shipped-code ack (seam + commit that changed the seam + file:line note) before closing (AC-5)." >&2
       viol=$((viol + 1))
@@ -134,7 +160,7 @@ EOF
     elif [ -n "$bfull" ] && { [ "$ackfull" = "$bfull" ] || ! git merge-base --is-ancestor "$bfull" "$ackfull" 2>/dev/null; }; then
       echo "  FAIL: seam '$name' ack commit '$ackc' is not after the run baseline — the ack must anchor to this run's shipped change, not pre-existing history (AC-5, B5)." >&2
       viol=$((viol + 1))
-    elif ! _commit_touches_seam "$ackfull" $paths_str; then
+    elif ! _commit_touches_seam "$ackfull" "$paths_nl"; then
       echo "  FAIL: seam '$name' ack commit '$ackc' did not change the seam's paths — the ack must name the commit that shipped the seam change, not a resolvable-but-unrelated commit like the baseline (AC-5, B5)." >&2
       viol=$((viol + 1))
     else
@@ -155,22 +181,25 @@ if [ "${1:-}" = "--self-test" ]; then
   ( cd "$T" && git init -q && git config user.email t@t && git config user.name t
     echo base > seed && git add . && git commit -qm base ) >/dev/null 2>&1
   base="$(cd "$T" && git rev-parse --short HEAD)"
-  # a batch commit that touches the flagged seam path bin/check-seam-ack.sh
-  ( cd "$T" && mkdir -p bin && echo x > bin/check-seam-ack.sh && git add . && git commit -qm "touch seam" ) >/dev/null 2>&1
+  # AC-Reg: the batch commit + the marker-rewrite seam target a NON-control-surface path (src/app.py),
+  # not bin/check-seam-ack.sh — otherwise the STANDING control-surface seam (control-surface-protection)
+  # would demand a `control-surface` ack these legacy cases don't carry and they would regress. The
+  # standing seam is exercised separately in tests/control-surface-protection.test.sh.
+  ( cd "$T" && mkdir -p src && echo x > src/app.py && git add . && git commit -qm "touch seam" ) >/dev/null 2>&1
   code="$(cd "$T" && git rev-parse --short HEAD)"
   mkdir -p "$T/.runs/r"
   _marker() { printf '%s\n' "$1" > "$T/.runs/r/RUN"; }
   # ledger: in-flight batch over baseline..HEAD (current_batch_base uses baseline_sha for first batch)
-  printf '{"id":"B1","kind":"code","files":["bin/check-seam-ack.sh"],"status":"announced"}\n' > "$T/.runs/r/batches.jsonl"
+  printf '{"id":"B1","kind":"code","files":["src/app.py"],"status":"announced"}\n' > "$T/.runs/r/batches.jsonl"
   _run() { ( cd "$T" && TEAM_BOOTSTRAP_RUN=r "$here/check-seam-ack.sh" . >/dev/null 2>&1 ); echo $?; }
   _chk() { if [ "$2" = "$3" ]; then echo "  PASS (exit $2) $1"; else echo "  FAIL (exit $2 want $3) $1" >&2; fail=$((fail + 1)); fi; }
-  SEAM='"high_risk_seams":[{"seam":"marker-rewrite","paths":["bin/check-seam-ack.sh","bin/delivery-lib.sh"]}]'
+  SEAM='"high_risk_seams":[{"seam":"marker-rewrite","paths":["src/app.py","src/lib.py"]}]'
 
   # AC-5 — touched seam, NO ack → fail
   _marker "{\"run\":\"r\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$base\",$SEAM}"
   _chk "AC-5 touched seam, no seam_acks → fail" "$(_run)" 1
   # AC-5 — touched seam, ack with a RESOLVABLE commit → pass
-  _marker "{\"run\":\"r\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$base\",$SEAM,\"seam_acks\":[{\"seam\":\"marker-rewrite\",\"commit\":\"$code\",\"note\":\"bin/check-seam-ack.sh:1 read the rewrite\"}]}"
+  _marker "{\"run\":\"r\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$base\",$SEAM,\"seam_acks\":[{\"seam\":\"marker-rewrite\",\"commit\":\"$code\",\"note\":\"src/app.py:1 read the rewrite\"}]}"
   _chk "AC-5 touched seam + ack (resolvable commit) → pass" "$(_run)" 0
   # AC-5 — ack names the seam but its commit does NOT resolve → fail
   _marker "{\"run\":\"r\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$base\",$SEAM,\"seam_acks\":[{\"seam\":\"marker-rewrite\",\"commit\":\"deadbeef\",\"note\":\"x\"}]}"
@@ -197,6 +226,34 @@ if [ "${1:-}" = "--self-test" ]; then
   rm -f "$T/.runs/r/RUN"
   _chk "AC-6 no active marker → skip (exit 0)" "$(_run)" 0
   rm -rf "$T"
+
+  # --- standing control-surface seam (control-surface-protection) — glob-aware + fail-closed. -------
+  # Fresh fixtures whose batch touches a REAL control_surface_globs path (bin/check-*.sh), so the
+  # standing seam (read from references/control-surface.txt, BASH_SOURCE-relative) fires with NO marker
+  # high_risk_seams recorded — the union-before-early-return path (r4).
+  CS="$(mktemp -d)"
+  ( cd "$CS" && git init -q && git config user.email t@t && git config user.name t
+    echo s > seed && git add . && git commit -qm base ) >/dev/null 2>&1
+  csbase="$(cd "$CS" && git rev-parse --short HEAD)"
+  ( cd "$CS" && mkdir -p bin && echo x > bin/check-newgate.sh && git add . && git commit -qm "edit a new gate" ) >/dev/null 2>&1
+  cscode="$(cd "$CS" && git rev-parse --short HEAD)"
+  mkdir -p "$CS/.runs/r"; printf '{"id":"B1","kind":"code","files":["bin/check-newgate.sh"],"status":"announced"}\n' > "$CS/.runs/r/batches.jsonl"
+  _csmk() { printf '%s\n' "$1" > "$CS/.runs/r/RUN"; }
+  _csrun() { ( cd "$CS" && TEAM_BOOTSTRAP_RUN=r "$here/check-seam-ack.sh" . >/dev/null 2>&1 ); echo $?; }
+  # glob-aware: a NEW bin/check-*.sh edited without a control-surface ack → fail (the hardening — AC-4).
+  _csmk "{\"run\":\"r\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$csbase\"}"
+  _chk "standing seam: bin/check-newgate.sh, no control-surface ack → fail (AC-4)" "$(_csrun)" 1
+  # a non-control-surface ack does NOT satisfy the standing seam (AC-Legacy).
+  _csmk "{\"run\":\"r\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$csbase\",\"seam_acks\":[{\"seam\":\"marker-rewrite\",\"commit\":\"$cscode\",\"note\":\"x\"}]}"
+  _chk "standing seam: only a marker-rewrite ack → fail (AC-Legacy)" "$(_csrun)" 1
+  # a valid control-surface ack naming the surface-touching commit → pass (AC-2).
+  _csmk "{\"run\":\"r\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$csbase\",\"seam_acks\":[{\"seam\":\"control-surface\",\"commit\":\"$cscode\",\"note\":\"bin/check-newgate.sh:1\"}]}"
+  _chk "standing seam: valid control-surface ack → pass (AC-2)" "$(_csrun)" 0
+  # fail-closed empty window: resolvable base + zero diff → fail (AC-Empty).
+  ( cd "$CS" && git commit -q --allow-empty -m "empty" ) >/dev/null 2>&1
+  _csmk "{\"run\":\"r\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$cscode\"}"
+  _chk "standing seam: resolvable base + zero diff → fail-closed (AC-Empty)" "$(_csrun)" 1
+  rm -rf "$CS"
   if [ "$fail" -eq 0 ]; then echo "check-seam-ack --self-test: OK"; exit 0; fi
   echo "check-seam-ack --self-test: $fail case(s) FAILED" >&2; exit 1
 fi

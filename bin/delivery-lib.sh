@@ -258,6 +258,18 @@ review_types() {
   grep -vE '^[[:space:]]*(#|$)' "$f" 2>/dev/null | cut -f1 | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -vE '^$' || true
 }
 
+# --- control-surface-protection: the plugin's own machinery path set (single source) ----------
+# control_surface_globs → echo the control-surface globs (one per line), from the SINGLE SOURCE
+# references/control-surface.txt (blank lines and '#' comments stripped, surrounding space trimmed).
+# BASH_SOURCE-relative — like review_types() — so the gate (check-seam-ack) and any other reader see
+# the exact same set and it cannot drift. Missing file ⇒ empty set (no standing seam; callers skip).
+# Tokens are matched by check-seam-ack.sh:_intersects (equals / under-dir / glob, `*` spans `/`).
+control_surface_globs() {
+  local f; f="$(dirname "${BASH_SOURCE[0]}")/../references/control-surface.txt"
+  [ -f "$f" ] || return 0
+  grep -vE '^[[:space:]]*(#|$)' "$f" 2>/dev/null | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -vE '^$' || true
+}
+
 # role_of_slug SLUG → the role attributed to SLUG (column 2), or EMPTY if SLUG is a generic (no column 2)
 # or absent. Tab-safe: `cut -s -f2` yields nothing on a tabless generic line, so a generic can NEVER
 # phantom-attribute (a naive cut -f2 / ${line#*TAB} would return the whole line). Milestone all-four.

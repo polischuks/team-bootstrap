@@ -1,0 +1,40 @@
+# control-surface.txt — the plugin's own control surface (single source).
+#
+# A kind:code batch whose git window intersects any glob below must record a `control-surface`
+# seam-ack (bin/check-seam-ack.sh treats this set as an ALWAYS-PRESENT high-risk seam). This turns
+# every machinery change — this repo edits its own gates every milestone — from a silent edit into a
+# declared, acked, independently-reviewed event.
+#
+# Format: one glob/path per line; `#` comments and blank lines ignored. Read by delivery-lib.sh's
+# control_surface_globs() (BASH_SOURCE-relative, like review_types()). Matching (equals / under a
+# directory / glob, where `*` spans `/`) lives in check-seam-ack.sh:_intersects.
+#
+# HONEST LIMIT (self-reference): the enforcing gate is itself in this set, and verify-batch runs the
+# COMMITTED HEAD — a batch that co-edits the circular core (check-seam-ack.sh / verify-batch.sh /
+# delivery-lib.sh's reader / this file) and drops the gate invocation runs the edited version and
+# escapes. Closing that is repo/org posture the plugin cannot force (CI-from-trusted-ref under branch
+# protection; sandbox-runtime). This file protects the REST of the surface against SILENT tampering.
+
+# gate scripts (glob auto-covers every current and future bin/check-*.sh)
+bin/check-*.sh
+bin/verify-batch.sh
+bin/delivery-lib.sh
+bin/tdd-red.sh
+bin/record-dispatch.sh
+
+# hook registrations (glob spans '/', so hooks/nested/*.json is covered too)
+hooks/*.json
+
+# harness-owned config + contract surfaces
+.claude
+.mcp.json
+AGENTS.md
+
+# the orchestrator command lives at repo-root commands/deliver.md (NOT .claude/commands) and the
+# review-role subagents at agents/<role>.md — both are executable control surface.
+commands
+agents
+
+# this list file is itself control surface: shrinking it is a control-surface edit (caught, modulo
+# the self-reference circularity for the list's own reader).
+references/control-surface.txt
