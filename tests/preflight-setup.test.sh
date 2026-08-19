@@ -171,5 +171,17 @@ _pf_case "B3 present-but-no-exit preflight → blocked (not fail-open)" \
 _pf_case "B3 passing preflight (exit=0) + code batch → allowed" \
   '{"run":"r","intends_code":true,"source":"harness","preflight":{"exit":0,"gaps":[],"ack":false}}' 0
 
+# ---------------------------------------------------------------------------------------------------
+# Group 6 — orchestration wiring (B4): the Phase-0 gate must have a CONSUMER, or it is an orphan gate.
+# deliver.md must invoke check-preflight at a Phase 0 before Phase A; AGENTS.md must note it.
+# ---------------------------------------------------------------------------------------------------
+dm="$here/commands/deliver.md"
+if grep -q "check-preflight" "$dm" 2>/dev/null; then echo "  PASS deliver.md invokes check-preflight (gate has a consumer)"; else
+  echo "  FAIL deliver.md does not invoke check-preflight — Phase-0 gate is an orphan" >&2; fail=$((fail + 1)); fi
+if grep -qi "Phase 0" "$dm" 2>/dev/null; then echo "  PASS deliver.md has a Phase 0 section"; else
+  echo "  FAIL deliver.md has no Phase 0 section" >&2; fail=$((fail + 1)); fi
+if grep -q "check-preflight" "$here/AGENTS.md" 2>/dev/null; then echo "  PASS AGENTS.md notes the Phase-0 gate"; else
+  echo "  FAIL AGENTS.md does not note check-preflight" >&2; fail=$((fail + 1)); fi
+
 [ "$fail" -eq 0 ] && { echo "preflight-setup.test.sh: OK"; exit 0; }
 echo "preflight-setup.test.sh: $fail failure(s)" >&2; exit 1
