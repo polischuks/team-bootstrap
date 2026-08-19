@@ -352,6 +352,29 @@ if [ "${precond_exit:-0}" = "2" ] && [ "${precond_ack:-false}" != "true" ] && [ 
   viol=$((viol + 1))
 fi
 
+# F-P — Phase-0 setup-readiness (preflight) gate, symmetric to F-D. A code-delivering run must have
+# PASSED Phase 0 (preflight.exit==0) or acked a scaffold gap (preflight.ack==true). GATED on an active
+# intends_code marker AND a real kind:code batch in the ledger (closed_code+inflight_code>=1) — NOT on
+# `total` — so a direct pipeline run (no ledger), a marker-less replay, or a pre-feature run is never
+# regressed: those have no code batch here and the clause is inert (D10). Absent preflight on such a run
+# is "the gate never ran" ⇒ fail-closed, not a silent pass (P10 / AC-6). Object-scoped reads (drift #2)
+# keep this from cross-reading precond's exit/ack.
+if [ "$intends" = "true" ] && [ "$((closed_code + inflight_code))" -ge 1 ]; then
+  if [ "$preflight_present" -ne 1 ]; then
+    echo "  BLOCKED: Phase-0 setup-readiness gate never ran — no preflight verdict in the run marker, but a kind:code batch is present. Run bin/check-preflight.sh before Phase B (AC-6; a skipped Phase 0 is a failure, not a pass — P10)." >&2
+    viol=$((viol + 1))
+  elif [ -z "$preflight_exit" ]; then
+    # present-but-unreadable verdict (no exit): a verdict we cannot read is not a pass. Match "absent ⇒
+    # block" so present-garbage can't fail-open where absent fails-closed (review nb#1; P10). Unreachable
+    # via record_preflight (always writes exit) — guards a corrupted/hand-tampered marker.
+    echo "  BLOCKED: Phase-0 preflight verdict is present but unreadable (no exit field) — setup-readiness cannot be confirmed; re-run bin/check-preflight.sh before Phase B (P10 fail-closed)." >&2
+    viol=$((viol + 1))
+  elif [ "$preflight_exit" != "0" ] && [ "${preflight_ack:-false}" != "true" ]; then
+    echo "  BLOCKED: Phase-0 setup-readiness FAILED (preflight.exit=$preflight_exit) and is unacknowledged (preflight.ack=false) — fix the scaffold, or ack the gap in the run marker, before Phase B (AC-7)." >&2
+    viol=$((viol + 1))
+  fi
+fi
+
 if [ "$viol" -gt 0 ]; then
   echo "check-delivery: $viol unearned/forged closure(s) in $ledger — closure is earned by real commits + a git-verified delta, not by assertion." >&2
   exit 1
