@@ -114,5 +114,26 @@ printf '%s\n' '{"run":"_st_lone","intends_code":true,"baseline_sha":"abc1234","p
 ) || fail=$((fail + 1))
 rm -rf "$tmp2"
 
+# ---------------------------------------------------------------------------------------------------
+# Group 4 — check-preflight.sh detector (B2): its authoritative --self-test + black-box E2E (AC-1/2/9)
+# ---------------------------------------------------------------------------------------------------
+gate="$here/bin/check-preflight.sh"
+if [ ! -x "$gate" ]; then
+  echo "  FAIL check-preflight.sh missing/not executable" >&2; fail=$((fail + 1))
+else
+  if "$gate" --self-test >/dev/null 2>&1; then echo "  PASS check-preflight --self-test"; else
+    echo "  FAIL check-preflight --self-test" >&2; fail=$((fail + 1)); fi
+  # E2E (AC-9): this repo is fully scaffolded → exit 0
+  if "$gate" "$here" >/dev/null 2>&1; then echo "  PASS E2E: setup-ready on this repo (exit 0)"; else
+    echo "  FAIL E2E: check-preflight did not pass on this fully-scaffolded repo" >&2; fail=$((fail + 1)); fi
+  # E2E (AC-9): a bare git repo → exit 1 with >=4 named gaps
+  bt="$(mktemp -d)"; git -C "$bt" init -q >/dev/null 2>&1
+  out="$("$gate" "$bt" 2>&1)"; rc=$?
+  gaps="$(printf '%s\n' "$out" | grep -c 'HARD')"
+  if [ "$rc" -eq 1 ] && [ "$gaps" -ge 4 ]; then echo "  PASS E2E: fail-closed on bare dir (exit 1, $gaps hard gaps)"; else
+    echo "  FAIL E2E: bare dir expected exit 1 with >=4 HARD gaps, got rc=$rc gaps=$gaps" >&2; fail=$((fail + 1)); fi
+  rm -rf "$bt"
+fi
+
 [ "$fail" -eq 0 ] && { echo "preflight-setup.test.sh: OK"; exit 0; }
 echo "preflight-setup.test.sh: $fail failure(s)" >&2; exit 1
