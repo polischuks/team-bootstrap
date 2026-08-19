@@ -109,6 +109,129 @@ marker_list() {
   printf '[%s]' "$body"
 }
 
+# --- object-scoped marker helpers (preflight-setup gate; object analogs of the flat helpers) --------
+# Two marker objects — precond and preflight — both carry scalar keys "exit"/"ack". The flat field_*
+# extractors are GLOBAL first-match, so reading OR stripping either object by those bare keys is order-
+# fragile. These scope to a named object's own {…} span (brace-balanced AND string-aware — a '}' or the
+# literal exit/ack inside a value string does not fool the close), so the two objects coexist safely.
+# See specs/preflight-setup-phase (drift catch #2): the WRITE side is load-bearing — record_precond's
+# historical greedy `${mk%,"precond":*}` strip silently deleted any object written AFTER precond.
+
+# _obj_span REST → 0-based index of the '}' closing the object whose opening '{' was already consumed
+# (REST begins just inside it). Honors JSON string quoting + nested braces. Echoes the index; empty if
+# unbalanced (caller treats that as fail-safe: leave the marker untouched).
+_obj_span() {
+  local rest="$1" n="${#1}" i=0 ch depth=1 instr=0 esc=0
+  while [ "$i" -lt "$n" ]; do
+    ch="${rest:i:1}"
+    if [ "$instr" -eq 1 ]; then
+      if [ "$esc" -eq 1 ]; then esc=0
+      elif [ "$ch" = "\\" ]; then esc=1
+      elif [ "$ch" = '"' ]; then instr=0
+      fi
+    else
+      case "$ch" in
+        '"') instr=1 ;;
+        '{') depth=$((depth + 1)) ;;
+        '}') depth=$((depth - 1)); [ "$depth" -eq 0 ] && { printf '%s' "$i"; return 0; } ;;
+      esac
+    fi
+    i=$((i + 1))
+  done
+  return 0
+}
+
+# field_in_obj MK OBJECT KEY → scalar value of KEY within MK's top-level "OBJECT":{…} span (string, int,
+# or bool), empty if OBJECT absent or KEY is not a scalar in it. Collision-safe read for exit/ack, which
+# now appear in BOTH precond and preflight (drift #2, read side).
+field_in_obj() {
+  local mk="$1" obj="$2" key="$3" rest idx body v
+  case "$mk" in *"\"$obj\":{"*) : ;; *) return 0 ;; esac
+  rest="${mk#*\"$obj\":\{}"
+  idx="$(_obj_span "$rest")"
+  [ -n "$idx" ] || return 0
+  body="{${rest:0:idx}}"
+  v="$(field_str "$body" "$key")"; [ -n "$v" ] && { printf '%s' "$v"; return 0; }
+  v="$(field_num "$body" "$key")"; [ -n "$v" ] && { printf '%s' "$v"; return 0; }
+  v="$(field_bool "$body" "$key")"; [ -n "$v" ] && { printf '%s' "$v"; return 0; }
+  return 0
+}
+
+# _marker_strip_obj_key MK KEY → MK with the top-level "KEY":{…} object removed (with one separator
+# comma, so no ',,' '{,' or ',}' remains). POSITION-INDEPENDENT (unlike a `%`-suffix strip): the span is
+# found brace-balanced/string-aware, so an object written after KEY is never over-stripped. Absent KEY ⇒
+# MK unchanged. Object analog of _marker_strip_flat_key; the write-side fix for the record_precond
+# self-disarm (drift #2). NO sed.
+_marker_strip_obj_key() {
+  local mk="$1" key="$2" before rest idx after
+  case "$mk" in *"\"$key\":{"*) : ;; *) printf '%s' "$mk"; return 0 ;; esac
+  before="${mk%%\"$key\":\{*}"    # up to (not incl) "key":{  — ends with '{' or ','
+  rest="${mk#*\"$key\":\{}"       # just inside the object
+  idx="$(_obj_span "$rest")"
+  [ -n "$idx" ] || { printf '%s' "$mk"; return 0; }   # unbalanced: fail-safe, leave untouched
+  after="${rest:$((idx + 1))}"    # after the closing '}': starts with ',' or '}'
+  if [ "${before: -1}" = "," ]; then
+    before="${before%,}"          # key not first: drop the preceding comma
+  elif [ "${after:0:1}" = "," ]; then
+    after="${after#,}"            # key first: drop the following comma
+  fi
+  printf '%s%s' "$before" "$after"
+}
+
+# record_preflight EXIT GAPS_ARRAY → insert/replace top-level
+# "preflight":{"exit":EXIT,"gaps":GAPS_ARRAY,"ack":<preserved>} in the active RUN marker. GAPS_ARRAY = a
+# complete flat array literal ('[]' or '["missing: feature.json",…]'). Pure-bash via
+# _marker_strip_obj_key — NO sed. Preserves an existing preflight.ack:true and every other field (incl. a
+# sibling precond). Validates single {…} before writing; no marker ⇒ no-op. Mirrors record_precond.
+record_preflight() {
+  local ex="$1" gaps="$2" marker mk ack newmk
+  marker="$(resolve_marker)"
+  [ -n "$marker" ] && [ -f "$marker" ] || return 0
+  mk="$(cat "$marker" 2>/dev/null || true)"
+  [ -n "$mk" ] || return 0
+  ack="$(field_in_obj "$mk" preflight ack)"; [ "$ack" = "true" ] || ack="false"
+  mk="$(_marker_strip_obj_key "$mk" preflight)"
+  newmk="${mk%\}}"
+  if [ "${newmk: -1}" = "{" ]; then
+    newmk="${newmk}\"preflight\":{\"exit\":$ex,\"gaps\":$gaps,\"ack\":$ack}}"
+  else
+    newmk="${newmk},\"preflight\":{\"exit\":$ex,\"gaps\":$gaps,\"ack\":$ack}}"
+  fi
+  case "$newmk" in
+    \{*\}) printf '%s\n' "$newmk" > "$marker" 2>/dev/null || return 1 ;;
+    *) return 1 ;;
+  esac
+}
+
+# record_precond EXIT ITEMS_JSON → stamp the run marker's precond (deliverability advisory) as a
+# BLOCKING, machine-readable fact (check-delivery refuses Phase B while precond.exit==2 && ack!=true).
+# ITEMS_JSON = the array BODY (comma-joined quoted strings, no brackets), e.g. '"branch not pushed"'.
+# Lives here (not in check-preconditions.sh) so the two marker writers share ONE surgery and are both
+# unit-testable by sourcing the lib. Object-scoped ack read + position-independent strip (drift #2): it
+# no longer deletes a trailing preflight object. Preserves an existing precond.ack:true. No marker ⇒ no-op.
+record_precond() {
+  local ex="$1" items="$2" marker mk ack newmk
+  marker="$(resolve_marker)"
+  [ -n "$marker" ] && [ -f "$marker" ] || return 0
+  mk="$(cat "$marker" 2>/dev/null || true)"
+  [ -n "$mk" ] || return 0
+  ack="$(field_in_obj "$mk" precond ack)"; [ "$ack" = "true" ] || ack="false"
+  mk="$(_marker_strip_obj_key "$mk" precond)"
+  newmk="${mk%\}}"
+  if [ "${newmk: -1}" = "{" ]; then
+    newmk="${newmk}\"precond\":{\"exit\":$ex,\"items\":[$items],\"ack\":$ack}}"
+  else
+    newmk="${newmk},\"precond\":{\"exit\":$ex,\"items\":[$items],\"ack\":$ack}}"
+  fi
+  case "$newmk" in
+    \{*\})
+      printf '%s\n' "$newmk" > "$marker" 2>/dev/null || return 1
+      echo "check-preconditions: recorded precond(exit=$ex) to $marker — Phase B is blocked until acknowledged (ack:true)." >&2 ;;
+    *)
+      echo "check-preconditions: WARN — could not update precond in $marker; left unchanged." >&2; return 1 ;;
+  esac
+}
+
 # json_has_obj_field ARRAYJSON FIELD VALUE → rc 0 if any object in the array-of-objects ARRAYJSON has
 # "FIELD":"VALUE" (whitespace-tolerant). Used by check-seam-ack to test seam_acks presence (AC-5).
 json_has_obj_field() {
