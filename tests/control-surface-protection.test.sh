@@ -103,5 +103,32 @@ marker "$T" "{\"run\":\"r\",\"intends_code\":true,\"source\":\"harness\",\"basel
 _chk "AC-Empty unresolvable base → FAIL (diagnosed)" "$(_run "$T")" 1
 rm -rf "$T"
 
+# --- F1 (review fix) — cross-batch ack reuse: an EARLIER batch's control-surface ack must NOT satisfy a
+# LATER batch's surface edit. The ack must fall within the CURRENT batch window (current_batch_base..HEAD),
+# not merely post-baseline. Batch 1 makes a benign, acked AGENTS.md edit and CLOSES at c1; Batch 2 tampers
+# bin/check-x.sh with NO new ack → its window base is c1, so the c1 ack no longer covers it → FAIL.
+T="$(mktemp -d)"; base="$(mk_repo "$T")"
+c1="$(commit_change "$T" AGENTS.md)"
+mkdir -p "$T/.runs/r"
+printf '{"id":"B1","kind":"code","status":"closed","commit_shas":["%s"],"code_delta":1}\n' "$c1" > "$T/.runs/r/batches.jsonl"
+commit_change "$T" bin/check-x.sh >/dev/null
+printf '{"id":"B2","kind":"code","status":"announced","files":["bin/check-x.sh"]}\n' >> "$T/.runs/r/batches.jsonl"
+marker "$T" "{\"run\":\"r\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$base\",\"seam_acks\":[{\"seam\":\"control-surface\",\"commit\":\"$c1\",\"note\":\"AGENTS.md:1 batch 1\"}]}"
+_chk "F1 batch-1 ack does NOT cover batch-2 surface edit → FAIL (window-scoped)" "$(_run "$T")" 1
+rm -rf "$T"
+
+# --- F2 (review fix) — a TARGET repo that does not ship references/control-surface.txt is NOT subject to
+# the plugin's standing seam: editing its own generically-named AGENTS.md → skip (PASS), not a false FAIL.
+# (The control surface is a property of the repo being delivered; the plugin's own list is not imposed on
+# unrelated targets.) Uses a bare init WITHOUT the list file.
+T="$(mktemp -d)"
+( cd "$T" && git init -q && git config user.email t@t && git config user.name t \
+  && echo seed > seed && git add . && git commit -qm base ) >/dev/null 2>&1
+base="$(cd "$T" && git rev-parse --short HEAD)"
+commit_change "$T" AGENTS.md >/dev/null
+marker "$T" "{\"run\":\"r\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$base\"}"; ledger_code "$T"
+_chk "F2 target without control-surface.txt edits AGENTS.md → PASS (not the plugin's surface)" "$(_run "$T")" 0
+rm -rf "$T"
+
 [ "$fail" -eq 0 ] && { echo "control-surface-protection.test.sh: OK"; exit 0; }
 echo "control-surface-protection.test.sh: $fail failure(s)" >&2; exit 1
