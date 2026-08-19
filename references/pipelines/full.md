@@ -29,12 +29,15 @@ Run roles in this order:
 > **Harness-verified reviewer dispatch (v2.21.0).** The four mandatory review roles above —
 > `integration-verifier`, `architecture-reviewer`, `regression-guardian`, `code-reviewer` — **must** be
 > dispatched as subagents with an identifiable review `subagent_type`
-> (`independent-reviewer` / [`review-types.txt`](../review-types.txt)), never inline. A `PreToolUse[Agent]`
-> recorder + the `role-dispatch` `verify-batch` gate (`bin/check-role-dispatch.sh`) fail a `kind:code`
-> batch closed with **zero** reviewer-typed dispatches and announce that the run degraded to single-thread
-> (spec-169). *Enforcement floor:* the gate verifies **≥1** reviewer-typed dispatch (the total-collapse
-> signature), **not that all four roles dispatched** — a partial collapse is not caught (ADR-0008); dispatch
-> all four as doctrine, not because the gate counts them. See [subagent-dispatch.md](../subagent-dispatch.md#harness-verified-reviewer-dispatch-v2210-exec-role-integrity--required-in-fullmvp).
+> **each under its own dedicated type** (`integration-verifier`, `architecture-reviewer`,
+> `regression-guardian`, **`tb-code-reviewer`** — `agents/<role>.md`, all-four-role-dispatch v2.22.0), never
+> inline. A `PreToolUse[Agent]` recorder + the `role-dispatch` `verify-batch` gate
+> (`bin/check-role-dispatch.sh`) fail a `kind:code` batch closed with **zero** reviewer-typed dispatches and
+> announce that the run degraded to single-thread (spec-169). *Enforcement floor:* ≥1 is the hard floor;
+> **under enforce** (marker `references/role-dispatch-enforce` committed after the dispatch probe confirms
+> four-distinct-slug adoption) the gate additionally requires **all four** mandated roles covered per batch —
+> ships **warn** until then, so per-role is doctrine now and mechanically enforced once adoption is measured.
+> See [subagent-dispatch.md](../subagent-dispatch.md#harness-verified-reviewer-dispatch-v2210-exec-role-integrity--required-in-fullmvp).
 
 ## Optional Roles (triggered by spec content, not part of normal flow)
 

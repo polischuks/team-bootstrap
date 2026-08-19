@@ -152,3 +152,39 @@ it entirely.
 So this is **degradation-proof, not forgery-proof** — it catches a total inline collapse, not a decoy
 review-typed no-op dispatch (that residual stays the ADR-0006 quality/willingness limit). It proves a
 reviewer was *dispatched and independent* (≠ builder type), not that the review was *good*.
+
+## Per-role dispatch — each review role under its OWN type (all-four-role-dispatch, v2.22.0)
+
+The exec-role-integrity gate above catches only a **total** collapse (zero reviewer dispatches); a *partial*
+collapse — 1 of the 4 mandatory roles dispatching while 3 ran inline — passes it. Per-role dispatch raises the
+floor to the mandate: **each mandatory review role dispatches under its own dedicated, collision-free type** —
+`integration-verifier`, `architecture-reviewer`, `regression-guardian`, and **`tb-code-reviewer`** (NOT bare
+`code-reviewer` — the `team-bootstrap:` prefix is not reliably delivered in `subagent_type`, so the slug must
+be attributable even when bare). This is **required** because `subagent_type` alone could not otherwise
+attribute a dispatch to a role: `integration-verifier` and `regression-guardian` had byte-identical preferred
+types, and `independent-reviewer` was shared by all four. **This supersedes** exec-role-integrity's "dispatch
+all four under `independent-reviewer`" mandate.
+
+`references/review-types.txt` maps each dedicated slug → its role (an optional TAB column); `role_of_slug`
+attributes, `roles_covered`/`missing_roles` compute the gap, and `check-role-dispatch.sh` / `check-review-ack.sh`
+enforce that a `full`/`mvp` `kind:code` batch covers **every** mandated role (`full` = all four; `mvp` =
+`code-reviewer` + `regression-guardian`). Dispatch the dedicated agents in `agents/` (`integration-verifier.md`
+etc.), supplying the role playbook `references/roles/<role>.md` in the prompt.
+
+**warn → enforce ramp (mechanical, evidence-gated, no version tripwire).** The per-role floor ships in **warn**
+(announces the missing roles, does not fail — the ≥1 floor stays hard beneath it). It flips to **enforce** only
+when the tracked marker **`references/role-dispatch-enforce`** is present (override: `TEAM_BOOTSTRAP_ROLE_FLOOR`).
+Committing that marker is the deliberate, evidenced flip — done **only after the dispatch probe** below confirms
+adoption, like a governed waiver. Until then the gate stays warn: the plugin **cannot force** the orchestrator
+to emit four distinct slugs (the harness boundary), so enforce is reachable only once measured — never claimed
+without proof, never a silent flip.
+
+**Dispatch probe (the enforce precondition).** Before committing `references/role-dispatch-enforce`, run a real
+marked `/deliver` and confirm from `.runs/<run>/dispatch.jsonl` that (a) each dedicated slug is dispatchable,
+(b) it lands **verbatim** in `tool_input.subagent_type` under prefix-loss, and (c) the orchestrator emits **four
+distinct** slugs (not routed through the one `independent-reviewer` agent → ∅ attribution). Cross-check against
+the warn-phase `role-telemetry.jsonl`. Only a passing probe authorizes the enforce commit.
+
+**Honest limit carried forward:** per-role raises the **degradation** floor (partial collapse now caught under
+enforce), NOT the **forgery** bar — four decoy no-op dispatches under the four dedicated types still satisfy it.
+Dispatch ≠ completion (`check-review-ack`).

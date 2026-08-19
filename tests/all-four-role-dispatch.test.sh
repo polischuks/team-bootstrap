@@ -85,5 +85,23 @@ m_mvp="$( cd "$B" && TEAM_BOOTSTRAP_RUN=br bash -c '. "'"$here"'/../bin/delivery
 _chk "$m_mvp" "regression-guardian" "mvp, only code role covered → regression-guardian missing"
 rm -rf "$B"
 
+echo "check-delivery self-test survives a doc-only HEAD (Batch C robustness, HEAD-independent):"
+# A doc-final delivery (this milestone's batches C/Z) makes HEAD a doc-only commit; check-delivery's
+# self-test must still pass — its delta fixtures must anchor to a NON-DOC commit reachable from HEAD,
+# not raw HEAD (else the code_delta:1 fixture reads as forged against a doc HEAD's non-doc delta=0).
+# Simulated in an isolated temp repo whose HEAD is deliberately doc-only, so the assertion is stable
+# regardless of THIS repo's HEAD (a tests/*.sh change here would otherwise make HEAD non-doc and mask it).
+D_hd="$(mktemp -d)"
+( cd "$D_hd" && git init -q && git config user.email t@t && git config user.name t
+  printf 'echo x\n' > s.sh && git add . && git commit -qm code
+  printf 'doc\n' > d.md && git add . && git commit -qm doc ) >/dev/null 2>&1   # HEAD = doc-only
+if ( cd "$D_hd" && bash "$here/../bin/check-delivery.sh" --self-test ) >/dev/null 2>&1; then
+  echo "  PASS check-delivery --self-test green under a doc-only HEAD"
+else
+  echo "  FAIL check-delivery --self-test red under a doc-only HEAD (HEAD-coupled delta fixture — breaks doc-final batches)" >&2
+  fail=$((fail + 1))
+fi
+rm -rf "$D_hd"
+
 if [ "$fail" -eq 0 ]; then echo "all-four-role-dispatch.test.sh: OK"; exit 0; fi
 echo "all-four-role-dispatch.test.sh: $fail case(s) FAILED" >&2; exit 1
