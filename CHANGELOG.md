@@ -2,6 +2,38 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.22.0] - 2026-08-19
+
+### Added
+- **Setup-readiness layer — Phase 0 gate (`preflight-setup-phase`, ADR-0009).** A first-class
+  [`bin/check-preflight.sh`](bin/check-preflight.sh) runs **before Phase A** and fails **closed** when a
+  project is not scaffolded for the pre-implementation flow (constitution resolved via `feature.json`,
+  `specs/`, parseable `feature.json`, `docs/adr/`, an armed run marker; `specs/TEMPLATE/`/`AGENTS.md`/
+  unresolvable `baseline_sha` are warnings). Detect-and-report only (never creates scaffold); `jq`-free
+  (portable). It records a blocking `preflight:{exit,gaps,ack}` verdict, and [`bin/check-delivery.sh`](bin/check-delivery.sh)
+  blocks batch-announce for an `intends_code` run with a real `kind:code` batch while `preflight` is
+  **absent** (gate never ran — P10 not-run), failing-and-unacked, or **present-but-unreadable**. Symmetric
+  to the end-of-Phase-A `precond` deliverability gate; the two answer different questions ("can it *run*
+  here?" vs "can it *land*?") and record different marker keys. Wired into the `/deliver` command as a
+  Phase 0 step ([commands/deliver.md](commands/deliver.md)); doctrine in
+  [references/preflight-setup.md](references/preflight-setup.md).
+
+### Fixed
+- **Marker self-disarm on a trailing object (write side).** `record_precond`'s greedy end-anchored strip
+  only worked while `precond` was the marker's terminal field; once Phase 0 appends `preflight` after it,
+  the end-of-Phase-A `check-preconditions` run would silently delete the trailing `preflight` on every
+  normal run — the feature disarming itself with no error. Both marker writers now use a position-
+  independent `_marker_strip_obj_key` (object analog of `_marker_strip_flat_key`), and both delivery
+  clauses read via object-scoped `field_in_obj`, so `precond` and `preflight` can share `exit`/`ack`
+  safely. `record_precond`/`record_preflight` are single-sourced in `delivery-lib.sh`.
+
+### Notes
+- No constitution bump (stays 1.0.1): the gate operationalizes P3/P6/P10/P11 as already written.
+  Enumeration invariants unchanged (51 role playbooks / 6 pipelines). The non-ackable gap class proposed
+  in the spec was **descoped** as unreachable at the enforcement layer (a non-git target fails
+  `check-preflight` with no run to ack; a bad baseline is warn-only) — all `preflight` verdicts are ackable
+  via `preflight.ack`.
+
 ## [2.21.0] - 2026-08-18
 
 ### Added
