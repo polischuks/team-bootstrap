@@ -87,6 +87,25 @@ remote reachable, is the branch it deploys from actually pushed, does publicatio
 Learning "the deploy builds from `main` and this branch was never pushed" belongs at the plan (a
 ten-second `git ls-remote`), not at the end of a route that dead-ends at a wall.
 
+## The default branch is written only via a human-authorized PR (machine layer)
+
+A delivery commits on a feature/milestone branch; the default branch (`main`/`master`) is reached only
+through a PR a human approves. Two layers back this:
+
+- **In-plugin (machine-enforced, best-effort):** a `PreToolUse[Bash]` guard,
+  [`../bin/guard-git.sh`](../bin/guard-git.sh), blocks a `git commit`/`git merge` while HEAD is the default
+  branch during an armed run (exit 2, "branch first") — see [ADR-0011](../docs/adr/0011-branch-protection-gate.md).
+  It is best-effort git-parsing (catches the default/accidental invocation, not a determined/obfuscated one),
+  marker-gated, total, and kill-switchable (`TEAM_BOOTSTRAP_DELIVERY_GATE=off` / `TEAM_BOOTSTRAP_GITGUARD=off`).
+  Remediation is safe: branch, then retry.
+- **NOT in-plugin (the honest backstop):** `git push` / `gh pr merge` / `gh api …/merges` — the remote writes
+  — are **not** gated by the plugin. A chained push cannot be extracted from a command string false-pass-
+  safely, and any in-plugin "push ack" is orchestrator-self-written in the same turn (hollow, chat auth is
+  invisible to a hook). Remote-write authorization stays P5 prose + the `check-preconditions` advisory; the
+  **hard** enforcement is the remote's **branch-protection** (required PR review), an org config the plugin
+  cannot force. Configure it — that is the layer that actually stops an unauthorized write to the shared
+  branch.
+
 ## See also
 
 - [failure-policy.md](failure-policy.md) — manual-approval semantics, stop reasons, retry rules

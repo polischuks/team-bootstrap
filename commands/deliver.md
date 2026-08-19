@@ -149,8 +149,12 @@ Then, for **each batch, one at a time**:
    briefs, or another review pass. Answering a delivery command with analysis is a policy violation
    ([../references/failure-policy.md](../references/failure-policy.md)); the ledger enforces it — the
    next batch cannot be announced until this one is closed by a real run.
-4. Subagents **commit locally only**. Never `git push` or deploy without explicit per-call
-   authorization (constitution P5 / irreversibility).
+4. Subagents **commit locally only**, on a feature/milestone branch — never on the default branch
+   (`main`/`master`). A `PreToolUse[Bash]` guard ([../bin/guard-git.sh](../bin/guard-git.sh), ADR-0011)
+   machine-blocks a `git commit`/`git merge` while HEAD is the default branch (exit 2, "branch first") on an
+   armed run — best-effort, kill-switchable. Never `git push` or deploy without explicit per-call
+   authorization (constitution P5 / irreversibility); the guard does **not** gate push/`gh pr merge` (the
+   remote's branch-protection is that backstop — [../references/irreversibility.md](../references/irreversibility.md)).
    **Red-first, per batch (P9).** At this batch's red step — after writing the failing test(s), before
    implementing — run `${CLAUDE_PLUGIN_ROOT}/bin/tdd-red.sh --batch <this batch id>`; it requires the
    `Test:` suite to actually fail and records the observed red. `check-tdd.sh` (in `verify-batch`, below)
@@ -200,7 +204,7 @@ Then, for **each batch, one at a time**:
    the shipped commit + a `file:line` note. When a batch legitimately edits the machinery (this repo does,
    every milestone), record `{"seam":"control-surface","commit":"<sha>","note":"path:line — why"}` after the
    commit that ships the change; a non-`control-surface`-named ack does not satisfy the standing seam
-   ([ADR-0011](../docs/adr/0011-control-surface-protection.md), [enforcement.md](../references/enforcement.md)).
+   ([ADR-0012](../docs/adr/0012-control-surface-protection.md), [enforcement.md](../references/enforcement.md)).
    All are the same recorded-blocking-ack machinery as the precond ack — honesty is the human's, presence is
    enforced.
 6. After the batch **passes all gates**: `verify-batch.sh` has stamped the ledger entry

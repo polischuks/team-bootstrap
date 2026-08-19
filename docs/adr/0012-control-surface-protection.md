@@ -1,4 +1,4 @@
-# 0011 — Control-surface protection (declaration discipline, not immutability)
+# 0012 — Control-surface protection (declaration discipline, not immutability)
 
 - **Status:** Accepted
 - **Date:** 2026-08-19
@@ -77,4 +77,5 @@ adds nothing at the same forgeable ceiling.
   discipline), and dogfooded from this milestone's own Batch A onward.
 - No constitution bump (v1.0.1): this operationalizes P10/P3/P6/P11 as already written. No new gate script;
   `references/control-surface.txt` + `delivery-lib.sh:control_surface_globs()` are the only additions.
-- Asset **MINOR → 2.24.0** (hardening a shipped gate + a standing seam + a CI example).
+- Asset **MINOR → 2.26.0** (hardening a shipped gate + a standing seam + a CI example; 2.24.0 at delivery,
+  rebumped over `branch-protection-gate`'s 2.25.0 at merge).

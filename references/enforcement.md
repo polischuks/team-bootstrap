@@ -184,12 +184,12 @@ so F1/F2/F3 actually run (out of this plugin's scope — P7 — documented). Thi
 three on itself, and building A's marker rewrite surfaced + locked a real bash-5.2 `${//}` backslash-leak
 in the marker-write path — the exact seam C guards. See [ADR-0005](../docs/adr/0005-closure-fidelity-gates.md).
 
-### The control surface is a standing high-risk seam (v2.24.0)
+### The control surface is a standing high-risk seam (v2.26.0)
 
 Every layer above protects the *delivered code*; nothing protected the **gates and hooks themselves**.
 `check-gate-integrity` catches *green-by-skip* but has no notion of the expected gate set, so a batch that
 edited `bin/check-*.sh` into vacuity or dropped a gate line from `verify-batch.sh` was caught by nothing.
-The control-surface-protection milestone ([ADR-0011](../docs/adr/0011-control-surface-protection.md))
+The control-surface-protection milestone ([ADR-0012](../docs/adr/0012-control-surface-protection.md))
 extends P10's non-disableability to the machinery itself — **without a new gate**. `check-seam-ack` now
 treats the single-source glob set in [`control-surface.txt`](control-surface.txt) (read by
 `delivery-lib.sh:control_surface_globs()`, BASH_SOURCE-relative like `review_types()`) as an
