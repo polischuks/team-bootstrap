@@ -51,13 +51,26 @@ if [ "${1:-}" = "--self-test" ]; then
   _doctree=""; [ -n "$_docblob" ] && _doctree="$( { git ls-tree HEAD 2>/dev/null; printf '100644 blob %s\t__ac2_docfix.md\n' "$_docblob"; } | git mktree 2>/dev/null || true)"
   _docfix=""; [ -n "$_doctree" ] && _docfix="$(git commit-tree "$_doctree" -p HEAD -m 'doc-only fixture (AC-2)' 2>/dev/null || true)"
   [ -n "$_docfix" ] || _docfix="$_c"   # fallback: old behavior if object plumbing is unavailable
+  # PASS-fixtures need a REACHABLE code (non-doc) commit whose stamped delta the recompute accepts.
+  # $_c=HEAD is only non-doc when the batch under test ships code — during a DOC-ONLY batch (a pure
+  # deliver.md/AGENTS.md commit, no VERSION/JSON change) HEAD's non-doc delta is 0, so a $_c fixture
+  # is un-earnable (>0 required yet must be <= recompute 0). Walk back to the newest non-doc ancestor
+  # and stamp its ACTUAL recomputed delta (nondoc_delta_of_shas — the SAME function verify-batch stamps
+  # with), so these fixtures are green whether or not the batch under test is doc-only.
+  _codesha="$_c"; _codedelta="$(nondoc_delta_of_shas "$_c" 2>/dev/null || echo 0)"
+  if [ "${_codedelta:-0}" -lt 1 ]; then
+    for _s in $(git rev-list --max-count=40 HEAD 2>/dev/null); do
+      _ss="$(git rev-parse --short "$_s" 2>/dev/null)"; _sd="$(nondoc_delta_of_shas "$_ss" 2>/dev/null || echo 0)"
+      if [ "${_sd:-0}" -ge 1 ]; then _codesha="$_ss"; _codedelta="$_sd"; break; fi
+    done
+  fi
   _expect() { # runname expected_exit desc
     local rn="$1" exp="$2" desc="$3" got
     TEAM_BOOTSTRAP_RUN="$rn" "$0" "$st_root" >/dev/null 2>&1; got=$?
     if [ "$got" -eq "$exp" ]; then echo "  PASS (exit $got) $desc"
     else echo "  FAIL (exit $got, want $exp) $desc" >&2; fail=$((fail + 1)); fi
   }
-  _dirs="_st_ac1 _st_ac2 _st_ac4a _st_ac4b _st_ac5 _st_f2i _st_f2ii _st_ac7 _st_ac9 _st_ws"
+  _dirs="_st_ac1 _st_ac2 _st_ac4a _st_ac4b _st_ac5 _st_f2i _st_f2ii _st_ac7 _st_ac9 _st_ws _st_pfabs _st_pffail _st_pfack _st_pfbad"
   for d in $_dirs; do mkdir -p ".runs/$d"; done
   # F-A recompute (no marker → binding off) -----------------------------------
   printf '%s\n' '{"id":"F1","kind":"code","status":"closed","commit_shas":["deadbeef"],"code_delta":137}' > .runs/_st_ac1/batches.jsonl
@@ -82,28 +95,44 @@ if [ "${1:-}" = "--self-test" ]; then
   # AC-5 — no marker + no ledger → skip (isolated run dir, empty) --------------
   _expect _st_ac5 0 "AC-5 — no marker + no ledger → exit 0 (not a delivery run)"
   # F-2 commit-to-batch binding (active marker) -------------------------------
-  printf '%s\n' '{"run":"_st_f2i","intends_code":true,"source":"harness"}' > .runs/_st_f2i/RUN
+  printf '%s\n' '{"run":"_st_f2i","intends_code":true,"source":"harness","preflight":{"exit":0,"gaps":[],"ack":false}}' > .runs/_st_f2i/RUN
   printf '%s\n%s\n' \
     '{"id":"C1","kind":"code","status":"closed","commit_shas":["'"$_c"'"],"code_delta":5}' \
     '{"id":"C2","kind":"code","status":"closed","commit_shas":["'"$_c"'"],"code_delta":5}' > .runs/_st_f2i/batches.jsonl
   _expect _st_f2i 1 "F-2 — a commit reused across two closed batches → rejected"
-  printf '%s\n' '{"run":"_st_f2ii","intends_code":true,"source":"harness","baseline_sha":"'"$_c"'"}' > .runs/_st_f2ii/RUN
+  printf '%s\n' '{"run":"_st_f2ii","intends_code":true,"source":"harness","baseline_sha":"'"$_c"'","preflight":{"exit":0,"gaps":[],"ack":false}}' > .runs/_st_f2ii/RUN
   printf '%s\n' '{"id":"C1","kind":"code","status":"closed","commit_shas":["'"$_root"'"],"code_delta":5}' > .runs/_st_f2ii/batches.jsonl
   _expect _st_f2ii 1 "F-2 — a commit predating the run baseline → rejected"
   # F-D recorded-ack + F-E risk_rank ordering -----------------------------------
-  printf '%s\n' '{"run":"_st_ac7","intends_code":true,"source":"harness","precond":{"exit":2,"items":[],"ack":false}}' > .runs/_st_ac7/RUN
+  printf '%s\n' '{"run":"_st_ac7","intends_code":true,"source":"harness","precond":{"exit":2,"items":[],"ack":false},"preflight":{"exit":0,"gaps":[],"ack":false}}' > .runs/_st_ac7/RUN
   printf '%s\n' '{"id":"B1","kind":"code","status":"announced"}' > .runs/_st_ac7/batches.jsonl
   _expect _st_ac7 1 "AC-7 — unacknowledged Phase-A advisory + announced batch → blocked"
-  printf '%s\n' '{"run":"_st_ac9","intends_code":true,"source":"harness"}' > .runs/_st_ac9/RUN
+  printf '%s\n' '{"run":"_st_ac9","intends_code":true,"source":"harness","preflight":{"exit":0,"gaps":[],"ack":false}}' > .runs/_st_ac9/RUN
   printf '%s\n%s\n' \
     '{"id":"C1","kind":"code","status":"closed","commit_shas":["'"$_c"'"],"code_delta":5,"risk_rank":"feature"}' \
     '{"id":"C2","kind":"code","status":"closed","commit_shas":["'"$_c1"'"],"code_delta":5,"risk_rank":"irreversible"}' > .runs/_st_ac9/batches.jsonl
   _expect _st_ac9 1 "AC-9 — a higher-rank code batch closing after a lower-rank one → rejected"
+  # F-P — Phase-0 setup-readiness (preflight) enforcement, symmetric to F-D (AC-6/AC-7). Gated on a real
+  # kind:code batch in the ledger so direct/marker-less runs are never regressed (D10).
+  printf '%s\n' '{"run":"_st_pfabs","intends_code":true,"source":"harness"}' > .runs/_st_pfabs/RUN
+  printf '%s\n' '{"id":"B1","kind":"code","status":"announced"}' > .runs/_st_pfabs/batches.jsonl
+  _expect _st_pfabs 1 "F-P — intends_code + code batch + NO preflight verdict → blocked (not-run, P10)"
+  printf '%s\n' '{"run":"_st_pffail","intends_code":true,"source":"harness","preflight":{"exit":1,"gaps":["missing: feature.json"],"ack":false}}' > .runs/_st_pffail/RUN
+  printf '%s\n' '{"id":"B1","kind":"code","status":"announced"}' > .runs/_st_pffail/batches.jsonl
+  _expect _st_pffail 1 "F-P — failing preflight (exit=1) unacked + code batch → blocked"
+  printf '%s\n' '{"run":"_st_pfack","intends_code":true,"source":"harness","preflight":{"exit":1,"gaps":["x"],"ack":true}}' > .runs/_st_pfack/RUN
+  # an ANNOUNCED (in-flight) code batch needs no commit/delta recompute — inflight_code=1 saves it from
+  # AC-4; the only thing that could block is the preflight verdict, which is acked here. HEAD-agnostic.
+  printf '%s\n' '{"id":"C1","kind":"code","status":"announced"}' > .runs/_st_pfack/batches.jsonl
+  _expect _st_pfack 0 "F-P — failing preflight but ACKED + in-flight code batch → allowed (ack unblocks)"
+  printf '%s\n' '{"run":"_st_pfbad","intends_code":true,"source":"harness","preflight":{"gaps":[],"ack":false}}' > .runs/_st_pfbad/RUN
+  printf '%s\n' '{"id":"B1","kind":"code","status":"announced"}' > .runs/_st_pfbad/batches.jsonl
+  _expect _st_pfbad 1 "F-P — preflight present but no exit field (unreadable) → blocked, not fail-open (P10)"
   # R-2 — a resolvable but UNREACHABLE-from-HEAD commit (dangling / sibling) must not close
   dangling="$(git commit-tree "HEAD^{tree}" -m "dangling probe" 2>/dev/null || true)"
   if [ -n "$dangling" ]; then
     mkdir -p .runs/_st_r2
-    printf '%s\n' '{"run":"_st_r2","intends_code":true,"source":"harness","baseline_sha":"'"$_c"'"}' > .runs/_st_r2/RUN
+    printf '%s\n' '{"run":"_st_r2","intends_code":true,"source":"harness","baseline_sha":"'"$_c"'","preflight":{"exit":0,"gaps":[],"ack":false}}' > .runs/_st_r2/RUN
     printf '%s\n' "{\"id\":\"C1\",\"kind\":\"code\",\"status\":\"closed\",\"commit_shas\":[\"$dangling\"],\"code_delta\":1}" > .runs/_st_r2/batches.jsonl
     _expect _st_r2 1 "R-2 — commit unreachable from HEAD rejected (sibling/discarded)"
     rm -rf .runs/_st_r2
@@ -112,7 +141,7 @@ if [ "${1:-}" = "--self-test" ]; then
   fi
   # R-1 — a marker-less run must report WEAK (marker=absent), not "git-verified"
   mkdir -p .runs/_st_r1
-  printf '%s\n' '{"id":"C1","kind":"code","status":"closed","commit_shas":["'"$_c"'"],"code_delta":1}' > .runs/_st_r1/batches.jsonl
+  printf '%s\n' '{"id":"C1","kind":"code","status":"closed","commit_shas":["'"$_codesha"'"],"code_delta":'"$_codedelta"'}' > .runs/_st_r1/batches.jsonl
   case "$(TEAM_BOOTSTRAP_RUN=_st_r1 "$0" "$st_root" 2>/dev/null || true)" in
     *"marker=absent"*) echo "  PASS (msg) R-1 — marker-less run reports WEAK [marker=absent], not git-verified" ;;
     *) echo "  FAIL R-1 — marker-less success did not enumerate marker=absent" >&2; fail=$((fail + 1)) ;;
@@ -121,8 +150,8 @@ if [ "${1:-}" = "--self-test" ]; then
   # N-1 — active marker with NO baseline: must pass (reachable-from-HEAD) but the success
   # line must enumerate predate=OFF — never claim full F-2 when the predate anchor did not run.
   mkdir -p .runs/_st_n1
-  printf '%s\n' '{"run":"_st_n1","intends_code":true,"source":"harness"}' > .runs/_st_n1/RUN
-  printf '%s\n' '{"id":"C1","kind":"code","status":"closed","commit_shas":["'"$_c"'"],"code_delta":1,"risk_rank":"feature"}' > .runs/_st_n1/batches.jsonl
+  printf '%s\n' '{"run":"_st_n1","intends_code":true,"source":"harness","preflight":{"exit":0,"gaps":[],"ack":false}}' > .runs/_st_n1/RUN
+  printf '%s\n' '{"id":"C1","kind":"code","status":"closed","commit_shas":["'"$_codesha"'"],"code_delta":'"$_codedelta"',"risk_rank":"feature"}' > .runs/_st_n1/batches.jsonl
   case "$(TEAM_BOOTSTRAP_RUN=_st_n1 "$0" "$st_root" 2>/dev/null || true)" in
     *"predate=OFF"*) echo "  PASS (msg) N-1 — active-marker-no-baseline reports predate=OFF (not full F-2)" ;;
     *) echo "  FAIL N-1 — success line claimed more than was enforced" >&2; fail=$((fail + 1)) ;;
@@ -154,12 +183,18 @@ cd "$root" 2>/dev/null || { echo "check-delivery: bad dir '$root'" >&2; exit 64;
 # skip so non-delivery / docs-only sessions are never nagged (AC-5).
 marker="$(resolve_marker)"
 intends=""; baseline=""; precond_exit=""; precond_ack=""
+preflight_exit=""; preflight_ack=""; preflight_present=0
 if [ -n "$marker" ] && [ -f "$marker" ]; then
   mk="$(cat "$marker" 2>/dev/null || true)"
   intends="$(field_bool "$mk" intends_code)"
   baseline="$(field_str "$mk" baseline_sha)"
-  precond_exit="$(field_num "$mk" exit)"     # precond.exit (only "exit" key in the marker)
-  precond_ack="$(field_bool "$mk" ack)"      # precond.ack  (only "ack" key in the marker)
+  # OBJECT-SCOPED reads (drift #2): exit/ack now live in BOTH precond and preflight, so a global
+  # first-match would cross-read once two objects are present. field_in_obj isolates each object.
+  precond_exit="$(field_in_obj "$mk" precond exit)"     # precond.exit
+  precond_ack="$(field_in_obj "$mk" precond ack)"       # precond.ack
+  preflight_exit="$(field_in_obj "$mk" preflight exit)" # preflight.exit
+  preflight_ack="$(field_in_obj "$mk" preflight ack)"   # preflight.ack
+  case "$mk" in *'"preflight":{'*) preflight_present=1 ;; esac
   # R-3 + N-1: an active run whose baseline does not resolve — whether ABSENT or a bogus
   # value — has its predate check silently disarmed. Flag it loudly for BOTH cases (the
   # success line also enumerates predate=OFF; reachable-from-HEAD still holds regardless).

@@ -123,9 +123,18 @@ if [ ! -x "$gate" ]; then
 else
   if "$gate" --self-test >/dev/null 2>&1; then echo "  PASS check-preflight --self-test"; else
     echo "  FAIL check-preflight --self-test" >&2; fail=$((fail + 1)); fi
-  # E2E (AC-9): this repo is fully scaffolded → exit 0
-  if "$gate" "$here" >/dev/null 2>&1; then echo "  PASS E2E: setup-ready on this repo (exit 0)"; else
-    echo "  FAIL E2E: check-preflight did not pass on this fully-scaffolded repo" >&2; fail=$((fail + 1)); fi
+  # E2E (AC-9): this repo's COMMITTED scaffold (constitution, specs/, feature.json, docs/adr/, AGENTS.md)
+  # is complete; the only variable is an *active* run marker (gitignored, present only during a delivery).
+  # Assert hermetically: either setup-ready (marker present → exit 0), OR the sole HARD gap is the run
+  # marker (fresh clone / CI). A real scaffold regression (e.g. docs/adr removed) still fails.
+  out="$("$gate" "$here" 2>&1)"; rc=$?
+  hard="$(printf '%s\n' "$out" | grep -c 'HARD')"
+  if [ "$rc" -eq 0 ]; then
+    echo "  PASS E2E: setup-ready on this repo (active marker, exit 0)"
+  elif printf '%s\n' "$out" | grep -q "no run marker" && [ "$hard" -eq 1 ]; then
+    echo "  PASS E2E: this repo's committed scaffold is complete (only gap is the transient run marker)"
+  else
+    echo "  FAIL E2E: check-preflight found scaffold gap(s) on this repo beyond the run marker (rc=$rc, hard=$hard)" >&2; fail=$((fail + 1)); fi
   # E2E (AC-9): a bare git repo → exit 1 with >=4 named gaps
   bt="$(mktemp -d)"; git -C "$bt" init -q >/dev/null 2>&1
   out="$("$gate" "$bt" 2>&1)"; rc=$?
@@ -134,6 +143,33 @@ else
     echo "  FAIL E2E: bare dir expected exit 1 with >=4 HARD gaps, got rc=$rc gaps=$gaps" >&2; fail=$((fail + 1)); fi
   rm -rf "$bt"
 fi
+
+# ---------------------------------------------------------------------------------------------------
+# Group 5 — check-delivery.sh Phase-0 (preflight) enforcement (B3): black-box, in the recognized test
+# path. A code-delivering run must have passed Phase 0 or acked a gap (AC-6/AC-7); absent or unreadable
+# verdict fail-closes (P10); acked failing verdict is allowed.
+# ---------------------------------------------------------------------------------------------------
+cd="$here/bin/check-delivery.sh"
+_pf_case() { # LABEL RUN_JSON WANT_RC
+  local label="$1" runjson="$2" want="$3" d rc
+  d="$(mktemp -d)"; mkdir -p "$d/.runs/r"
+  printf '%s\n' "$runjson" > "$d/.runs/r/RUN"
+  printf '%s\n' '{"id":"B1","kind":"code","status":"announced"}' > "$d/.runs/r/batches.jsonl"
+  ( cd "$d" && TEAM_BOOTSTRAP_RUN=r "$cd" "$d" ) >/dev/null 2>&1; rc=$?
+  if [ "$rc" -eq "$want" ]; then echo "  PASS $label"; else
+    echo "  FAIL $label — want rc=$want got $rc" >&2; fail=$((fail + 1)); fi
+  rm -rf "$d"
+}
+_pf_case "B3 absent preflight + code batch → blocked (P10 not-run)" \
+  '{"run":"r","intends_code":true,"source":"harness"}' 1
+_pf_case "B3 failing preflight (exit=1) unacked + code batch → blocked" \
+  '{"run":"r","intends_code":true,"source":"harness","preflight":{"exit":1,"gaps":["missing: feature.json"],"ack":false}}' 1
+_pf_case "B3 failing preflight ACKED + code batch → allowed" \
+  '{"run":"r","intends_code":true,"source":"harness","preflight":{"exit":1,"gaps":["x"],"ack":true}}' 0
+_pf_case "B3 present-but-no-exit preflight → blocked (not fail-open)" \
+  '{"run":"r","intends_code":true,"source":"harness","preflight":{"gaps":[],"ack":false}}' 1
+_pf_case "B3 passing preflight (exit=0) + code batch → allowed" \
+  '{"run":"r","intends_code":true,"source":"harness","preflight":{"exit":0,"gaps":[],"ack":false}}' 0
 
 [ "$fail" -eq 0 ] && { echo "preflight-setup.test.sh: OK"; exit 0; }
 echo "preflight-setup.test.sh: $fail failure(s)" >&2; exit 1
