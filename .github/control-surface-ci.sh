@@ -37,6 +37,12 @@ if ! git rev-parse --verify -q "$base^{commit}" >/dev/null 2>&1; then
   echo "control-surface-ci: FAIL — trusted base ref '$base' does not resolve; cannot compare (fetch it, e.g. 'git fetch origin main'). Failing closed, not open." >&2
   exit 1
 fi
+# Disjoint history (no common ancestor) makes the three-dot diff error out (rc 128) → empty output would
+# read as "nothing changed"; fail loud, never open (defense-in-depth beyond the resolve guard).
+if ! git merge-base "$base" HEAD >/dev/null 2>&1; then
+  echo "control-surface-ci: FAIL — base '$base' and HEAD share no common ancestor; cannot compute a PR diff. Failing closed, not open." >&2
+  exit 1
+fi
 
 # _hits FILE → rc 0 if FILE matches any control-surface token (equals / under-dir / glob, * spans /).
 # Mirrors the authoritative matcher bin/check-seam-ack.sh:_intersects; iterated line-by-line so glob

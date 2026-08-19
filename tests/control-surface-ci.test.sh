@@ -66,6 +66,15 @@ T="$(mktemp -d)"; mk_repo "$T" >/dev/null
 _chk "F2 unresolvable base ref → FAIL (loud, not open)" "$(_run "$T" no-such-ref)" 1
 rm -rf "$T"
 
+# --- F-resid — disjoint history (no common ancestor) fails LOUD, never open. base is a real (resolvable)
+# SHA on the original line; HEAD is an orphan branch → the base resolves but they share no merge-base.
+T="$(mktemp -d)"; mk_repo "$T" >/dev/null
+origtip="$( cd "$T" && git rev-parse HEAD )"
+( cd "$T" && git checkout -q --orphan orphan && git rm -rfq . 2>/dev/null; mkdir -p bin \
+  && echo x > bin/check-newgate.sh && git add -A && git commit -qm "orphan surface edit" ) >/dev/null 2>&1
+_chk "F-resid disjoint base/HEAD → FAIL (loud, not open)" "$(_run "$T" "$origtip")" 1
+rm -rf "$T"
+
 # --- AC-Co — the disclosed KNOWN GAP is documented honestly in the script header (doc assertion).
 if grep -qiE 'Control-Surface-Ack' "$ci" \
    && grep -qiE 'branch.protection' "$ci" \
