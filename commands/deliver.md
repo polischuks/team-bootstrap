@@ -193,9 +193,16 @@ Then, for **each batch, one at a time**:
    (a `run-rate|irreversible` batch cannot ack — declare the tooling or split the risk); **B**
    (`check-completeness`) requires this batch's `task_ids` to be `[x]` in `tasks.md` — so mark them the
    moment the work is done-and-self-tested, before the backstop runs; **C** (`check-seam-ack`) blocks a
-   batch touching a recorded `high_risk_seams` path until you record a `seam_acks` entry naming the seam +
-   the shipped commit + a `file:line` note. All three are the same recorded-blocking-ack machinery as the
-   precond ack — honesty is the human's, presence is enforced.
+   batch touching a recorded `high_risk_seams` path — **or the always-present `control-surface` seam** (the
+   plugin's own machinery: `bin/check-*.sh`, `verify-batch.sh`, `delivery-lib.sh`, `tdd-red.sh`,
+   `record-dispatch.sh`, `hooks/*.json`, `.claude`, `.mcp.json`, `AGENTS.md`, `commands`, `agents`, the list
+   file — from `references/control-surface.txt`) — until you record a `seam_acks` entry naming the seam +
+   the shipped commit + a `file:line` note. When a batch legitimately edits the machinery (this repo does,
+   every milestone), record `{"seam":"control-surface","commit":"<sha>","note":"path:line — why"}` after the
+   commit that ships the change; a non-`control-surface`-named ack does not satisfy the standing seam
+   ([ADR-0011](../docs/adr/0011-control-surface-protection.md), [enforcement.md](../references/enforcement.md)).
+   All are the same recorded-blocking-ack machinery as the precond ack — honesty is the human's, presence is
+   enforced.
 6. After the batch **passes all gates**: `verify-batch.sh` has stamped the ledger entry
    `status:closed` with `commit_shas` + `code_delta`. **Read closure from the ledger — do not assert
    it.** A batch is closed only if its entry says so; if it still reads `announced`, the pipeline did
