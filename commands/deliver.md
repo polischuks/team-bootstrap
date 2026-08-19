@@ -17,6 +17,34 @@ push without auth"). If that path is unavailable, follow the same 6-step discipl
 
 ---
 
+## Phase 0 — Setup-readiness (hard, before Phase A)
+
+Before any analytical step, run `${CLAUDE_PLUGIN_ROOT}/bin/check-preflight.sh` — the setup-readiness
+gate. `check-preconditions.sh` (end of Phase A) asks *"can the output land?"*; this asks the other
+half, at the cheapest point: *"is the project scaffolded so the pre-implementation flow can even run
+correctly here?"* It verifies — fail-**closed** — that the scaffold every downstream gate needs is
+present: a constitution resolvable **via `feature.json`**, the `specs/` dir, a parseable `feature.json`,
+`docs/adr/`, and a run marker with `intends_code`+`baseline_sha`. `specs/TEMPLATE/`, `AGENTS.md`, and an
+unresolvable `baseline_sha` are **warnings**, not blockers. It is **detect-and-report only** — it never
+creates scaffold.
+
+- **Exit 0** — setup-ready; it records `preflight:{exit:0,…}` into the run marker and Phase A proceeds.
+- **Exit 1 (hard)** — it prints the named gap set and records `preflight:{exit:1,gaps:[…]}`. **STOP.**
+  Surface the gaps to the human; fix the scaffold (you never create it silently) and re-run, **or**, on
+  the human's go-ahead, set `preflight.ack:true` in `.runs/<run>/RUN` — then Phase A may proceed
+  (`check-delivery` treats `preflight.exit!=0 && preflight.ack==true` as acknowledged; the ack applies to
+  the whole verdict, not per-gap). The one gap no ack can paper over is a target that is **not a git
+  repo**: `check-preflight` fails on it outright, and a non-git target has no delivery run to record an
+  ack in — fix the repo, don't try to proceed.
+
+This is a **blocking machine fact**, not a spoken note: `check-delivery.sh` refuses to let an
+`intends_code` run announce a `kind:code` batch while `preflight` is absent (gate never ran), or
+`preflight.exit!=0 && preflight.ack!=true`. A skipped Phase 0 cannot silently pass. Phase 0 **complements**
+— does not replace — the end-of-Phase-A deliverability precondition (they answer different questions and
+record different marker keys: `preflight` vs `precond`).
+
+---
+
 ## Phase A — Pre-implementation (autonomous, in order, no skipping)
 
 Run each step by invoking the matching skill via the Skill tool. Do not stop between steps

@@ -90,33 +90,8 @@ if [ "$hard" -gt 0 ]; then
   echo "check-preconditions: $hard hard blocker(s) — STOP, do not enter Phase B until delivery can land." >&2
   exit 1
 fi
-# record_precond EXIT ITEMS_JSON — stamp the run marker's precond so the advisory is a
-# BLOCKING, machine-readable fact (check-delivery.sh refuses to let Phase B proceed while
-# precond.exit==2 and precond.ack!=true). Preserves an already-recorded ack. No marker => no-op.
-record_precond() {
-  local ex="$1" items="$2" marker mk ack newp prefix newmk
-  marker="$(resolve_marker)"
-  [ -n "$marker" ] && [ -f "$marker" ] || return 0
-  mk="$(cat "$marker" 2>/dev/null || true)"
-  [ -n "$mk" ] || return 0
-  ack="$(field_bool "$mk" ack)"; [ "$ack" = "true" ] || ack="false"
-  newp="\"precond\":{\"exit\":$ex,\"items\":[$items],\"ack\":$ack}"
-  # Pure-bash rewrite — NO sed: the items text can contain '/' (e.g. "push/deploy"),
-  # which would collide with a sed s/// delimiter, silently fail, and clobber the marker.
-  prefix="${mk%,\"precond\":*}"                 # strip an existing trailing precond object
-  if [ "$prefix" != "$mk" ]; then
-    newmk="${prefix},${newp}}"
-  else
-    newmk="${mk%?},${newp}}"                    # no precond yet: insert before final brace
-  fi
-  case "$newmk" in
-    \{*\})
-      printf '%s\n' "$newmk" > "$marker" 2>/dev/null || true
-      echo "check-preconditions: recorded precond(exit=$ex) to $marker — Phase B is blocked until acknowledged (ack:true)." >&2 ;;
-    *)
-      echo "check-preconditions: WARN — could not update precond in $marker; left unchanged." >&2 ;;
-  esac
-}
+# record_precond (stamps the deliverability advisory into the run marker) now lives in delivery-lib.sh
+# — one shared marker-write surgery for both precond and preflight, unit-tested via tests/preflight-setup.test.sh.
 
 if [ "$advisory" -gt 0 ]; then
   echo "check-preconditions: $advisory advisory item(s) — surface these and get acknowledgement before Phase B." >&2

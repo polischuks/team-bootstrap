@@ -24,3 +24,7 @@ Machine-read by the harness gates (`bin/quality-gate.sh`, `bin/check-tdd.sh`,
   This gives the red-first gate (`bin/tdd-red.sh` → `bin/check-tdd.sh`) a runnable suite on
   team-bootstrap's own delivery runs.
 - All `bin/*.sh` carry an embedded `--self-test`; CI additionally runs `shellcheck --severity=error`.
+- **Phase-0 gate:** `bin/check-preflight.sh` is the setup-readiness gate `/deliver` runs before Phase A
+  (setup-readiness, vs `check-preconditions.sh`'s end-of-Phase-A deliverability). Its E2E: on a fully
+  scaffolded repo it exits 0; on a bare `git init` dir it exits 1 with the named scaffold gaps. It records
+  a `preflight` verdict that `check-delivery.sh` enforces at batch-announce time.
