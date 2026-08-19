@@ -34,3 +34,19 @@ independent-reviewer
 code-reviewer
 architect-reviewer
 architect-review
+
+# --- dedicated per-role review types (milestone all-four-role-dispatch): slug<TAB>role ---
+# The role column attributes a dispatch to ONE of the four MANDATED review roles (the per-role floor
+# that raises exec-role-integrity's ≥1 total-collapse floor). Generics above carry NO role column, so
+# they satisfy ≥1 but do not attribute. Both string forms are listed per slug because the
+# `team-bootstrap:` prefix is not reliably delivered in tool_input.subagent_type. Slugs are
+# collision-free with the host generics (the code-review role uses `tb-code-reviewer`, NOT bare
+# `code-reviewer`). Read via delivery-lib.sh role_of_slug (column 2, tab-safe).
+team-bootstrap:integration-verifier	integration-verifier
+integration-verifier	integration-verifier
+team-bootstrap:architecture-reviewer	architecture-reviewer
+architecture-reviewer	architecture-reviewer
+team-bootstrap:regression-guardian	regression-guardian
+regression-guardian	regression-guardian
+team-bootstrap:tb-code-reviewer	code-reviewer
+tb-code-reviewer	code-reviewer

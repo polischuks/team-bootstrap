@@ -128,7 +128,62 @@ resolve_sha() { git rev-parse --verify -q "$1^{commit}" 2>/dev/null; }
 review_types() {
   local f; f="$(dirname "${BASH_SOURCE[0]}")/../references/review-types.txt"
   [ -f "$f" ] || return 0
-  grep -vE '^[[:space:]]*(#|$)' "$f" 2>/dev/null | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -vE '^$' || true
+  # column 1 is the slug; an optional TAB-separated column 2 is the attributed role (all-four-role-dispatch).
+  # `cut -f1` (TAB delimiter) returns the whole line for a tabless generic (identity) and the slug for a
+  # `slug<TAB>role` dedicated line — so a tab-bearing dedicated slug still matches is_review_type (B1: a
+  # whole-line match would let the interior tab break it → dropped at record → DOA).
+  grep -vE '^[[:space:]]*(#|$)' "$f" 2>/dev/null | cut -f1 | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -vE '^$' || true
+}
+
+# role_of_slug SLUG → the role attributed to SLUG (column 2), or EMPTY if SLUG is a generic (no column 2)
+# or absent. Tab-safe: `cut -s -f2` yields nothing on a tabless generic line, so a generic can NEVER
+# phantom-attribute (a naive cut -f2 / ${line#*TAB} would return the whole line). Milestone all-four.
+role_of_slug() {
+  local slug="$1" line c1 c2 f
+  [ -n "$slug" ] || return 0
+  f="$(dirname "${BASH_SOURCE[0]}")/../references/review-types.txt"
+  [ -f "$f" ] || return 0
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    c1="$(printf '%s' "$line" | cut -f1 | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+    [ "$c1" = "$slug" ] || continue
+    c2="$(printf '%s' "$line" | cut -s -f2 | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+    printf '%s' "$c2"
+    return 0
+  done <<EOF
+$(grep -vE '^[[:space:]]*(#|$)' "$f" 2>/dev/null)
+EOF
+}
+
+# mandated_roles PIPELINE → the review roles a pipeline REQUIRES dispatched (space-separated), else empty.
+# full → all four; mvp → the code-reviewer+regression-guardian subset; single-thread/unknown → none.
+mandated_roles() {
+  case "$1" in
+    full) printf '%s' "integration-verifier architecture-reviewer regression-guardian code-reviewer" ;;
+    mvp)  printf '%s' "code-reviewer regression-guardian" ;;
+    *)    : ;;
+  esac
+}
+
+# roles_covered BID → space-separated DISTINCT mandated roles with >=1 attributed dispatch in the active
+# run's dispatch.jsonl for batch BID. Generics (empty role) are DROPPED, so a generic-only batch yields
+# empty and fails enforce naming all mandated roles. Empty BID is non-matchable (parity with FIX#3).
+roles_covered() {
+  local bid="$1" marker rundir disp line stype rbatch role seen=""
+  [ -n "$bid" ] || return 0
+  marker="$(resolve_marker)"; [ -n "$marker" ] || return 0
+  rundir="$(dirname "$marker")"; disp="$rundir/dispatch.jsonl"
+  [ -f "$disp" ] || return 0
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    rbatch="$(field_str "$line" batch)"
+    [ "$rbatch" = "$bid" ] || continue
+    stype="$(field_str "$line" subagent_type)"
+    role="$(role_of_slug "$stype")"
+    [ -n "$role" ] || continue
+    case " $seen " in *" $role "*) ;; *) seen="${seen:+$seen }$role" ;; esac
+  done < "$disp"
+  printf '%s' "$seen"
 }
 
 # is_review_type SLUG → rc 0 if SLUG EXACTLY matches a review type (anchored, whole-slug), else 1.
