@@ -149,8 +149,12 @@ Then, for **each batch, one at a time**:
    briefs, or another review pass. Answering a delivery command with analysis is a policy violation
    ([../references/failure-policy.md](../references/failure-policy.md)); the ledger enforces it — the
    next batch cannot be announced until this one is closed by a real run.
-4. Subagents **commit locally only**. Never `git push` or deploy without explicit per-call
-   authorization (constitution P5 / irreversibility).
+4. Subagents **commit locally only**, on a feature/milestone branch — never on the default branch
+   (`main`/`master`). A `PreToolUse[Bash]` guard ([../bin/guard-git.sh](../bin/guard-git.sh), ADR-0011)
+   machine-blocks a `git commit`/`git merge` while HEAD is the default branch (exit 2, "branch first") on an
+   armed run — best-effort, kill-switchable. Never `git push` or deploy without explicit per-call
+   authorization (constitution P5 / irreversibility); the guard does **not** gate push/`gh pr merge` (the
+   remote's branch-protection is that backstop — [../references/irreversibility.md](../references/irreversibility.md)).
    **Red-first, per batch (P9).** At this batch's red step — after writing the failing test(s), before
    implementing — run `${CLAUDE_PLUGIN_ROOT}/bin/tdd-red.sh --batch <this batch id>`; it requires the
    `Test:` suite to actually fail and records the observed red. `check-tdd.sh` (in `verify-batch`, below)

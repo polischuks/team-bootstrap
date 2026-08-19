@@ -2,6 +2,31 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.25.0] - 2026-08-19
+
+### Added
+- **Commit-on-default branch guard (`branch-protection-gate`, ADR-0011).** A new **blocking**
+  `PreToolUse[Bash]` hook [`bin/guard-git.sh`](bin/guard-git.sh) that, on an armed `intends_code` run,
+  refuses a `git commit`/`git merge` while HEAD is the **default branch** (`main`/`master`) — exit 2,
+  "branch first" — so a delivery commit lands on a feature branch and the default branch is reached only via
+  a human-authorized PR (hardens P5 at the harness; enforcement-only, no new constitution invariant).
+  Registered on a `PreToolUse` `Bash`-tool matcher ([hooks/hooks.json](hooks/hooks.json)).
+  - **JSON-decode extractor** (not the first-quote-truncating `field_str`): un-escapes `\" \\ \n \t \r \/`
+    (leaves `\uXXXX` literal — a documented non-goal); splits segments on `&& || | ; ( )` **and newline** so a
+    chained or multi-line `git commit` cannot slip; **subcommand-position** scan so a commit *message* or an
+    `echo` that merely mentions the tokens never triggers a block.
+  - **Total + fail-safe + kill-switch.** Anything unrecognized/undecodable/malformed-marker → exit 0 (never
+    breaks the shell); `TEAM_BOOTSTRAP_DELIVERY_GATE=off` / `TEAM_BOOTSTRAP_GITGUARD=off` disable it.
+    **Portable termination** — `timeout`/`gtimeout` wrap the branch-detection git calls only if present
+    (else bare, since they are local + instant), so it still fires on a host without `timeout`.
+  - **Disclosed limits (P11).** Best-effort git-parsing (catches the default/accidental invocation, not an
+    obfuscated one); branch-detection falls back to `main`/`master` when `origin/HEAD` is unset — always in
+    the safe direction. **`git push` / `gh pr merge` / `gh api` are NOT gated** (no false-pass-safe extraction
+    of a chained push; a hollow in-turn ack) — remote-write authorization stays P5 prose + the
+    `check-preconditions` advisory, and the hard backstop is the remote's **branch-protection** (required PR
+    review). Doctrine: [references/irreversibility.md](references/irreversibility.md),
+    [commands/deliver.md](commands/deliver.md).
+
 ## [2.23.0] - 2026-08-19
 
 ### Added
