@@ -59,5 +59,31 @@ c4="$( cd "$T" && TEAM_BOOTSTRAP_RUN=tr bash -c '. "'"$here"'/../bin/delivery-li
 _chk "$c4" "code-reviewer" "4× tb-code-reviewer → {code-reviewer} only (not a bare count)"
 rm -rf "$T"
 
+echo "role_floor_mode (Batch B) — FLOOR override > committed marker presence:"
+B="$(mktemp -d)"
+unset TEAM_BOOTSTRAP_ROLE_FLOOR; export TEAM_BOOTSTRAP_ROLE_ENFORCE_MARKER="$B/enforce"; rm -f "$B/enforce"
+_chk "$(role_floor_mode)"                                  "warn"    "no marker → warn"
+touch "$B/enforce"
+_chk "$(role_floor_mode)"                                  "enforce" "marker present → enforce"
+_chk "$(TEAM_BOOTSTRAP_ROLE_FLOOR=warn role_floor_mode)"   "warn"    "FLOOR=warn beats marker-present"
+rm -f "$B/enforce"
+_chk "$(TEAM_BOOTSTRAP_ROLE_FLOOR=enforce role_floor_mode)" "enforce" "FLOOR=enforce beats marker-absent"
+
+echo "missing_roles (Batch B) — mandated − covered:"
+mkdir -p "$B/.runs/br"
+printf '{"run":"br","pipeline":"full","intends_code":true,"source":"harness","baseline_sha":"x"}\n' > "$B/.runs/br/RUN"
+{ printf '{"batch":"B1","subagent_type":"integration-verifier"}\n'
+  printf '{"batch":"B1","subagent_type":"architecture-reviewer"}\n'
+  printf '{"batch":"B1","subagent_type":"regression-guardian"}\n'
+  printf '{"batch":"B1","subagent_type":"tb-code-reviewer"}\n'
+  printf '{"batch":"B2","subagent_type":"tb-code-reviewer"}\n'; } > "$B/.runs/br/dispatch.jsonl"
+m_all="$( cd "$B" && TEAM_BOOTSTRAP_RUN=br bash -c '. "'"$here"'/../bin/delivery-lib.sh"; missing_roles full B1' )"
+_chk "$m_all" "" "full, all four covered → nothing missing"
+m_one="$( cd "$B" && TEAM_BOOTSTRAP_RUN=br bash -c '. "'"$here"'/../bin/delivery-lib.sh"; missing_roles full B2 | grep -c integration-verifier' )"
+_chk "$m_one" "1" "full, only code role covered → integration-verifier is missing"
+m_mvp="$( cd "$B" && TEAM_BOOTSTRAP_RUN=br bash -c '. "'"$here"'/../bin/delivery-lib.sh"; missing_roles mvp B2' )"
+_chk "$m_mvp" "regression-guardian" "mvp, only code role covered → regression-guardian missing"
+rm -rf "$B"
+
 if [ "$fail" -eq 0 ]; then echo "all-four-role-dispatch.test.sh: OK"; exit 0; fi
 echo "all-four-role-dispatch.test.sh: $fail case(s) FAILED" >&2; exit 1
