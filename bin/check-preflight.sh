@@ -93,6 +93,12 @@ _run() {
     case "$line" in
       HARD*) hard=$((hard + 1))
              echo "check-preflight: HARD — $msg" >&2
+             # JSON-escape before interpolating into the recorded gaps array: a feature.json path
+             # value can carry a backslash (field_str stops at the first '"', so `a\"b` is captured as
+             # `a\`), which would otherwise write an invalid \-escape into the marker. sed on stdin with
+             # FIXED patterns (no value in the s/// delimiter → no '/'-in-path collision); escape '\'
+             # first, then '"'. Keeps the marker valid JSON on any input (review nb#1).
+             msg="$(printf '%s' "$msg" | sed 's/\\/\\\\/g; s/"/\\"/g')"
              arr="${arr:+$arr,}\"$msg\"" ;;
       WARN*) echo "check-preflight: WARN — $msg" >&2 ;;
     esac
@@ -161,6 +167,15 @@ _self_test() {
   "$0" "$T" >/dev/null 2>&1 || true
   if grep -q '"preflight"' "$T/.runs/r/RUN"; then echo "  FAIL recorded into a non-intends_code marker (should skip, AC-5)" >&2; fail=$((fail + 1)); else
     echo "  PASS AC-5 graceful skip — no record when not intends_code"; fi
+  # marker integrity (review nb#1): a declared path whose captured value ends in a backslash must NOT
+  # write an invalid \-escape into the recorded gaps — the marker stays valid JSON.
+  T="$(mktemp -d)"; _scaffold "$T"
+  printf '{"specs_dir":"a\\"b","constitution":"constitution.md","adr_dir":"docs/adr"}\n' > "$T/feature.json"
+  "$0" "$T" >/dev/null 2>&1 || true
+  if python3 -c 'import sys,json; json.load(open(sys.argv[1]))' "$T/.runs/r/RUN" >/dev/null 2>&1; then
+    echo "  PASS marker stays valid JSON with backslash-bearing declared path"
+  else
+    echo "  FAIL marker corrupted (invalid JSON) by backslash in a gap message" >&2; fail=$((fail + 1)); fi
   # AC-9 — bare git dir names >=4 HARD gaps
   bt="$(mktemp -d)"; git -C "$bt" init -q
   out="$("$0" "$bt" 2>&1)"; rc=$?; gaps="$(printf '%s\n' "$out" | grep -c 'HARD')"
