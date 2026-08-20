@@ -184,18 +184,34 @@ _marker_strip_obj_key() {
 # _marker_strip_obj_key — NO sed. Preserves an existing preflight.ack:true and every other field (incl. a
 # sibling precond). Validates single {…} before writing; no marker ⇒ no-op. Mirrors record_precond.
 record_preflight() {
-  local ex="$1" gaps="$2" marker mk ack newmk
+  local ex="$1" gaps="$2" marker mk ack by reason expires pf newmk
   marker="$(resolve_marker)"
   [ -n "$marker" ] && [ -f "$marker" ] || return 0
   mk="$(cat "$marker" 2>/dev/null || true)"
   [ -n "$mk" ] || return 0
   ack="$(field_in_obj "$mk" preflight ack)"; [ "$ack" = "true" ] || ack="false"
+  # WS-B — PRESERVE the governed-waiver fields (by/reason/expires) across a re-run of check-preflight, so
+  # re-recording the verdict never wipes a human-recorded preflight waiver (arch-review finding 5). The
+  # bare boolean ack alone no longer clears a failing preflight — check-delivery requires governed_waiver_ok.
+  by="$(field_in_obj "$mk" preflight by)"
+  reason="$(field_in_obj "$mk" preflight reason)"
+  expires="$(field_in_obj "$mk" preflight expires)"
+  # JSON-escape the preserved free-text before re-interpolating: a human `by`/`reason` can carry a `"` or
+  # `\`, which field_str captures raw (stopping at the first inner quote, leaving a trailing `\`). Emitting
+  # that raw would write invalid JSON and corrupt the marker (review HIGH-2). Escape `\` then `"`, exactly
+  # as check-preflight escapes gap strings (review nb#1) — keeps the marker valid JSON on any input.
+  by="$(printf '%s' "$by" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  reason="$(printf '%s' "$reason" | sed 's/\\/\\\\/g; s/"/\\"/g')"
   mk="$(_marker_strip_obj_key "$mk" preflight)"
+  pf="\"exit\":$ex,\"gaps\":$gaps,\"ack\":$ack"
+  [ -n "$by" ]      && pf="$pf,\"by\":\"$by\""
+  [ -n "$reason" ]  && pf="$pf,\"reason\":\"$reason\""
+  [ -n "$expires" ] && pf="$pf,\"expires\":\"$expires\""
   newmk="${mk%\}}"
   if [ "${newmk: -1}" = "{" ]; then
-    newmk="${newmk}\"preflight\":{\"exit\":$ex,\"gaps\":$gaps,\"ack\":$ack}}"
+    newmk="${newmk}\"preflight\":{$pf}}"
   else
-    newmk="${newmk},\"preflight\":{\"exit\":$ex,\"gaps\":$gaps,\"ack\":$ack}}"
+    newmk="${newmk},\"preflight\":{$pf}}"
   fi
   case "$newmk" in
     \{*\}) printf '%s\n' "$newmk" > "$marker" 2>/dev/null || return 1 ;;
@@ -467,6 +483,37 @@ is_test_path() {
     done
   fi
   return 1
+}
+
+# _test_cmd [DOC] → the runnable `Test:` command from the agents-md contract (AGENTS.md, else CLAUDE.md),
+# or empty (N/A|none ⇒ empty). PROMOTED here from check-tdd.sh (pipeline-integrity-hardening WS-B, the T0
+# the preflight descope skipped) so check-tdd AND check-preflight read ONE definition of "the project's
+# test command" and cannot diverge. Reads from the current directory (cd into the target first).
+_test_cmd() {
+  local doc="${1:-}" f c
+  if [ -z "$doc" ]; then for f in AGENTS.md CLAUDE.md; do [ -f "$f" ] && { doc="$f"; break; }; done; fi
+  [ -n "$doc" ] && [ -f "$doc" ] || return 0
+  c="$(grep -iE "^[[:space:]]*[-*]?[[:space:]]*Test:" "$doc" 2>/dev/null | head -1 | grep -oE '`[^`]+`' | head -1 | tr -d '`')"
+  case "$c" in N/A|n/a|None|none) c="" ;; esac
+  printf '%s' "$c"
+}
+
+# governed_waiver_ok ACK BY REASON EXPIRES [NOW] → rc 0 IFF ACK=="true" AND by/reason/expires are all
+# non-empty AND expires is YYYY-MM-DD AND expires >= NOW (default TEAM_BOOTSTRAP_NOW, else today). ONE
+# reusable definition of "a dated, attributed, unexpired waiver" (OQ-5), shared by the preflight enforcer
+# and any future ackable gate: a bare one-time ack is NOT a waiver — it must not become a standing free
+# pass across a later independent failure on the same run (WS-B AC-B5). The comparison is a lexicographic
+# string compare of YYYY-MM-DD (which sorts chronologically), so it needs NO date arithmetic and is
+# darwin-portable (no `date -d`; only the default `now` touches `date`, overridable via TEAM_BOOTSTRAP_NOW).
+governed_waiver_ok() {
+  local ack="$1" by="$2" reason="$3" expires="$4" now="${5:-${TEAM_BOOTSTRAP_NOW:-$(date +%Y-%m-%d)}}"
+  [ "$ack" = "true" ] && [ -n "$by" ] && [ -n "$reason" ] && [ -n "$expires" ] || return 1
+  case "$expires" in
+    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) : ;;
+    *) return 1 ;;
+  esac
+  [ "$expires" \< "$now" ] && return 1   # expired (string compare on YYYY-MM-DD = chronological)
+  return 0
 }
 
 # read_test_globs [DOC] → echo the space-separated globs on a `TestGlobs:` line in

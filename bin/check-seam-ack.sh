@@ -108,8 +108,46 @@ _commit_touches_seam() {
   return 1
 }
 
+# _dirty_control_surface TGT_ROOT GLOBS_NL → echo every WORKING-TREE-changed path (modified, added, or
+# untracked) that intersects the control surface. WS-C / AC-C2: verify-batch runs every gate from the
+# on-disk working tree, so an UNCOMMITTED edit to a gate takes effect for the run yet never appears in
+# `git diff base..HEAD` — the seam that inspects only the committed window is blind to it. This scans
+# `git status --porcelain` so the actor must COMMIT machinery changes (making them ack-able) rather than
+# neuter a gate in place. Scoped to the control surface (AC-C3: a dirty non-surface feature file is
+# ignored). Rename entries ("orig -> new") are matched on the destination.
+_dirty_control_surface() {
+  local tgt="$1" globs_nl="$2" tok status path expect_src=0
+  # WS-E / AC-E2 — a `git status` ERROR (corrupt index, unreadable HEAD, …) must fail CLOSED, not silently
+  # emit nothing: the process substitution below swallows git's exit code, so on error the loop would
+  # produce zero dirty paths and the caller would read the tree as clean — a fail-OPEN on the exact tamper
+  # class this probe guards (review #3). Probe the exit first; on failure emit a sentinel so the caller
+  # treats the tree as dirty (fail-closed), mirroring _batch_files' fail-closed posture.
+  if ! git -C "$tgt" status --porcelain >/dev/null 2>&1; then
+    printf '%s\n' "(git status failed — cannot verify a clean control-surface working tree; fail-closed)"
+    return 0
+  fi
+  # -z + core.quotepath=false: NUL-delimited, UNQUOTED, UNESCAPED records. git's default `core.quotepath`
+  # wraps a path containing a space / non-ASCII byte / quote / backslash in escaped double quotes; the naive
+  # `${line#???}` left the quotes, so `_intersects` silently dropped such a surface path (review HIGH,
+  # fail-OPEN). Such names are reachable under the whole-tree surface entries (.claude / commands / agents),
+  # so AC-C2's "no uncommitted surface edit escapes" was not held. A rename/copy (R/C) is TWO NUL fields —
+  # the XY record's path AND a following bare source path; BOTH are tested so a `git mv` that moves a surface
+  # gate OUT of its namespace is still flagged (review MEDIUM). read -d '' splits on NUL; IFS= keeps spaces.
+  while IFS= read -r -d '' tok; do
+    [ -n "$tok" ] || continue
+    if [ "$expect_src" -eq 1 ]; then
+      expect_src=0
+      _intersects "$tok" "$globs_nl" && printf '%s\n' "$tok"
+      continue
+    fi
+    status="${tok:0:2}"; path="${tok:3}"     # "XY PATH": 2 status cols, a space, then the (unquoted) path
+    case "$status" in *[RC]*) expect_src=1 ;; esac
+    [ -n "$path" ] && _intersects "$path" "$globs_nl" && printf '%s\n' "$path"
+  done < <(git -C "$tgt" -c core.quotepath=false status --porcelain -z 2>/dev/null)
+}
+
 _evaluate() {
-  local marker mk seams tgt_root cs_lines files bf_rc viol=0 name paths_str paths_nl touched f acks ac acf okc reason bfull wbase
+  local marker mk seams tgt_root cs_lines files bf_rc viol=0 name paths_str paths_nl touched f acks ac acf okc reason bfull wbase cs_globs_nl dirty
   marker="$(resolve_marker)"
   [ -n "$marker" ] && [ -f "$marker" ] || { echo "check-seam-ack: no active delivery run — skipping (governs armed runs)."; return 0; }
   mk="$(cat "$marker" 2>/dev/null || true)"
@@ -134,6 +172,22 @@ _evaluate() {
     seams="$(printf '%s\n%s\n' "$seams" "$cs_lines" | grep -vE '^[[:space:]]*$')"
   fi
   [ -n "$seams" ] || { echo "check-seam-ack: no high_risk_seams recorded (and no control surface) — nothing to guard."; return 0; }
+
+  # WS-C dirty-tree precondition (AC-C2): before inspecting the committed window, fail closed on ANY
+  # uncommitted control-surface modification in the working tree — the on-disk version is what
+  # verify-batch actually executes, so an unseen edit takes effect for the run. Only fires when the
+  # target ships a control surface (cs_lines) and only for surface paths (AC-C3 keeps feature edits clear).
+  if [ -n "$cs_lines" ]; then
+    cs_globs_nl="$(control_surface_globs_in "$tgt_root")"
+    dirty="$(_dirty_control_surface "$tgt_root" "$cs_globs_nl")"
+    if [ -n "$dirty" ]; then
+      {
+        echo "  FAIL: uncommitted modification(s) to control-surface path(s) in the working tree — verify-batch runs every gate from the working tree, so an unseen edit takes effect for the run yet never appears in git diff base..HEAD. Commit machinery changes so the seam can see and require an ack (AC-C2):"
+        printf '%s\n' "$dirty" | while IFS= read -r _p; do [ -n "$_p" ] && echo "    $_p"; done
+      } >&2
+      return 1
+    fi
+  fi
 
   files="$(_batch_files)"; bf_rc=$?
   case "$bf_rc" in

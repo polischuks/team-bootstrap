@@ -2,6 +2,106 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.28.0] - 2026-08-20
+
+> **pipeline-integrity-hardening** — closes the four confirmed bypass gaps the 2026-08-20 audit
+> ([specs/pipeline-execution-integrity/findings.md](specs/pipeline-execution-integrity/findings.md) A–D)
+> found in the *shipped* implementations of A–D. Hardening, not new capability: each already-shipped
+> gate is made to actually hold on the path the audit walked. Landing batch-by-batch; WS-A first.
+
+### Fixed
+- **WS-A — the role/review gate is now anchored at RUN-CLOSE, not only at batch-close (ADR-0014).**
+  The Stop hook (`bin/delivery-stop-hook.sh`) previously let a degraded `full`/`mvp` run that committed
+  code *inline without announcing a batch* stop at exit 0 — no reviewer, user not told (the spec-169
+  collapse surviving on the no-batch path). Now:
+  - the direct-delivery `code-since-baseline` allowance is **refused for `full`/`mvp`** and, fail-closed,
+    for an **absent/unrecognized `pipeline`** — only `single-thread` (no role fan-out) keeps it (AC-A1/A2/A5);
+  - the Stop hook **independently asserts the ≥1 independent-reviewer floor** over closed `kind:code`
+    batches via the shared `reviewer_dispatch_count` — a `full`/`mvp` run whose closed batch shows zero
+    reviewer dispatch is blocked at run-close, not only inside `verify-batch` (AC-A3).
+  - **Live posture (AC-A4):** the hard, live guarantee is **≥1 independent reviewer** (enforced under
+    both `warn` and `enforce`). The per-role "all four" floor remains **staged in `warn`** pending the
+    adoption probe (as ADR-0009 already discloses); no doc claims all four roles as live-enforced.
+  - Retained honest limit: WS-A stays at the ADR-0006 marker/dispatch **forgeability ceiling** (a forged
+    `status:closed` with `dispatch.jsonl` deleted is trusted) — the win is *harness-observed dispatch at
+    run-close*, not tamper-proofing.
+- **WS-C — the control-surface set no longer misses registered hook/gate bodies, and a dirty working tree
+  can no longer neuter a gate unseen (ADR-0014).**
+  - Added `bin/guard-git.sh`, `bin/quality-gate.sh`, `bin/delivery-stop-hook.sh`, `bin/delivery-marker-init.sh`
+    to `references/control-surface.txt` — each is a registered hook or a `verify-batch` gate body, so a
+    vacuity edit (`exit 0`) to any of them is now a declared, ack-required control-surface event, not a
+    silent gate-disable (AC-C1).
+  - `check-seam-ack` now fails closed on **uncommitted** modifications to any control-surface path in the
+    working tree (`git status --porcelain -z -c core.quotepath=false` — NUL-delimited, unquoted, so a
+    surface path with a space/non-ASCII name under a whole-tree entry isn't hidden by git's default quoting;
+    both sides of a staged rename are checked), even when `git diff base..HEAD` is clean of them — closing the
+    hole where a gate edited in place takes effect for the run (verify-batch executes the working tree) yet
+    never appears in the committed window (AC-C2). Scoped to the control surface — a dirty feature file is
+    unaffected (AC-C3).
+  - **KNOWN GAP (AC-C4):** the two additions that are *hook* bodies (`delivery-stop-hook`,
+    `delivery-marker-init`) are weaker than a `verify-batch` gate — a gutted hook body is caught only at the
+    *next* batch close, which a tamperer who already neutered the Stop gate can avoid by never closing. And
+    the circular core (`check-seam-ack`/`verify-batch`/`delivery-lib`/`control-surface.txt`) co-edited in one
+    diff still escapes in-plugin. Both stay delegated to repo/org posture (CI-from-trusted-ref; sandbox-runtime).
+- **WS-D — the commit/merge-on-default branch guard no longer fails open on three parse bypasses (ADR-0014).**
+  `bin/guard-git.sh`:
+  - **B1** — the env-assignment strip now also handles a **single-quoted** value with a space
+    (`FOO='a b' git commit`), not only the double-quoted twin the finding-#1 fix covered (AC-D1).
+  - **B2 / fail-closed posture (OQ-4)** — a git subcommand that is **not a recognized git subcommand** (an
+    alias such as the `ci` from `git -c alias.ci=commit ci`, or an obfuscating token) is now blocked on the
+    default branch under an armed run (AC-D2). Recognized non-commit/merge subcommands — reads *and*
+    mutations like `tag`/`stash`/`rebase`, and the explicitly-not-gated `push`/`pull` — stay **fail-open**,
+    keeping the false-positive rate low so the guard is never trained-away (R5, AC-D4). Only a *clean*
+    bare-subcommand-shaped token fails closed; punctuation-carrying debris from the quote-blind segment
+    split (e.g. a `status'` fragment out of `git log --grep 'x; git status'`) is treated as split debris and
+    allowed, so a read with a shell metacharacter in a quoted arg never false-blocks on the default branch.
+  - **B3** — `--git-dir` / `--work-tree` are now honored for target-repo resolution, so
+    `git --git-dir=… --work-tree=… commit` is judged against the repo it actually writes to, not the guard's
+    cwd (AC-D3).
+  - **KNOWN GAP (AC-D6):** determined obfuscation (`eval "git commit"`, `$(which git) commit`, wrapper
+    scripts, base64) remains uncaught — the guard stays best-effort git-parsing, not a security boundary;
+    the hard backstop is remote branch-protection. The push-to-`main` half stays delegated (unchanged).
+- **WS-B — preflight is now a readiness gate, not a scaffold linter (ADR-0014; founder-approved reopening of
+  the ADR-0010 descope).** `bin/check-preflight.sh` adds three runtime probes, all HARD (ackable via a
+  governed waiver):
+  - **test-command presence (AC-B1)** — a code run whose `AGENTS.md`/`CLAUDE.md` declares no runnable
+    `Test:` fails closed (it cannot be red-first-verified), read via the shared `_test_cmd`.
+  - **toolchain/dependency presence (AC-B2)** — the `Test:` command's binary must resolve (PATH or file),
+    and a present dependency lockfile must have its install dir (`node_modules`) — caught *before* Phase B,
+    not reactively when `quality-gate` hits "command not found".
+  - **operating-tree coherence (AC-B3)** — `baseline_sha` must resolve to a commit (now HARD, was WARN),
+    and the run's own docs-contract (`spec/plan/tasks.md` under the marker's `feature`) must be present in
+    the build tree (no split-brain).
+  - **`_test_cmd` promoted into `delivery-lib.sh` (T040/AC-B1)** so `check-tdd` and `check-preflight` share
+    one definition of the project's test command — the T0 the original descope skipped.
+  - **Governed waiver replaces the bare preflight ack (AC-B5).** `delivery-lib`'s new reusable
+    `governed_waiver_ok` (by/reason/unexpired-`expires`, darwin-portable `YYYY-MM-DD` string compare)
+    now gates a failing preflight in `check-delivery`; a one-time `ack:true` no longer papers over a later
+    independent readiness failure on the same run. `record_preflight` was widened to preserve the waiver
+    fields across a re-run.
+  - **`Prepare:` contract field (AC-B4)** — a network-permitted setup command declared in `AGENTS.md` and
+    run by `/deliver` in Phase 0 *before* the pipeline fires, so deps are provisioned in a named phase
+    (documented in `deliver.md` + `references/agents-md-contract.md`; this repo declares `Prepare: N/A`).
+  - Scaffold-linter checks are **retained** (AC-B6 — git-repo/`feature.json`/constitution/`specs`/`adr`/
+    run-marker gaps still fail closed).
+
+- **WS-E — post-delivery review hardening: closed four fail-opens the milestone's own review found (ADR-0014).**
+  The independent delivery review found three of the four batches' review-fixes had relaxed into *fail-open* —
+  the failure mode this milestone forbids. All fixed fail-closed, each with a fail-closed-direction test:
+  - **guard-git.sh (E1)** — quoted subcommands (`git "commit"`, `git 'commit'`, `git com"m"it`, `"git" commit`)
+    reached exit 0: the R5 debris allow-rule treated a quoted token as split-debris. Fixed with a **quote-aware**
+    segment splitter + **de-obfuscation** (strip quotes before classifying); clean-unrecognized now fails closed.
+  - **check-seam-ack.sh (E2)** — a `git status` error (corrupt index) made the dirty-tree probe emit nothing →
+    read as clean → fail-open. Now **fails closed** on a git-status error.
+  - **check-preflight.sh (E3)** — the toolchain probe false-HARD-failed legit projects (env-prefixed `Test:`,
+    venv/PnP binaries, lockfile-without-node_modules). Now strips the `ENV=` prefix, resolves `node_modules/.bin`
+    + venvs, and the lockfile↔deps check is a **WARN**.
+  - **delivery-stop-hook.sh (E4)** — the run-close reviewer floor is now **per-batch** (every closed code batch
+    needs its own dispatch), not "one anywhere in the run".
+  - Disclosure: guard-git header now names the allow-listed mutations (`cherry-pick`/`revert`/`am`/`rebase`) that
+    can land on the default branch (#6); `control-surface.txt` corrected to say verify-batch runs the *working
+    tree* (#8). Retained limits (#2 forgeability ceiling, #7 `Prepare:` convention, #9 B3b scope) reaffirmed.
+
 ## [2.26.0] - 2026-08-19
 
 ### Added

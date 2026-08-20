@@ -64,7 +64,7 @@ if [ "${1:-}" = "--self-test" ]; then
     if [ "$got" -eq "$exp" ]; then echo "  PASS (exit $got) $desc"
     else echo "  FAIL (exit $got, want $exp) $desc" >&2; fail=$((fail + 1)); fi
   }
-  _dirs="_st_ac1 _st_ac2 _st_ac4a _st_ac4b _st_ac5 _st_f2i _st_f2ii _st_ac7 _st_ac9 _st_ws _st_pfabs _st_pffail _st_pfack _st_pfbad"
+  _dirs="_st_ac1 _st_ac2 _st_ac4a _st_ac4b _st_ac5 _st_f2i _st_f2ii _st_ac7 _st_ac9 _st_ws _st_pfabs _st_pffail _st_pfwaiver _st_pfbareack _st_pfexpired _st_pfbad"
   for d in $_dirs; do mkdir -p ".runs/$d"; done
   # F-A recompute (no marker → binding off) -----------------------------------
   printf '%s\n' '{"id":"F1","kind":"code","status":"closed","commit_shas":["deadbeef"],"code_delta":137}' > .runs/_st_ac1/batches.jsonl
@@ -114,11 +114,18 @@ if [ "${1:-}" = "--self-test" ]; then
   printf '%s\n' '{"run":"_st_pffail","intends_code":true,"source":"harness","preflight":{"exit":1,"gaps":["missing: feature.json"],"ack":false}}' > .runs/_st_pffail/RUN
   printf '%s\n' '{"id":"B1","kind":"code","status":"announced"}' > .runs/_st_pffail/batches.jsonl
   _expect _st_pffail 1 "F-P — failing preflight (exit=1) unacked + code batch → blocked"
-  printf '%s\n' '{"run":"_st_pfack","intends_code":true,"source":"harness","preflight":{"exit":1,"gaps":["x"],"ack":true}}' > .runs/_st_pfack/RUN
-  # an ANNOUNCED (in-flight) code batch needs no commit/delta recompute — inflight_code=1 saves it from
-  # AC-4; the only thing that could block is the preflight verdict, which is acked here. HEAD-agnostic.
-  printf '%s\n' '{"id":"C1","kind":"code","status":"announced"}' > .runs/_st_pfack/batches.jsonl
-  _expect _st_pfack 0 "F-P — failing preflight but ACKED + in-flight code batch → allowed (ack unblocks)"
+  # WS-B AC-B5 — a failing preflight is cleared ONLY by a VALID governed waiver (by/reason/unexpired
+  # expires), never a bare one-time ack. An ANNOUNCED code batch (inflight_code=1) saves it from AC-4; the
+  # only thing that could block is the preflight verdict. HEAD-agnostic.
+  printf '%s\n' '{"run":"_st_pfwaiver","intends_code":true,"source":"harness","preflight":{"exit":1,"gaps":["x"],"ack":true,"by":"founder","reason":"scaffold gap","expires":"2999-01-01"}}' > .runs/_st_pfwaiver/RUN
+  printf '%s\n' '{"id":"C1","kind":"code","status":"announced"}' > .runs/_st_pfwaiver/batches.jsonl
+  _expect _st_pfwaiver 0 "F-P/AC-B5 — failing preflight + VALID governed waiver → allowed"
+  printf '%s\n' '{"run":"_st_pfbareack","intends_code":true,"source":"harness","preflight":{"exit":1,"gaps":["x"],"ack":true}}' > .runs/_st_pfbareack/RUN
+  printf '%s\n' '{"id":"C1","kind":"code","status":"announced"}' > .runs/_st_pfbareack/batches.jsonl
+  _expect _st_pfbareack 1 "F-P/AC-B5 — failing preflight + BARE ack (no by/reason/expires) → still blocked"
+  printf '%s\n' '{"run":"_st_pfexpired","intends_code":true,"source":"harness","preflight":{"exit":1,"gaps":["x"],"ack":true,"by":"f","reason":"r","expires":"2000-01-01"}}' > .runs/_st_pfexpired/RUN
+  printf '%s\n' '{"id":"C1","kind":"code","status":"announced"}' > .runs/_st_pfexpired/batches.jsonl
+  _expect _st_pfexpired 1 "F-P/AC-B5 — failing preflight + EXPIRED waiver → blocked"
   printf '%s\n' '{"run":"_st_pfbad","intends_code":true,"source":"harness","preflight":{"gaps":[],"ack":false}}' > .runs/_st_pfbad/RUN
   printf '%s\n' '{"id":"B1","kind":"code","status":"announced"}' > .runs/_st_pfbad/batches.jsonl
   _expect _st_pfbad 1 "F-P — preflight present but no exit field (unreadable) → blocked, not fail-open (P10)"
@@ -177,7 +184,7 @@ cd "$root" 2>/dev/null || { echo "check-delivery: bad dir '$root'" >&2; exit 64;
 # skip so non-delivery / docs-only sessions are never nagged (AC-5).
 marker="$(resolve_marker)"
 intends=""; baseline=""; precond_exit=""; precond_ack=""
-preflight_exit=""; preflight_ack=""; preflight_present=0
+preflight_exit=""; preflight_ack=""; preflight_present=0; preflight_by=""; preflight_reason=""; preflight_expires=""
 if [ -n "$marker" ] && [ -f "$marker" ]; then
   mk="$(cat "$marker" 2>/dev/null || true)"
   intends="$(field_bool "$mk" intends_code)"
@@ -188,6 +195,9 @@ if [ -n "$marker" ] && [ -f "$marker" ]; then
   precond_ack="$(field_in_obj "$mk" precond ack)"       # precond.ack
   preflight_exit="$(field_in_obj "$mk" preflight exit)" # preflight.exit
   preflight_ack="$(field_in_obj "$mk" preflight ack)"   # preflight.ack
+  preflight_by="$(field_in_obj "$mk" preflight by)"         # WS-B governed-waiver fields
+  preflight_reason="$(field_in_obj "$mk" preflight reason)"
+  preflight_expires="$(field_in_obj "$mk" preflight expires)"
   case "$mk" in *'"preflight":{'*) preflight_present=1 ;; esac
   # R-3 + N-1: an active run whose baseline does not resolve — whether ABSENT or a bogus
   # value — has its predate check silently disarmed. Flag it loudly for BOTH cases (the
@@ -363,8 +373,8 @@ if [ "$intends" = "true" ] && [ "$((closed_code + inflight_code))" -ge 1 ]; then
     # via record_preflight (always writes exit) — guards a corrupted/hand-tampered marker.
     echo "  BLOCKED: Phase-0 preflight verdict is present but unreadable (no exit field) — setup-readiness cannot be confirmed; re-run bin/check-preflight.sh before Phase B (P10 fail-closed)." >&2
     viol=$((viol + 1))
-  elif [ "$preflight_exit" != "0" ] && [ "${preflight_ack:-false}" != "true" ]; then
-    echo "  BLOCKED: Phase-0 setup-readiness FAILED (preflight.exit=$preflight_exit) and is unacknowledged (preflight.ack=false) — fix the scaffold, or ack the gap in the run marker, before Phase B (AC-7)." >&2
+  elif [ "$preflight_exit" != "0" ] && ! governed_waiver_ok "${preflight_ack:-false}" "$preflight_by" "$preflight_reason" "$preflight_expires"; then
+    echo "  BLOCKED: Phase-0 setup-readiness FAILED (preflight.exit=$preflight_exit) and has no valid governed waiver — a bare ack is no longer enough (WS-B AC-B5). Fix the scaffold/readiness gap, or record preflight.ack:true + preflight.by/reason/expires(YYYY-MM-DD, unexpired) in the run marker, before Phase B (AC-7)." >&2
     viol=$((viol + 1))
   fi
 fi
