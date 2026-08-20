@@ -288,5 +288,59 @@ else
   _chk 1 0 "AC-B5 governed_waiver_ok present in delivery-lib.sh"   # red until T040 lands
 fi
 
+# ---------------------------------------------------------------------------------------------------
+# WS-E — post-delivery review hardening: the four fail-opens/false-fails must fail CLOSED (AC-E1..E4).
+echo "WS-E — review hardening: fail-opens closed (AC-E1..E4):"
+
+# AC-E1 — quoted subcommands must BLOCK on the default branch (raw escaped-JSON payloads, as a real hook
+# receives); reads with a metachar in a quoted arg must still be allowed (R5 preserved).
+GTE="$(mktemp -d)"
+( cd "$GTE" && git init -q && git symbolic-ref HEAD refs/heads/main 2>/dev/null || true
+  git config user.email t@t && git config user.name t && echo b>f && git add . && git commit -qm b
+  mkdir -p .runs/r && printf '{"run":"r","pipeline":"full","intends_code":true,"source":"harness","baseline_sha":"x"}\n' > .runs/r/RUN ) >/dev/null 2>&1
+_ge() { ( cd "$GTE" && printf '%s' "$1" | TEAM_BOOTSTRAP_RUN=r bash "$GUARD" >/dev/null 2>&1 ); echo $?; }
+_chk "$(_ge '{"tool_name":"Bash","tool_input":{"command":"git \"commit\""}}')"    2 "AC-E1 git \"commit\" (double-quoted sub) on main → block"
+_chk "$(_ge '{"tool_name":"Bash","tool_input":{"command":"git '"'"'commit'"'"'"}}')" 2 "AC-E1 git 'commit' (single-quoted sub) on main → block"
+_chk "$(_ge '{"tool_name":"Bash","tool_input":{"command":"git com\"m\"it"}}')"     2 "AC-E1 git com\"m\"it (split-quoted sub) on main → block"
+_chk "$(_ge '{"tool_name":"Bash","tool_input":{"command":"git \"merge\" x"}}')"    2 "AC-E1 git \"merge\" (quoted sub) on main → block"
+_chk "$(_ge '{"tool_name":"Bash","tool_input":{"command":"\"git\" commit"}}')"     2 "AC-E1 \"git\" commit (quoted binary) on main → block"
+_chk "$(_ge '{"tool_name":"Bash","tool_input":{"command":"git log --grep '"'"'x; git status'"'"'"}}')" 0 "AC-E1 read w/ metachar in quoted arg → allow (R5 preserved)"
+_chk "$(_ge '{"tool_name":"Bash","tool_input":{"command":"git commit"}}')"         2 "AC-E1 (control) git commit on main → block"
+rm -rf "$GTE"
+
+# AC-E2 — a git-status error (corrupt index) must fail the dirty-tree probe CLOSED, not open. The
+# committed window is NON-empty and NON-surface (so _batch_files succeeds and touches no committed seam);
+# only a corrupt index (git status errors) is the variable — without the fix that silently passes.
+CE="$(mktemp -d)"
+( cd "$CE" && git init -q && git config user.email t@t && git config user.name t
+  mkdir -p references bin && cp "$CSREF" references/control-surface.txt
+  printf '#gate\n' > bin/check-x.sh && echo s>seed && git add . && git commit -qm base   # commit1 (baseline)
+  cb="$(git rev-parse --short HEAD)"
+  mkdir -p src && echo x>src/app.py && git add . && git commit -qm work                  # commit2 (non-surface)
+  mkdir -p .runs/r && printf '{"id":"B1","kind":"code","files":["src/app.py"],"status":"announced"}\n' > .runs/r/batches.jsonl
+  printf '{"run":"r","pipeline":"full","intends_code":true,"source":"harness","baseline_sha":"%s"}\n' "$cb" > .runs/r/RUN
+  printf 'garbage-not-an-index' > .git/index ) >/dev/null 2>&1                            # corrupt → git status errors
+_chk "$( ( cd "$CE" && TEAM_BOOTSTRAP_RUN=r "$SEAMACK" . >/dev/null 2>&1 ); echo $? )" 1 "AC-E2 git-status error (corrupt index) → seam-ack fail-closed (1)"
+rm -rf "$CE"
+
+# AC-E3 — an env-prefixed Test: command must resolve its real binary, not the ENV= token → ready.
+DE="$(mktemp -d)"; _bscaffold "$DE"; printf '# AGENTS\n\n- Test: `NODE_ENV=test true`\n' > "$DE/AGENTS.md"
+git -C "$DE" -c user.email=t@t -c user.name=t commit -aqm "env-prefixed Test" >/dev/null 2>&1
+_chk "$(_pf "$DE")" 0 "AC-E3 env-prefixed Test: (NODE_ENV=test true) → ready (0, strips ENV=)"
+rm -rf "$DE"
+
+# AC-E4 — per-batch reviewer floor: a full run with two closed code batches, only ONE reviewed → block.
+FE="$(mktemp -d)"
+( cd "$FE" && git init -q && git config user.email t@t && git config user.name t && echo a>f && git add . && git commit -qm a ) >/dev/null 2>&1
+FBASE="$( ( cd "$FE" && git rev-parse --short HEAD ) )"
+mkdir -p "$FE/.runs/r"
+printf '{"run":"r","pipeline":"full","intends_code":true,"source":"harness","baseline_sha":"%s"}\n' "$FBASE" > "$FE/.runs/r/RUN"
+printf '%s\n%s\n' \
+  "{\"id\":\"B1\",\"kind\":\"code\",\"status\":\"closed\",\"commit_shas\":[\"$FBASE\"],\"code_delta\":3}" \
+  "{\"id\":\"B2\",\"kind\":\"code\",\"status\":\"closed\",\"commit_shas\":[\"$FBASE\"],\"code_delta\":3}" > "$FE/.runs/r/batches.jsonl"
+printf '%s\n' '{"batch":"B1","subagent_type":"code-reviewer"}' > "$FE/.runs/r/dispatch.jsonl"   # only B1 reviewed
+_chk "$( ( cd "$FE" && TEAM_BOOTSTRAP_RUN=r bash "$HOOK" </dev/null >/dev/null 2>&1 ); echo $? )" 2 "AC-E4 per-batch floor: closed B2 has no reviewer → Stop block (2)"
+rm -rf "$FE"
+
 if [ "$fail" -eq 0 ]; then echo "pipeline-integrity-hardening.test.sh: OK"; exit 0; fi
 echo "pipeline-integrity-hardening.test.sh: $fail case(s) FAILED" >&2; exit 1
