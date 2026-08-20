@@ -109,20 +109,31 @@ _scan() {
   if [ -z "$tc" ]; then
     echo "HARD no runnable test command — AGENTS.md/CLAUDE.md declares no \`Test:\` (a code run cannot be red-first-verified without one)"
   else
-    # WS-B AC-B2 — the declared toolchain resolves: the Test: command's binary is on PATH or is a file in
-    # the tree, BEFORE Phase B, rather than reactively when quality-gate hits "command not found".
+    # WS-E / AC-E3 — strip any leading ENV=val assignments (NODE_ENV=test npm test → npm test) before
+    # resolving the binary, so an env-prefixed Test: does not false-HARD on the `NODE_ENV=test` token
+    # (review #4). Only a `NAME=… <more>` first token is dropped.
+    while :; do
+      case "$tc" in [A-Za-z_]*=*[[:space:]]*) tc="${tc#* }" ;; *) break ;; esac
+    done
+    # WS-B AC-B2 — the declared toolchain resolves: the Test: command's binary is on PATH, a file in the
+    # tree, or a project-local binary (node_modules/.bin, a venv) — BEFORE Phase B, rather than reactively
+    # when quality-gate hits "command not found". Project-local paths (AC-E3) avoid a false-HARD on
+    # venv/Yarn-PnP toolchains that are legitimately not on the global PATH.
     tcbin="${tc%% *}"
     if case "$tcbin" in
          */*) [ -e "$dir/$tcbin" ] || [ -e "$tcbin" ] ;;
-         *)   command -v "$tcbin" >/dev/null 2>&1 ;;
+         *)   command -v "$tcbin" >/dev/null 2>&1 \
+              || [ -x "$dir/node_modules/.bin/$tcbin" ] \
+              || [ -x "$dir/.venv/bin/$tcbin" ] || [ -x "$dir/venv/bin/$tcbin" ] ;;
        esac; then :; else
-      echo "HARD test-command binary '$tcbin' not resolvable (not on PATH, not a file) — the toolchain the Test: command needs is absent before Phase B"
+      echo "HARD test-command binary '$tcbin' not resolvable (not on PATH, not a file, not in node_modules/.bin or a venv) — the toolchain the Test: command needs is absent before Phase B"
     fi
   fi
-  # WS-B AC-B2 — declared-dependency presence: a lockfile present but its install dir absent means deps
-  # were never provisioned (the `Prepare:` step did not run). HARD (ackable).
+  # WS-B AC-B2 / WS-E AC-E3 — declared-dependency presence is a WARN, not HARD: a lockfile with no install
+  # dir usually means deps were not provisioned (run the Prepare: step), but Yarn PnP legitimately ships a
+  # lockfile with NO node_modules — a HARD here false-blocks a valid project (review #4). Advisory only.
   if { [ -f "$dir/package-lock.json" ] || [ -f "$dir/yarn.lock" ] || [ -f "$dir/pnpm-lock.yaml" ]; } && [ ! -d "$dir/node_modules" ]; then
-    echo "HARD dependency lockfile present but node_modules/ absent — provision deps via the Prepare: step before Phase B, not reactively mid-run"
+    echo "WARN dependency lockfile present but node_modules/ absent — if not Yarn PnP, provision deps via the Prepare: step before Phase B"
   fi
   # warn-level scaffold
   [ -d "$dir/$sd/TEMPLATE" ] || echo "WARN $sd/TEMPLATE absent — a milestone can copy a prior spec's structure, but the template helps"

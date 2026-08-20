@@ -149,11 +149,15 @@ case "$pipeline" in
     # stamp is trusted (the documented ADR-0006 forgeability ceiling).
     rundir_d="$(dirname "$marker")"
     if [ "$closed_code" -gt 0 ] && [ -f "$rundir_d/dispatch.jsonl" ]; then
-      role_floor_ok=0
+      # WS-E / AC-E4 — PER-BATCH floor: EVERY closed kind:code batch must carry its OWN reviewer dispatch,
+      # not "one reviewer anywhere in the run" (which let a batch that skipped its reviewer pass if any
+      # OTHER batch had one — review #5). Block if ANY closed batch shows zero reviewer dispatch. (The
+      # forgeable status:closed + absent dispatch.jsonl residual stays the disclosed ADR-0006 ceiling.)
+      role_floor_ok=1
       set -f            # closed_ids tokens are untrusted (field_str [^"]* capture) — disable globbing (review LOW-1)
       for cid in $closed_ids; do
         [ -n "$cid" ] || continue
-        [ "$(reviewer_dispatch_count "$cid")" -ge 1 ] && { role_floor_ok=1; break; }
+        [ "$(reviewer_dispatch_count "$cid")" -ge 1 ] || { role_floor_ok=0; break; }
       done
       set +f
     fi ;;

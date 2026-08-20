@@ -1,6 +1,6 @@
 # 0014 — Pipeline-integrity hardening (close the four audit gaps A–D)
 
-- **Status:** Accepted (landing batch-by-batch; WS-A accepted, WS-C/WS-D/WS-B follow)
+- **Status:** Accepted (WS-A/C/D/B delivered; WS-E post-delivery review-hardening delivered)
 - **Date:** 2026-08-20
 - **Constitution clause(s):** P5, P6, P9, P10
 - **Related:** [0006](0006-independence-clean-context.md) (forgeable-honesty ceiling),
@@ -103,3 +103,48 @@ without arming a heavier floor on this repo's own delivery runs.
   covers the batch-ledger path; a direct/ledger-less `single-thread` run reaches `check-delivery`'s
   direct-delivery allowance before the preflight block (the pre-existing D10 design), so preflight is not
   enforced there — consistent with WS-A keeping the `csb` allowance for `single-thread` alone.
+
+## WS-E — post-delivery review hardening (the fail-opens the milestone's own review found)
+
+The milestone's independent delivery review found that three of the four batches' review-fixes had
+relaxed into **fail-open** — the exact failure mode this milestone forbids ("a gate that didn't truly run
+is a failure, not a pass"). WS-E closes them **fail-closed**, each with a test asserting the fail-closed
+direction (the missing assertions are why they shipped):
+
+- **AC-E1 (#1, WS-D)** — `git "commit"` / `'commit'` / `com"m"it` / `"merge"` / `"git" commit` reached
+  exit 0 on the default branch: the R5 "debris" allow-rule (itself a review-fix) treated a quoted
+  subcommand token as split-debris. Fixed by a **quote-aware** segment splitter (delimiters inside quotes
+  no longer split) + **de-obfuscation** (strip quotes from the binary/subcommand token before
+  classifying); a clean unrecognized token now fails **closed**. The R5 read (`git log --grep 'x; git
+  status'`) still passes because the `;` inside quotes no longer creates a fake segment.
+- **AC-E2 (#3, WS-C)** — the dirty-control-surface probe swallowed `git status`'s exit code, so a corrupt
+  index (git status errors) produced zero dirty paths → the tree read as clean → fail-open. Now probes the
+  exit and **fails closed** on a git-status error, matching `_batch_files`.
+- **AC-E3 (#4, WS-B)** — the toolchain probe HARD-failed legitimate projects: an env-prefixed `Test:`
+  (`NODE_ENV=test npm test`), a project-local binary (venv/Yarn-PnP not on the global PATH), a
+  lockfile-without-`node_modules` (valid under PnP). Now strips the `ENV=` prefix, resolves
+  `node_modules/.bin` and venvs, and the lockfile↔deps check is a **WARN**. Prevents the blanket-waiving
+  that would hollow out the governed-waiver discipline.
+- **AC-E4 (#5, WS-A)** — the Stop-hook reviewer floor was coarse ("one reviewer anywhere in the run");
+  now **per-batch** (every closed `kind:code` batch needs its own dispatch).
+
+### Retained limits (reaffirmed, not overclaimed)
+- **#2 (WS-A) — forgeable `status:closed` + absent `dispatch.jsonl`** is the disclosed **ADR-0006
+  forgeability ceiling**: prong-2 gates on `dispatch.jsonl` existing (so it never blocks a legit run whose
+  dispatch the harness didn't record), which means a hand-forged `status:closed` with the dispatch file
+  deleted escapes. In the field this also depends on the plugin being current enough to emit
+  `dispatch.jsonl` at all (see the delivery-integrity caveat below). Closing it is org posture
+  (CI-from-trusted-ref; sandbox-runtime), not in-plugin.
+- **#7 (WS-B) — `Prepare:` is orchestrator-honored convention**, not a harness-executed step (the plugin
+  cannot run an install for the host); readiness rests on the orchestrator running it in Phase 0. Disclosed.
+- **#9 (WS-B) — B3b docs-contract** is scoped to a *present-but-partial* feature dir (a wholly-absent dir
+  is the greenfield pre-Phase-A case and is skipped), so it fires narrowly by design.
+
+### Delivery-integrity caveats bounding what this run proved
+- **Dispatch evidence is self-attested this run.** The live plugin cache is stale (2.19.1, predating
+  `record-dispatch.sh`), so `dispatch.jsonl` was written through the repo's own recorder, not the harness
+  hook — "an independent review ran" is at the forgeable ceiling until the plugin is reinstalled at 2.28.0.
+- **`check-completeness --final` AC↔test mapping ran vacuous** (default `AC-[0-9]+` does not match this
+  repo's `AC-A1` naming). A follow-up should set `AcPattern: AC-[A-Za-z0-9]+` in AGENTS.md and reference the
+  doc-assertion ACs (C4/D6/A4/B4/X1/X2) from a test-path file so the gate bites — deferred as a deliberate,
+  tested change rather than a rushed persistent-config edit at close.

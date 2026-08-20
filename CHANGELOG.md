@@ -85,6 +85,23 @@ All notable changes to team-bootstrap. Format follows [Keep a Changelog](https:/
   - Scaffold-linter checks are **retained** (AC-B6 — git-repo/`feature.json`/constitution/`specs`/`adr`/
     run-marker gaps still fail closed).
 
+- **WS-E — post-delivery review hardening: closed four fail-opens the milestone's own review found (ADR-0014).**
+  The independent delivery review found three of the four batches' review-fixes had relaxed into *fail-open* —
+  the failure mode this milestone forbids. All fixed fail-closed, each with a fail-closed-direction test:
+  - **guard-git.sh (E1)** — quoted subcommands (`git "commit"`, `git 'commit'`, `git com"m"it`, `"git" commit`)
+    reached exit 0: the R5 debris allow-rule treated a quoted token as split-debris. Fixed with a **quote-aware**
+    segment splitter + **de-obfuscation** (strip quotes before classifying); clean-unrecognized now fails closed.
+  - **check-seam-ack.sh (E2)** — a `git status` error (corrupt index) made the dirty-tree probe emit nothing →
+    read as clean → fail-open. Now **fails closed** on a git-status error.
+  - **check-preflight.sh (E3)** — the toolchain probe false-HARD-failed legit projects (env-prefixed `Test:`,
+    venv/PnP binaries, lockfile-without-node_modules). Now strips the `ENV=` prefix, resolves `node_modules/.bin`
+    + venvs, and the lockfile↔deps check is a **WARN**.
+  - **delivery-stop-hook.sh (E4)** — the run-close reviewer floor is now **per-batch** (every closed code batch
+    needs its own dispatch), not "one anywhere in the run".
+  - Disclosure: guard-git header now names the allow-listed mutations (`cherry-pick`/`revert`/`am`/`rebase`) that
+    can land on the default branch (#6); `control-surface.txt` corrected to say verify-batch runs the *working
+    tree* (#8). Retained limits (#2 forgeability ceiling, #7 `Prepare:` convention, #9 B3b scope) reaffirmed.
+
 ## [2.26.0] - 2026-08-19
 
 ### Added

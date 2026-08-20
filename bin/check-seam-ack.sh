@@ -117,6 +117,15 @@ _commit_touches_seam() {
 # ignored). Rename entries ("orig -> new") are matched on the destination.
 _dirty_control_surface() {
   local tgt="$1" globs_nl="$2" tok status path expect_src=0
+  # WS-E / AC-E2 — a `git status` ERROR (corrupt index, unreadable HEAD, …) must fail CLOSED, not silently
+  # emit nothing: the process substitution below swallows git's exit code, so on error the loop would
+  # produce zero dirty paths and the caller would read the tree as clean — a fail-OPEN on the exact tamper
+  # class this probe guards (review #3). Probe the exit first; on failure emit a sentinel so the caller
+  # treats the tree as dirty (fail-closed), mirroring _batch_files' fail-closed posture.
+  if ! git -C "$tgt" status --porcelain >/dev/null 2>&1; then
+    printf '%s\n' "(git status failed — cannot verify a clean control-surface working tree; fail-closed)"
+    return 0
+  fi
   # -z + core.quotepath=false: NUL-delimited, UNQUOTED, UNESCAPED records. git's default `core.quotepath`
   # wraps a path containing a space / non-ASCII byte / quote / backslash in escaped double quotes; the naive
   # `${line#???}` left the quotes, so `_intersects` silently dropped such a surface path (review HIGH,

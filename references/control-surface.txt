@@ -9,11 +9,14 @@
 # control_surface_globs() (BASH_SOURCE-relative, like review_types()). Matching (equals / under a
 # directory / glob, where `*` spans `/`) lives in check-seam-ack.sh:_intersects.
 #
-# HONEST LIMIT (self-reference): the enforcing gate is itself in this set, and verify-batch runs the
-# COMMITTED HEAD — a batch that co-edits the circular core (check-seam-ack.sh / verify-batch.sh /
-# delivery-lib.sh's reader / this file) and drops the gate invocation runs the edited version and
-# escapes. Closing that is repo/org posture the plugin cannot force (CI-from-trusted-ref under branch
-# protection; sandbox-runtime). This file protects the REST of the surface against SILENT tampering.
+# HONEST LIMIT (self-reference): the enforcing gate is itself in this set, and verify-batch runs the gate
+# scripts from the ON-DISK WORKING TREE (not a committed/trusted ref) — so a batch that co-edits the
+# circular core (check-seam-ack.sh / verify-batch.sh / delivery-lib.sh's reader / this file) and drops the
+# gate invocation runs the EDITED version and escapes. (The WS-C dirty-tree precondition catches an
+# UNCOMMITTED surface edit — precisely because the working tree is what runs — but cannot catch a core
+# edit that is committed AND drops its own check, nor one that also breaks `git status`.) Closing that is
+# repo/org posture the plugin cannot force (CI-from-trusted-ref under branch protection; sandbox-runtime).
+# This file protects the REST of the surface against SILENT tampering.
 
 # gate scripts (glob auto-covers every current and future bin/check-*.sh)
 bin/check-*.sh

@@ -11,7 +11,10 @@
 #   - It blocks commit/merge-on-default, PLUS — since pipeline-integrity-hardening (WS-D) — any
 #     UNRECOGNIZED git subcommand on the default branch under an armed run (the fail-closed posture that
 #     catches `-c alias.ci=commit ci` and other obfuscating tokens; recognized non-commit/merge
-#     subcommands, incl. push/pull, stay fail-open). It does NOT gate `git push` / `gh pr merge` / `gh api`
+#     subcommands, incl. push/pull, stay fail-open). DISCLOSED LIMIT (#6): recognized non-commit/merge
+#     mutations — `cherry-pick`, `revert`, `am`, `rebase`, `reset`, `commit-tree` — are allow-listed and can
+#     therefore LAND commits on the default branch without blocking (they are kept fail-open to hold the
+#     false-positive rate low; the hard backstop is remote branch-protection). It does NOT gate `git push` / `gh pr merge` / `gh api`
 #     (round-1 BF1): a chained push can't be extracted from the command string false-pass-safely, and any
 #     "push_ack" would be orchestrator-self-written in the same turn (hollow). Remote-write authorization
 #     stays P5 prose + check-preconditions advisory; the HARD backstop is the remote's branch-protection
@@ -134,35 +137,60 @@ stripspace|submodule|switch|symbolic-ref|tag|unpack-objects|update-index|update-
 var|verify-commit|verify-pack|verify-tag|version|whatchanged|worktree|write-tree)
       return 1 ;;   # recognized non-commit/merge subcommand → fail-open (allow)
     *)
-      # A token carrying punctuation (a trailing quote/paren/etc.) is DEBRIS from the quote-blind segment
-      # split — e.g. `git log --grep 'x; git status'` splits into a fake `status'` fragment. That is NOT a
-      # real subcommand → fail-OPEN, so a read with a metacharacter in a quoted arg never false-blocks on
-      # the default branch (R5, review Finding 1). Only a clean bare-subcommand-shaped token (`^[a-z][a-z0-9-]*$`
-      # — an alias such as `ci`, or obfuscation) fails closed.
-      case "$s" in
-        [!a-z]* | *[!a-z0-9-]*) return 1 ;;   # not a clean bare subcommand → split debris → allow
-        *)                      return 0 ;;   # clean unrecognized token → fail-closed (alias/obfuscation)
-      esac ;;
+      # UNRECOGNIZED subcommand → fail-CLOSED (an alias like `ci`, or obfuscation). WS-E: the caller now
+      # DE-OBFUSCATES `sub` (strips quotes) and the segment split is QUOTE-AWARE, so a real quoted subcommand
+      # (`git "commit"`) arrives here as `commit` (→ blocked above) and a metachar-in-quoted-arg read
+      # (`git log --grep 'x; git status'`) is never split into a fake `status'` fragment — so there is no
+      # split-debris to fail open on. The earlier debris allow-rule was itself a fail-OPEN (review #1): it
+      # let `"commit"`/`'merge'` through. Fail-closed here is now safe because the debris source is gone.
+      return 0 ;;
   esac
+}
+
+# _strip_quotes STR → STR with all unescaped `"` and `'` removed (de-obfuscation). A quoted binary or
+# subcommand token (`"git"`, `"commit"`, `com"m"it`) is classified by its REAL name, closing the quoted-
+# token bypass (review #1 / AC-E1). Bash 3.2 pattern substitution.
+_strip_quotes() { local s="${1//\"/}"; printf '%s' "${s//\'/}"; }
+
+# _segments DECODED_CMD → one shell segment per line, splitting on & | ; ( ) and newline ONLY when NOT
+# inside single/double quotes (WS-E / AC-E1). The prior `tr '&|;()' '\n'` was quote-BLIND, so
+# `git log --grep 'x; git status'` split into a fake `git status'` fragment — the debris the (fail-open)
+# heuristic then had to special-case. Respecting quotes removes the debris at the source: the `;` inside
+# `'…'` no longer splits, and a genuine chained `echo x && git commit` still does.
+_segments() {
+  local s="$1" n i c q="" seg="" NL
+  NL="$(printf '\n')"
+  n=${#s}; i=0
+  while [ "$i" -lt "$n" ]; do
+    c="${s:i:1}"; i=$((i + 1))
+    if [ -n "$q" ]; then                    # inside a quote: copy through; close on the matching quote
+      seg="$seg$c"; [ "$c" = "$q" ] && q=""; continue
+    fi
+    case "$c" in
+      '"'|"'")             q="$c"; seg="$seg$c" ;;
+      '&'|'|'|';'|'('|')') printf '%s\n' "$seg"; seg="" ;;
+      *) if [ "$c" = "$NL" ]; then printf '%s\n' "$seg"; seg=""; else seg="$seg$c"; fi ;;
+    esac
+  done
+  printf '%s\n' "$seg"
 }
 
 # _commit_or_merge_on_default DECODED_CMD → return 0 if a git commit/merge (or, under the fail-closed
 # posture, an unrecognized subcommand) in the command targets the default branch. Splits on && || | ; ( )
 # and newline (over-split is safe); subcommand-position scan; honors -C / --git-dir / --work-tree.
 _commit_or_merge_on_default() {
-  local norm seg tok cwd gitdir worktree sub sq envre
+  local seg tok cwd gitdir worktree sub sq envre
   sq="'"
   # env-assignment prefix: value may be "double-quoted" (spaces ok), 'single-quoted' (spaces ok — B1: the
   # single-quoted twin the finding-#1 fix missed), or bare-nonspace. All three alternations, POSIX-ERE
   # leftmost-longest, so 'a b' is consumed whole rather than leaving `b'` as a fake first token.
   envre="^([A-Za-z_][A-Za-z0-9_]*=(\"[^\"]*\"|${sq}[^${sq}]*${sq}|[^[:space:]]*)[[:space:]]+)+"
-  norm="$(printf '%s' "$1" | tr '&|;()' '\n\n\n\n\n')"
   while IFS= read -r seg; do
     [ -n "$seg" ] || continue
     seg="${seg#"${seg%%[![:space:]]*}"}"                       # ltrim
     [[ "$seg" =~ $envre ]] && seg="${seg:${#BASH_REMATCH[0]}}"
     tok="${seg%%[[:space:]]*}"
-    case "$tok" in git|*/git) ;; *) continue ;; esac           # first token must be git
+    case "$(_strip_quotes "$tok")" in git|*/git) ;; *) continue ;; esac   # first token (de-quoted) must be git
     # shellcheck disable=SC2086
     set -- $seg
     shift                                                      # drop 'git'
@@ -182,10 +210,10 @@ _commit_or_merge_on_default() {
         *)            sub="$1"; break ;;
       esac
     done
-    if _sub_blocks "$sub"; then
+    if _sub_blocks "$(_strip_quotes "$sub")"; then               # de-obfuscate: classify the sub by its real name
       _on_default_branch "$cwd" "$gitdir" "$worktree" && return 0
     fi
-  done < <(printf '%s\n' "$norm")
+  done < <(_segments "$1")
   return 1
 }
 
@@ -242,7 +270,10 @@ if [ "${1:-}" = "--self-test" ]; then
   _chk "$(_g "$(P 'git --git-dir=inner/.git --work-tree=inner commit -m x')")" 2 "B3 --git-dir/--work-tree retarget to inner(main) → block"
   _chk "$(_g "$(P 'git tag v1')")"                            0 "recognized non-commit/merge sub (tag) on default → allow (fail-open, R5)"
   _chk "$(_g "$(P 'git rev-parse HEAD')")"                    0 "recognized read (rev-parse) on default → allow"
-  _chk "$(_g "$(P "git log --grep 'x; git status'")")"       0 "read w/ metachar in quoted arg on default → allow (split debris, R5, review Finding 1)"
+  _chk "$(_g "$(P "git log --grep 'x; git status'")")"       0 "read w/ metachar in quoted arg on default → allow (quote-aware split, R5)"
+  # WS-E AC-E1 — quoted subcommand / quoted binary must BLOCK (de-obfuscation + quote-aware split):
+  _chk "$(_g '{"tool_name":"Bash","tool_input":{"command":"git \"commit\""}}')"  2 "E1 git \"commit\" (quoted sub) on default → block"
+  _chk "$(_g '{"tool_name":"Bash","tool_input":{"command":"\"git\" commit"}}')"  2 "E1 \"git\" commit (quoted binary) on default → block"
   _chk "$(_g "$(P 'git push origin main')")"                   0 "push on default → NOT gated (disclosed)"
   _chk "$(_g "$(P 'gh pr merge 1 --merge')")"                  0 "gh pr merge → NOT gated (disclosed)"
   _on feature
