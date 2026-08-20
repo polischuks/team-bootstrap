@@ -2,6 +2,30 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.28.0] - 2026-08-20
+
+> **pipeline-integrity-hardening** — closes the four confirmed bypass gaps the 2026-08-20 audit
+> ([specs/pipeline-execution-integrity/findings.md](specs/pipeline-execution-integrity/findings.md) A–D)
+> found in the *shipped* implementations of A–D. Hardening, not new capability: each already-shipped
+> gate is made to actually hold on the path the audit walked. Landing batch-by-batch; WS-A first.
+
+### Fixed
+- **WS-A — the role/review gate is now anchored at RUN-CLOSE, not only at batch-close (ADR-0014).**
+  The Stop hook (`bin/delivery-stop-hook.sh`) previously let a degraded `full`/`mvp` run that committed
+  code *inline without announcing a batch* stop at exit 0 — no reviewer, user not told (the spec-169
+  collapse surviving on the no-batch path). Now:
+  - the direct-delivery `code-since-baseline` allowance is **refused for `full`/`mvp`** and, fail-closed,
+    for an **absent/unrecognized `pipeline`** — only `single-thread` (no role fan-out) keeps it (AC-A1/A2/A5);
+  - the Stop hook **independently asserts the ≥1 independent-reviewer floor** over closed `kind:code`
+    batches via the shared `reviewer_dispatch_count` — a `full`/`mvp` run whose closed batch shows zero
+    reviewer dispatch is blocked at run-close, not only inside `verify-batch` (AC-A3).
+  - **Live posture (AC-A4):** the hard, live guarantee is **≥1 independent reviewer** (enforced under
+    both `warn` and `enforce`). The per-role "all four" floor remains **staged in `warn`** pending the
+    adoption probe (as ADR-0009 already discloses); no doc claims all four roles as live-enforced.
+  - Retained honest limit: WS-A stays at the ADR-0006 marker/dispatch **forgeability ceiling** (a forged
+    `status:closed` with `dispatch.jsonl` deleted is trusted) — the win is *harness-observed dispatch at
+    run-close*, not tamper-proofing.
+
 ## [2.26.0] - 2026-08-19
 
 ### Added
