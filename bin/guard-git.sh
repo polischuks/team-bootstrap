@@ -77,20 +77,27 @@ _decode_command() {
   '
 }
 
-# _on_default_branch DIR → return 0 if DIR's current branch IS the default branch (and stash it in
-# GUARD_BRANCH); else return 1. Best-effort + portable termination (timeout only if present).
+# _on_default_branch DIR [GITDIR] [WORKTREE] → return 0 if the TARGET repo's current branch IS the
+# default branch (and stash it in GUARD_BRANCH); else return 1. The target is `git -C DIR` optionally
+# retargeted by --git-dir/--work-tree (B3: `git --git-dir=… --work-tree=… commit` runs against a
+# DIFFERENT repo than the guard's cwd — honor the retarget so the branch check follows the actual repo).
+# Best-effort + portable termination (timeout only if present). GITDIR/WORKTREE are resolved relative to
+# the guard's cwd (git applies -C first, then --git-dir/--work-tree), exactly as the real git call would.
 _on_default_branch() {
-  local dir="$1" cur def to=""
+  local dir="$1" gitdir="${2:-}" worktree="${3:-}" cur def to=""
+  local -a gopt=()
+  [ -n "$gitdir" ]   && gopt+=(--git-dir="$gitdir")
+  [ -n "$worktree" ] && gopt+=(--work-tree="$worktree")
   if [ -z "${TEAM_BOOTSTRAP_GITGUARD_FORCE_BARE:-}" ]; then
     if   command -v timeout  >/dev/null 2>&1; then to="timeout 5"
     elif command -v gtimeout >/dev/null 2>&1; then to="gtimeout 5"
     fi
   fi
   # shellcheck disable=SC2086
-  cur="$($to git -C "$dir" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+  cur="$($to git ${gopt[@]+"${gopt[@]}"} -C "$dir" rev-parse --abbrev-ref HEAD 2>/dev/null)"
   [ -n "$cur" ] && [ "$cur" != "HEAD" ] || return 1   # not a repo / detached ⇒ don't block (safe)
   # shellcheck disable=SC2086
-  def="$($to git -C "$dir" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null)"
+  def="$($to git ${gopt[@]+"${gopt[@]}"} -C "$dir" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null)"
   def="${def#origin/}"
   if [ -z "$def" ]; then
     case "$cur" in main|master) def="$cur" ;; *) def="main" ;; esac   # fallback (safe direction)
@@ -99,35 +106,74 @@ _on_default_branch() {
   return 1
 }
 
-# _commit_or_merge_on_default DECODED_CMD → return 0 if a git commit/merge in the command targets the
-# default branch. Splits on && || | ; ( ) and newline (over-split is safe); subcommand-position scan.
+# _sub_blocks SUB → return 0 if SUB should be blocked on the default branch. commit/merge ALWAYS.
+# Fail-closed posture (OQ-4, WS-D): an UNRECOGNIZED subcommand — one not in the known-git-subcommand set
+# below, e.g. the alias `ci` from `git -c alias.ci=commit ci` (B2), or any obfuscating token — is treated
+# as a possible commit/merge and blocked. Recognized non-commit/merge subcommands (reads AND mutations
+# like tag/stash/rebase/reset, AND the explicitly-not-gated push/pull) stay FAIL-OPEN, keeping the
+# false-positive rate low (R5) so the guard is never trained-away. Empty subcommand (bare `git`) → allow.
+_sub_blocks() {
+  local s="$1"
+  case "$s" in
+    commit|merge) return 0 ;;
+    "")           return 1 ;;
+  esac
+  case "$s" in
+    add|am|annotate|apply|archive|bisect|blame|branch|bundle|cat-file|check-attr|check-ignore|\
+check-mailmap|check-ref-format|checkout|cherry|cherry-pick|clean|clone|column|commit-tree|config|\
+count-objects|describe|diff|diff-files|diff-index|diff-tree|difftool|fast-export|fast-import|fetch|\
+filter-branch|for-each-ref|format-patch|fsck|gc|get-tar-commit-id|grep|gui|hash-object|help|init|\
+instaweb|log|ls-files|ls-remote|ls-tree|maintenance|mailinfo|merge-base|merge-file|merge-tree|mergetool|\
+mktag|mktree|mv|name-rev|notes|pack-objects|pack-refs|patch-id|prune|prune-packed|pull|push|quiltimport|\
+range-diff|read-tree|rebase|reflog|remote|repack|replace|request-pull|rerere|reset|restore|revert|\
+rev-list|rev-parse|rm|send-email|shortlog|show|show-branch|show-ref|sparse-checkout|stash|status|\
+stripspace|submodule|switch|symbolic-ref|tag|unpack-objects|update-index|update-ref|update-server-info|\
+var|verify-commit|verify-pack|verify-tag|version|whatchanged|worktree|write-tree)
+      return 1 ;;   # recognized non-commit/merge subcommand → fail-open (allow)
+    *)
+      return 0 ;;    # UNRECOGNIZED → fail-closed (alias/obfuscation, e.g. `ci`)
+  esac
+}
+
+# _commit_or_merge_on_default DECODED_CMD → return 0 if a git commit/merge (or, under the fail-closed
+# posture, an unrecognized subcommand) in the command targets the default branch. Splits on && || | ; ( )
+# and newline (over-split is safe); subcommand-position scan; honors -C / --git-dir / --work-tree.
 _commit_or_merge_on_default() {
-  local norm seg tok cwd sub
+  local norm seg tok cwd gitdir worktree sub sq envre
+  sq="'"
+  # env-assignment prefix: value may be "double-quoted" (spaces ok), 'single-quoted' (spaces ok — B1: the
+  # single-quoted twin the finding-#1 fix missed), or bare-nonspace. All three alternations, POSIX-ERE
+  # leftmost-longest, so 'a b' is consumed whole rather than leaving `b'` as a fake first token.
+  envre="^([A-Za-z_][A-Za-z0-9_]*=(\"[^\"]*\"|${sq}[^${sq}]*${sq}|[^[:space:]]*)[[:space:]]+)+"
   norm="$(printf '%s' "$1" | tr '&|;()' '\n\n\n\n\n')"
   while IFS= read -r seg; do
     [ -n "$seg" ] || continue
     seg="${seg#"${seg%%[![:space:]]*}"}"                       # ltrim
-    # drop leading ENV=val assignments (value may be "quoted" — incl. spaces — or bare-nonspace)
-    local envre='^([A-Za-z_][A-Za-z0-9_]*=("[^"]*"|[^[:space:]]*)[[:space:]]+)+'
     [[ "$seg" =~ $envre ]] && seg="${seg:${#BASH_REMATCH[0]}}"
     tok="${seg%%[[:space:]]*}"
     case "$tok" in git|*/git) ;; *) continue ;; esac           # first token must be git
     # shellcheck disable=SC2086
     set -- $seg
     shift                                                      # drop 'git'
-    cwd="."; sub=""
+    cwd="."; gitdir=""; worktree=""; sub=""
     while [ $# -gt 0 ]; do
       case "$1" in
-        -C) shift; cwd="${1:-.}"; shift; continue ;;           # -C <path> overrides cwd
-        -c) shift; shift; continue ;;                          # -c <k=v> takes an arg
-        --) shift; [ $# -gt 0 ] && { sub="$1"; }; break ;;
-        -*) shift; continue ;;                                 # any other option before the subcommand
-        *)  sub="$1"; break ;;
+        -C)           shift; cwd="${1:-.}"; shift; continue ;;         # -C <path>
+        -C*)          cwd="${1#-C}"; shift; continue ;;               # -C<path> (attached)
+        --git-dir)    shift; gitdir="${1:-}"; shift; continue ;;
+        --git-dir=*)  gitdir="${1#--git-dir=}"; shift; continue ;;
+        --work-tree)  shift; worktree="${1:-}"; shift; continue ;;
+        --work-tree=*) worktree="${1#--work-tree=}"; shift; continue ;;
+        -c)           shift; shift; continue ;;                       # -c <k=v> takes an arg
+        -c*)          shift; continue ;;                              # -c<k=v> (attached)
+        --)           shift; [ $# -gt 0 ] && sub="$1"; break ;;
+        -*)           shift; continue ;;                              # any other option before the subcommand
+        *)            sub="$1"; break ;;
       esac
     done
-    case "$sub" in
-      commit|merge) _on_default_branch "$cwd" && return 0 ;;
-    esac
+    if _sub_blocks "$sub"; then
+      _on_default_branch "$cwd" "$gitdir" "$worktree" && return 0
+    fi
   done < <(printf '%s\n' "$norm")
   return 1
 }
@@ -160,6 +206,9 @@ if [ "${1:-}" = "--self-test" ]; then
     echo base > f && git add . && git commit -qm base
     mkdir -p .runs/r   && printf '{"run":"r","pipeline":"full","intends_code":true,"source":"harness","baseline_sha":"x"}\n' > .runs/r/RUN
     mkdir -p .runs/bad && printf '{"run":"bad","pipeline":"full","source":"harness","baseline_sha":"x"}\n'                    > .runs/bad/RUN
+    # an inner NESTED repo on main — target of the --git-dir/--work-tree retarget (B3)
+    mkdir -p inner && ( cd inner && git init -q && git symbolic-ref HEAD refs/heads/main 2>/dev/null || true
+      git config user.email t@t && git config user.name t && echo i > g && git add . && git commit -qm ibase )
   ) >/dev/null 2>&1
   _g()  { ( cd "$T" && printf '%s' "$1" | TEAM_BOOTSTRAP_RUN=r bash "$here/guard-git.sh" >/dev/null 2>&1 ); echo $?; }
   # shellcheck disable=SC2086  # $1 carries intentional multi-word env assignments (VAR=val …)
@@ -176,6 +225,12 @@ if [ "${1:-}" = "--self-test" ]; then
   _chk "$(_g "$(P 'git add -A\ngit commit -m x')")"            2 "multi-line commit on default → block (newline split)"
   _chk "$(_g '{"tool_name":"Bash","tool_input":{"command":"echo \"hi\" && git commit -m x"}}')" 2 "quoted-echo && commit → block (decode)"
   _chk "$(_g '{"tool_name":"Bash","tool_input":{"command":"echo \"git commit\""}}')"            0 "echo mentioning tokens → allow"
+  # WS-D bypasses (pipeline-integrity-hardening):
+  _chk "$(_g "$(P "FOO='a b' git commit -m x")")"             2 "B1 single-quoted env (FOO='a b') commit on default → block"
+  _chk "$(_g "$(P 'git -c alias.ci=commit ci')")"             2 "B2 git -c alias.ci=commit ci on default → block (fail-closed unrecognized sub)"
+  _chk "$(_g "$(P 'git --git-dir=inner/.git --work-tree=inner commit -m x')")" 2 "B3 --git-dir/--work-tree retarget to inner(main) → block"
+  _chk "$(_g "$(P 'git tag v1')")"                            0 "recognized non-commit/merge sub (tag) on default → allow (fail-open, R5)"
+  _chk "$(_g "$(P 'git rev-parse HEAD')")"                    0 "recognized read (rev-parse) on default → allow"
   _chk "$(_g "$(P 'git push origin main')")"                   0 "push on default → NOT gated (disclosed)"
   _chk "$(_g "$(P 'gh pr merge 1 --merge')")"                  0 "gh pr merge → NOT gated (disclosed)"
   _on feature

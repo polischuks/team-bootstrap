@@ -43,6 +43,21 @@ All notable changes to team-bootstrap. Format follows [Keep a Changelog](https:/
     *next* batch close, which a tamperer who already neutered the Stop gate can avoid by never closing. And
     the circular core (`check-seam-ack`/`verify-batch`/`delivery-lib`/`control-surface.txt`) co-edited in one
     diff still escapes in-plugin. Both stay delegated to repo/org posture (CI-from-trusted-ref; sandbox-runtime).
+- **WS-D — the commit/merge-on-default branch guard no longer fails open on three parse bypasses (ADR-0014).**
+  `bin/guard-git.sh`:
+  - **B1** — the env-assignment strip now also handles a **single-quoted** value with a space
+    (`FOO='a b' git commit`), not only the double-quoted twin the finding-#1 fix covered (AC-D1).
+  - **B2 / fail-closed posture (OQ-4)** — a git subcommand that is **not a recognized git subcommand** (an
+    alias such as the `ci` from `git -c alias.ci=commit ci`, or an obfuscating token) is now blocked on the
+    default branch under an armed run (AC-D2). Recognized non-commit/merge subcommands — reads *and*
+    mutations like `tag`/`stash`/`rebase`, and the explicitly-not-gated `push`/`pull` — stay **fail-open**,
+    keeping the false-positive rate low so the guard is never trained-away (R5, AC-D4).
+  - **B3** — `--git-dir` / `--work-tree` are now honored for target-repo resolution, so
+    `git --git-dir=… --work-tree=… commit` is judged against the repo it actually writes to, not the guard's
+    cwd (AC-D3).
+  - **KNOWN GAP (AC-D6):** determined obfuscation (`eval "git commit"`, `$(which git) commit`, wrapper
+    scripts, base64) remains uncaught — the guard stays best-effort git-parsing, not a security boundary;
+    the hard backstop is remote branch-protection. The push-to-`main` half stays delegated (unchanged).
 
 ## [2.26.0] - 2026-08-19
 
