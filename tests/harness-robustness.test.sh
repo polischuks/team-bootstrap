@@ -213,7 +213,32 @@ echo "WS-5 — tracked-.runs preflight hard-fail (AC-5a):"
 ws5_tracked_runs
 
 # ---------------------------------------------------------------------------
-# (WS-6..WS-8 assertions land with their own batches.)
+# WS-6 — plugin version skew: hooks run from $CLAUDE_PLUGIN_ROOT; if that resolves to a
+# different plugin VERSION than the bin/ actually invoked, review-types.txt and gate logic
+# diverge and dispatches go unrecognized (the retro's 2.19.1-vs-2.28.0 skew). Preflight
+# WARNs (detect-and-report) with the reinstall remediation; matched versions → silent.
+# ---------------------------------------------------------------------------
+ws6_version_skew() {
+  local T; T="$(mktemp -d)"
+  printf '9.9.9\n' > "$T/VERSION"     # a foreign "live hook" version
+  local out
+  out="$(CLAUDE_PLUGIN_ROOT="$T" TEAM_BOOTSTRAP_RUN=deliver-run "$here/bin/check-preflight.sh" "$here" 2>&1)"
+  _chk "$(printf '%s' "$out" | grep -c 'version skew')" "1" "AC-6 skewed CLAUDE_PLUGIN_ROOT VERSION → WARN"
+  _chk "$(printf '%s' "$out" | grep -ci 'reinstall')" "1" "AC-6 skew WARN names the reinstall remediation"
+  cp "$here/VERSION" "$T/VERSION"     # matching version
+  out="$(CLAUDE_PLUGIN_ROOT="$T" TEAM_BOOTSTRAP_RUN=deliver-run "$here/bin/check-preflight.sh" "$here" 2>&1)"
+  _chk "$(printf '%s' "$out" | grep -c 'version skew')" "0" "AC-6 matching version → silent (no false skew)"
+  # CLAUDE_PLUGIN_ROOT unset → probe skipped (no spurious warn)
+  out="$(env -u CLAUDE_PLUGIN_ROOT TEAM_BOOTSTRAP_RUN=deliver-run "$here/bin/check-preflight.sh" "$here" 2>&1)"
+  _chk "$(printf '%s' "$out" | grep -c 'version skew')" "0" "AC-6 no CLAUDE_PLUGIN_ROOT → probe skipped"
+  rm -rf "$T"
+}
+
+echo "WS-6 — plugin version-skew probe (AC-6):"
+ws6_version_skew
+
+# ---------------------------------------------------------------------------
+# (WS-7..WS-8 assertions land with their own batches.)
 # ---------------------------------------------------------------------------
 
 fail="$(cat "$FAILF")"; rm -f "$FAILF"
