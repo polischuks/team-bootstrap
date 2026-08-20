@@ -238,7 +238,46 @@ echo "WS-6 — plugin version-skew probe (AC-6):"
 ws6_version_skew
 
 # ---------------------------------------------------------------------------
-# (WS-7..WS-8 assertions land with their own batches.)
+# WS-8 — gate-integrity forced a hand-stamp EVERY batch on pre-existing green-by-skip
+# findings outside the batch's delta (the retro's dashboard skips + e2e continue-on-error),
+# with no governed-waiver path. Add a governed run-level waiver: violations + a valid
+# gate_integrity_waiver → the findings are still SURFACED (not silenced) but the gate is
+# waived (exit 0); expired/absent → still blocks. In CI (no marker) → unchanged (blocks).
+# ---------------------------------------------------------------------------
+ws8_gate_integrity_waiver() {
+  local T; T="$(mktemp -d)"
+  ( cd "$T"; git init -q >/dev/null 2>&1
+    mkdir -p .runs/r
+    printf '@pytest.mark.skip\ndef test_gate_invariant():\n    pass\n' > gate_test.py   # green-by-skip on a "gate" test
+    printf '{"run":"r","intends_code":true}\n' > .runs/r/RUN
+    local rc out
+    ( TEAM_BOOTSTRAP_RUN=r "$here/bin/check-gate-integrity.sh" . >/dev/null 2>&1 ); rc=$?
+    _chk "$rc" "1" "AC-8a green-by-skip, no waiver → exit 1 (blocks)"
+
+    python3 -c 'import json;p=".runs/r/RUN";m=json.load(open(p));m["gate_integrity_waiver"]={"ack":True,"by":"founder","reason":"pre-existing dashboard skips outside this delta","expires":"2099-01-01"};open(p,"w").write(json.dumps(m,separators=(",",":")))'
+    out="$(TEAM_BOOTSTRAP_RUN=r "$here/bin/check-gate-integrity.sh" . 2>&1)"; rc=$?
+    _chk "$rc" "0" "AC-8b valid governed waiver → exit 0 (waived)"
+    _chk "$(printf '%s' "$out" | grep -c 'GREEN-BY-SKIP')" "1" "AC-8b waiver still SURFACES the finding (not silent)"
+
+    python3 -c 'import json;p=".runs/r/RUN";m=json.load(open(p));m["gate_integrity_waiver"]["expires"]="2000-01-01";open(p,"w").write(json.dumps(m,separators=(",",":")))'
+    ( TEAM_BOOTSTRAP_RUN=r "$here/bin/check-gate-integrity.sh" . >/dev/null 2>&1 ); rc=$?
+    _chk "$rc" "1" "AC-8b expired waiver → exit 1 (re-blocks; not forever)"
+
+    # CI parity: no marker → waiver impossible → still blocks (a real disabled gate is never hidden in CI)
+    ( env -u TEAM_BOOTSTRAP_RUN "$here/bin/check-gate-integrity.sh" . >/dev/null 2>&1 ); rc=$?
+    _chk "$rc" "1" "AC-8a no marker (CI) → still blocks (waiver is in-session only)"
+  )
+  rm -rf "$T"
+}
+
+echo "WS-8 — gate-integrity governed waiver, findings surfaced (AC-8a/8b):"
+ws8_gate_integrity_waiver
+
+# ---------------------------------------------------------------------------
+# WS-7 (characterization red-first) DEFERRED — see spec addendum. The common case
+# (acceptance/characterization tests as their own batch) is already covered: check-tdd
+# skips red for a kind:test batch. The residual (characterization tests that must ALSO
+# earn kind:code delivery credit yet have no natural red) is niche and awaits its own batch.
 # ---------------------------------------------------------------------------
 
 fail="$(cat "$FAILF")"; rm -f "$FAILF"
