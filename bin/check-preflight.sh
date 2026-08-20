@@ -85,9 +85,12 @@ _scan() {
     if [ -n "$bs" ] && ! git -C "$dir" rev-parse --verify -q "${bs}^{commit}" >/dev/null 2>&1; then
       echo "HARD baseline_sha '$bs' does not resolve to a commit — the batch-window diff has no anchor (unenforceable)"
     fi
-    # WS-B AC-B3b — operating-tree coherence: the run's OWN docs-contract (spec.md/plan.md/tasks.md under
-    # the marker's `feature` dir) must be present in the tree the build runs against, not only the specs/
-    # parent. A split-brain tree (feature declared, its spec.md absent here) is HARD (ackable).
+    # WS-B AC-B3b — operating-tree coherence: guard a SPLIT-BRAIN tree — the run's feature dir EXISTS here
+    # but is INCOMPLETE (a partial checkout / the docs-contract exists in the specs/ parent but not fully in
+    # THIS worktree). A wholly-ABSENT feature dir is NOT flagged: at Phase 0 (before Phase A) a greenfield
+    # feature's spec.md/plan.md/tasks.md have not been generated yet — Phase A's specify/plan/tasks create
+    # them — so firing on an absent dir would HARD-fail every greenfield delivery (review HIGH-1). Only a
+    # present-but-partial dir is a coherence failure.
     feat="$(field_str "$mk" feature)"
     case "$feat" in
       ""|unknown) : ;;                          # no spec declared → nothing to check (direct/non-spec run)
@@ -95,10 +98,8 @@ _scan() {
         case "$feat" in *.md) fslug="$(dirname "$feat")" ;; *) fslug="${feat%/}" ;; esac
         if [ -d "$dir/$fslug" ]; then
           for _d in spec.md plan.md tasks.md; do
-            [ -f "$dir/$fslug/$_d" ] || echo "HARD run's docs-contract '$fslug/$_d' absent from the build tree — split-brain (the marker's feature is not present here)"
+            [ -f "$dir/$fslug/$_d" ] || echo "HARD run's docs-contract '$fslug/$_d' absent though its dir '$fslug' exists — split-brain/partial operating tree (the feature is present but incomplete here)"
           done
-        else
-          echo "HARD run's feature dir '$fslug' (marker feature) absent from the build tree — split-brain operating tree"
         fi ;;
     esac
   fi

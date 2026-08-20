@@ -95,3 +95,11 @@ without arming a heavier floor on this repo's own delivery runs.
   no `date -d`) that replaces the bare preflight ack in `check-delivery` (AC-B5) with `record_preflight` widened
   to preserve the waiver fields, and a `Prepare:` contract field run in Phase 0 before the pipeline fires. The
   shipped scaffold-linter checks are retained (AC-B6). This closes the founder's req 2 that the descope left open.
+  **Honest limit (WS-B):** WS-B edits `bin/delivery-lib.sh` — the shared core that `check-delivery`, `check-tdd`,
+  and `check-preflight` all `source` to enforce themselves — so this change is inside the same **circular core**
+  as the C4 gap: the gate that would detect drift in `delivery-lib` is built on `delivery-lib`. Unchanged
+  unavoidable self-reference; the answer stays repo/org posture (CI-from-trusted-ref under branch-protection;
+  `sandbox-runtime`), per control-surface-protection §"Honest limits". **Scope (retained):** the readiness gate
+  covers the batch-ledger path; a direct/ledger-less `single-thread` run reaches `check-delivery`'s
+  direct-delivery allowance before the preflight block (the pre-existing D10 design), so preflight is not
+  enforced there — consistent with WS-A keeping the `csb` allowance for `single-thread` alone.

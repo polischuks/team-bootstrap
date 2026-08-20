@@ -196,6 +196,12 @@ record_preflight() {
   by="$(field_in_obj "$mk" preflight by)"
   reason="$(field_in_obj "$mk" preflight reason)"
   expires="$(field_in_obj "$mk" preflight expires)"
+  # JSON-escape the preserved free-text before re-interpolating: a human `by`/`reason` can carry a `"` or
+  # `\`, which field_str captures raw (stopping at the first inner quote, leaving a trailing `\`). Emitting
+  # that raw would write invalid JSON and corrupt the marker (review HIGH-2). Escape `\` then `"`, exactly
+  # as check-preflight escapes gap strings (review nb#1) — keeps the marker valid JSON on any input.
+  by="$(printf '%s' "$by" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  reason="$(printf '%s' "$reason" | sed 's/\\/\\\\/g; s/"/\\"/g')"
   mk="$(_marker_strip_obj_key "$mk" preflight)"
   pf="\"exit\":$ex,\"gaps\":$gaps,\"ack\":$ack"
   [ -n "$by" ]      && pf="$pf,\"by\":\"$by\""

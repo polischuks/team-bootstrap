@@ -257,6 +257,25 @@ _chk "$(_pf "$D")" 1 "AC-B3a baseline_sha unresolvable → preflight HARD fail (
 D="$(mktemp -d)"; _bscaffold "$D"; rm -f "$D/specs/x/spec.md"
 _chk "$(_pf "$D")" 1 "AC-B3b feature docs-contract (spec.md) missing → preflight HARD fail (1)"; rm -rf "$D"
 
+# AC-B3b-greenfield (review HIGH-1) — a feature-bearing marker whose feature dir does NOT exist yet (the
+# normal Phase-0 greenfield case: Phase A has not generated spec/plan/tasks) must NOT HARD-fail preflight.
+D="$(mktemp -d)"; _bscaffold "$D"
+sha_g="$(git -C "$D" rev-parse --short HEAD)"
+printf '{"run":"r","pipeline":"full","intends_code":true,"baseline_sha":"%s","feature":"specs/greenfield"}\n' "$sha_g" > "$D/.runs/r/RUN"
+_chk "$(_pf "$D")" 0 "AC-B3b greenfield: feature dir not yet generated → ready (0, probe fires only on a partial dir)"; rm -rf "$D"
+
+# HIGH-2 regression — record_preflight must keep the marker VALID JSON when a governed-waiver reason
+# carries a double quote (field_str reads it truncated; re-emit must be escaped, not raw).
+D="$(mktemp -d)"; mkdir -p "$D/.runs/r"
+printf '%s\n' '{"run":"r","intends_code":true,"preflight":{"exit":1,"gaps":[],"ack":true,"by":"f","reason":"needs \"scaffold\" fix","expires":"2999-01-01"}}' > "$D/.runs/r/RUN"
+( cd "$D" && . "$LIB" && TEAM_BOOTSTRAP_RUN=r record_preflight 1 '["still broken"]' ) >/dev/null 2>&1
+if python3 -c 'import sys,json; json.load(open(sys.argv[1]))' "$D/.runs/r/RUN" >/dev/null 2>&1; then
+  _chk 0 0 "HIGH-2 record_preflight keeps marker valid JSON with a quote in reason"
+else
+  _chk 1 0 "HIGH-2 record_preflight keeps marker valid JSON with a quote in reason"
+fi
+rm -rf "$D"
+
 # AC-B5 — governed_waiver_ok(ack,by,reason,expires,[now]): a complete, unexpired waiver clears; a bare
 # ack (missing by/reason/expires) or an expired one does NOT (no standing free pass).
 if grep -q 'governed_waiver_ok' "$LIB" 2>/dev/null; then
