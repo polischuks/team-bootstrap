@@ -175,7 +175,12 @@ _final() {
   else
     files="$(_test_path_files .)"
     for ac in $acs; do
-      if printf '%s\n' "$files" | _ac_in_tests "$ac" "$testpat" 3; then continue; fi
+      # WS-3 (harness-robustness): feed the file list via herestring, NOT `printf … | _ac_in_tests`.
+      # `_ac_in_tests` returns 0 on the FIRST matching file without draining stdin; under `set -o pipefail`
+      # the producer `printf` then SIGPIPEs (141) on a large $files (many test files), so the pipeline is
+      # non-zero → the `if` reads it as "not asserted" → an AC that IS asserted is falsely FAILed. A
+      # herestring has no live producer to signal, so early-return is safe. (Root-caused by arch-review.)
+      if _ac_in_tests "$ac" "$testpat" 3 <<< "$files"; then continue; fi
       echo "  FAIL: $ac is in $spec but NOT asserted by any test — it appears in no test-path file within 3 lines of a test/assertion construct (a bare comment mention does not count) (AC-4, B6)." >&2
       viol=$((viol + 1))
     done

@@ -130,7 +130,8 @@ ws3_sigpipe() {
   _chk "$herestr" "0" "AC-3a the herestring pattern is SIGPIPE-free (rc 0, the fix)"
 
   # Pin the real gate: check-completeness must NOT feed _ac_in_tests through a pipe (the vulnerable form).
-  local pipes; pipes="$(grep -Ec 'printf[^|]*\|[^|]*_ac_in_tests' "$here/bin/check-completeness.sh" || true)"
+  # Exclude comment lines — a comment documenting the anti-pattern must not count as the anti-pattern.
+  local pipes; pipes="$(grep -vE '^[[:space:]]*#' "$here/bin/check-completeness.sh" | grep -Ec 'printf[^|]*\|[^|]*_ac_in_tests' || true)"
   _chk "$pipes" "0" "AC-3a check-completeness no longer pipes into _ac_in_tests (herestring instead)"
 
   # Regression: the gate still works (self-test green).
