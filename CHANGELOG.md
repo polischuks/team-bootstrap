@@ -41,6 +41,18 @@ All notable changes to team-bootstrap. Format follows [Keep a Changelog](https:/
   the seam-ack is forgeable-honest (declared + reviewable, not impossible) — the same ceiling as
   `risk_rank`/`seam_acks`.
 
+## [2.27.1] - 2026-08-19
+
+### Fixed
+- **`check-preflight` self-test hermeticity — the suite no longer goes red under an active delivery run.**
+  [`bin/check-preflight.sh`](bin/check-preflight.sh)'s `--self-test` scaffolded a temp run marker named `r` but
+  invoked the gate inheriting the caller's `TEAM_BOOTSTRAP_RUN`, so `resolve_marker` looked for the *outer*
+  run's marker (absent in the scaffold) and spuriously reported "missing run marker" — making `bin/run-tests.sh`
+  fail whenever run under an active `TEAM_BOOTSTRAP_RUN` (e.g. `verify-batch` → `check-tdd` → `run-tests`), i.e.
+  a false `check-tdd` red mid-delivery. The self-test now runs the gate with `env -u TEAM_BOOTSTRAP_RUN` so
+  marker resolution falls back to the scaffolded `.runs/*/RUN`; [tests/preflight-setup.test.sh](tests/preflight-setup.test.sh)
+  also drops its exported run marker before the child self-test/E2E. No runtime behavior change (test-only).
+
 ## [2.27.0] - 2026-08-19
 
 ### Added
