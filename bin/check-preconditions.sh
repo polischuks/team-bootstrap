@@ -31,6 +31,42 @@ advisory=0
 adv_items=""   # JSON-array elements describing each advisory, recorded to the marker
 _adv() { advisory=$((advisory + 1)); adv_items="${adv_items:+$adv_items,}\"$1\""; }
 
+# _stamp_repro_env — soft, AUDIT-ONLY build-env provenance (milestone repro-env-posture, ADR-0013). On an armed
+# intends_code run it records a flat `repro_env` array (container / os / bash / git / dirty + the honest
+# non-observables egress:unverified, sandbox:unknown) via the shipped record_marker_list. It is EXIT-PRESERVING:
+# it never touches hard/advisory, never calls exit, never blocks — check-delivery/verify-batch do NOT read
+# repro_env. Container signals take injectable path/env overrides so it is testable without root/Docker.
+# Kill-switch: TEAM_BOOTSTRAP_REPRO_ENV=off.
+_stamp_repro_env() {
+  [ "${TEAM_BOOTSTRAP_REPRO_ENV:-on}" = "off" ] && return 0
+  local mk; mk="$(resolve_marker)"
+  [ -n "$mk" ] && [ -f "$mk" ] || return 0
+  [ "$(field_bool "$(cat "$mk")" intends_code)" = "true" ] || return 0   # own guard (record_precond does not check this)
+  local container osv bashv gitv dirty tags
+  if   [ -f "${REPRO_DOCKERENV:-/.dockerenv}" ];              then container="docker"
+  elif [ -f "${REPRO_CONTAINERENV:-/run/.containerenv}" ];    then container="podman"
+  elif grep -q  'kubepods' "${REPRO_PROC1_CGROUP:-/proc/1/cgroup}" 2>/dev/null; then container="k8s"
+  elif grep -Eq 'docker|containerd|lxc' "${REPRO_PROC1_CGROUP:-/proc/1/cgroup}" 2>/dev/null; then container="docker"
+  elif [ -n "${CODESPACES:-}" ];                              then container="codespaces"
+  elif [ -n "${REMOTE_CONTAINERS:-}" ] || [ -n "${DEVCONTAINER:-}" ]; then container="devcontainer"
+  else container="none"
+  fi
+  osv="$(uname -s 2>/dev/null)-$(uname -m 2>/dev/null)"
+  bashv="${BASH_VERSION%%[!0-9.]*}"; bashv="$(printf '%s' "$bashv" | cut -d. -f1-2)"
+  gitv="$(git --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)"
+  dirty="$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
+  # sanitize dynamic values to the fixed tag vocabulary (no ] } " can enter the marker shared with precond)
+  _san() {
+    local v="$1"
+    v="${v//\"/}"; v="${v//]/}"; v="${v//\}/}"
+    printf '%s' "$v"
+  }
+  osv="$(_san "$osv")"; bashv="$(_san "$bashv")"; gitv="$(_san "$gitv")"; dirty="$(_san "$dirty")"
+  tags="\"container:$container\",\"os:$osv\",\"bash:$bashv\",\"git:$gitv\",\"dirty:$dirty\",\"egress:unverified\",\"sandbox:unknown\""
+  record_marker_list repro_env "[$tags]" 2>/dev/null || true
+  return 0
+}
+
 git rev-parse --git-dir >/dev/null 2>&1 || {
   echo "check-preconditions: not a git repository — no remote delivery path to verify."
   exit 0
@@ -84,6 +120,9 @@ if [ -n "$deploy" ]; then
 else
   echo "check-preconditions: no build-from-git deploy source detected."
 fi
+
+# soft, audit-only build-env provenance stamp (exit-preserving; never blocks; check-delivery ignores it) -------
+_stamp_repro_env
 
 # verdict ----------------------------------------------------------------------
 if [ "$hard" -gt 0 ]; then

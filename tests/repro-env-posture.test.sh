@@ -46,9 +46,10 @@ _reset; _run "REPRO_DOCKERENV=/nope REPRO_PROC1_CGROUP=/nope" >/dev/null
 _chk "$(_has_re 'os:[A-Za-z]+-[A-Za-z0-9_]+')" yes "os:<uname-s>-<uname-m> present"
 _chk "$(_has_re 'bash:[0-9]+\.[0-9]+')"        yes "bash:<major.minor> present"
 _chk "$(_has_re 'git:[0-9]+\.[0-9]+')"         yes "git:<major.minor> present"
-# a synthetic untracked file → dirty:1, no left-pad whitespace in the token
+# the recorded dirty:N must equal `git status --porcelain | wc -l`, as a bare int (no macOS wc left-pad)
 ( cd "$T" && : > untracked_x ) ; _reset; _run "REPRO_DOCKERENV=/nope REPRO_PROC1_CGROUP=/nope" >/dev/null
-_chk "$(_has dirty:1)" yes "dirty:1 matches a synthetic dirty tree (no wc left-pad)"
+want_dirty="dirty:$( ( cd "$T" && git status --porcelain 2>/dev/null | wc -l | tr -d ' ' ) )"
+_chk "$(_has "$want_dirty")" yes "$want_dirty matches git status (bare int, no wc left-pad)"
 ( cd "$T" && rm -f untracked_x )
 
 echo "AC-3 — exit-preserving (the stamp changes NO exit code):"
@@ -78,7 +79,7 @@ _chk "$(_has_re 'egress:(restricted|open)')" no "never a guessed egress state"
 
 echo "AC-6 — flat-array marker discipline + idempotence + no sibling clobber:"
 _reset; _run "REPRO_DOCKERENV=$DOCK REPRO_PROC1_CGROUP=/nope" >/dev/null
-_chk "$(_repro | grep -Eq '[]}"][^,]*[]}"]' && echo bad || echo ok)" ok "no stray ] } \" inside items (flat tag vocab)"
+_chk "$(_repro | grep -Eq '^"repro_env":\[[A-Za-z0-9:._,"/ -]*\]$' && echo ok || echo bad)" ok "flat tag vocab — no stray ] } inside items"
 n1="$(_repro | grep -o 'container:' | wc -l | tr -d ' ')"
 _run "REPRO_DOCKERENV=$DOCK REPRO_PROC1_CGROUP=/nope" >/dev/null   # re-probe
 n2="$(_repro | grep -o 'container:' | wc -l | tr -d ' ')"
