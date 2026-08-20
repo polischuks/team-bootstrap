@@ -22,6 +22,18 @@ bin/delivery-lib.sh
 bin/tdd-red.sh
 bin/record-dispatch.sh
 
+# registered hook bodies + the pipeline gate (pipeline-integrity-hardening WS-C, finding #2): hooks.json
+# being covered catches DROPPING a registration; it does not catch GUTTING a hook script's body to
+# `exit 0`. These four are each a registered hook (guard-git, delivery-stop-hook, delivery-marker-init,
+# record-dispatch above) or a verify-batch gate body (quality-gate), so a vacuity edit to any of them is
+# a silent gate-disable — now a declared, ack-required event. (delivery-stop-hook / delivery-marker-init
+# are HOOK bodies, so a gutting is caught only at the NEXT batch close, weaker than a verify-batch gate —
+# see ADR-0014 / AC-C4 KNOWN GAP.)
+bin/guard-git.sh
+bin/quality-gate.sh
+bin/delivery-stop-hook.sh
+bin/delivery-marker-init.sh
+
 # hook registrations (glob spans '/', so hooks/nested/*.json is covered too)
 hooks/*.json
 

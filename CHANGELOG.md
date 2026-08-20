@@ -25,6 +25,22 @@ All notable changes to team-bootstrap. Format follows [Keep a Changelog](https:/
   - Retained honest limit: WS-A stays at the ADR-0006 marker/dispatch **forgeability ceiling** (a forged
     `status:closed` with `dispatch.jsonl` deleted is trusted) — the win is *harness-observed dispatch at
     run-close*, not tamper-proofing.
+- **WS-C — the control-surface set no longer misses registered hook/gate bodies, and a dirty working tree
+  can no longer neuter a gate unseen (ADR-0014).**
+  - Added `bin/guard-git.sh`, `bin/quality-gate.sh`, `bin/delivery-stop-hook.sh`, `bin/delivery-marker-init.sh`
+    to `references/control-surface.txt` — each is a registered hook or a `verify-batch` gate body, so a
+    vacuity edit (`exit 0`) to any of them is now a declared, ack-required control-surface event, not a
+    silent gate-disable (AC-C1).
+  - `check-seam-ack` now fails closed on **uncommitted** modifications to any control-surface path in the
+    working tree (`git status --porcelain`), even when `git diff base..HEAD` is clean of them — closing the
+    hole where a gate edited in place takes effect for the run (verify-batch executes the working tree) yet
+    never appears in the committed window (AC-C2). Scoped to the control surface — a dirty feature file is
+    unaffected (AC-C3).
+  - **KNOWN GAP (AC-C4):** the two additions that are *hook* bodies (`delivery-stop-hook`,
+    `delivery-marker-init`) are weaker than a `verify-batch` gate — a gutted hook body is caught only at the
+    *next* batch close, which a tamperer who already neutered the Stop gate can avoid by never closing. And
+    the circular core (`check-seam-ack`/`verify-batch`/`delivery-lib`/`control-surface.txt`) co-edited in one
+    diff still escapes in-plugin. Both stay delegated to repo/org posture (CI-from-trusted-ref; sandbox-runtime).
 
 ## [2.26.0] - 2026-08-19
 
