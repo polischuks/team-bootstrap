@@ -143,7 +143,44 @@ echo "WS-3 — SIGPIPE false-positive elimination (AC-3a):"
 ws3_sigpipe
 
 # ---------------------------------------------------------------------------
-# (WS-4..WS-8 assertions land with their own batches.)
+# WS-4 — marker reader tolerates ANY valid JSON serialization. Top-level scalar reads
+# are already space/newline tolerant; the real residual is NESTED reads (field_in_obj),
+# which matched `"obj":{` (compact) and broke on a pretty-printer's `"obj": {` / newline.
+# Gates read precond/preflight/enforcement via field_in_obj, so this false-skips them.
+# ---------------------------------------------------------------------------
+ws4_reader() {
+  . "$here/bin/delivery-lib.sh"
+  local pretty compact
+  pretty="$(python3 -c 'import json;print(json.dumps({"run":"r","intends_code":True,"baseline_sha":"abc123","precond":{"exit":2,"ack":False},"preflight":{"exit":0,"ack":True}},indent=2))')"
+  compact="$(python3 -c 'import json;print(json.dumps({"run":"r","intends_code":True,"baseline_sha":"abc123","precond":{"exit":2,"ack":False},"preflight":{"exit":0,"ack":True}},separators=(",",":")))')"
+
+  # AC-4a — top-level scalars read back from the multiline (pretty) marker (already worked; regression pin).
+  _chk "$(field_str "$pretty" run)" "r" "AC-4a field_str top-level on pretty marker"
+  _chk "$(field_bool "$pretty" intends_code)" "true" "AC-4a field_bool top-level on pretty marker"
+
+  # AC-4a — NESTED reads read back identically to compact (the real fix).
+  _chk "$(field_in_obj "$pretty" precond exit)" "2" "AC-4a field_in_obj precond.exit on pretty (multiline)"
+  _chk "$(field_in_obj "$pretty" precond ack)" "false" "AC-4a field_in_obj precond.ack on pretty (multiline)"
+  _chk "$(field_in_obj "$pretty" preflight exit)" "0" "AC-4a field_in_obj preflight.exit on pretty (multiline)"
+  # equivalence: pretty and compact give the SAME nested values
+  _chk "$(field_in_obj "$pretty" precond exit)" "$(field_in_obj "$compact" precond exit)" \
+    "AC-4a nested read: pretty == compact (round-trip)"
+
+  # AC-4b — the plugin's own writers emit COMPACT single-line (regression pin): record_marker_list output
+  # has no interior newline.
+  local T; T="$(mktemp -d)"
+  ( cd "$T"; mkdir -p .runs/r; printf '{"run":"r","intends_code":true}\n' > .runs/r/RUN
+    . "$here/bin/delivery-lib.sh"; export TEAM_BOOTSTRAP_RUN=r
+    record_marker_list seam_acks '[{"seam":"x","commit":"y"}]'
+    _chk "$(wc -l < .runs/r/RUN | tr -d ' ')" "1" "AC-4b marker writer stays single-line (compact)" )
+  rm -rf "$T"
+}
+
+echo "WS-4 — marker reader multiline/nested robustness (AC-4a/4b):"
+ws4_reader
+
+# ---------------------------------------------------------------------------
+# (WS-5..WS-8 assertions land with their own batches.)
 # ---------------------------------------------------------------------------
 
 fail="$(cat "$FAILF")"; rm -f "$FAILF"
