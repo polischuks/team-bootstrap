@@ -214,5 +214,60 @@ _chk "$(_gd "$(Pd "git log --grep 'x; git status'")")" 0 "AC-D4b read on main w/
 _chk "$(_gd "$(Pd "git log --grep 'x; git deploy'")")" 0 "AC-D4b read on main w/ metachar+word in quoted arg → allow"
 rm -rf "$GT"
 
+# ---------------------------------------------------------------------------------------------------
+# WS-B — preflight as a readiness gate, not a scaffold linter (AC-B1..B6). Drives bin/check-preflight.sh
+# (the three runtime probes) and delivery-lib.sh governed_waiver_ok.
+PF="$here/../bin/check-preflight.sh"
+LIB="$here/../bin/delivery-lib.sh"
+echo "WS-B — preflight readiness probes + governed waiver (AC-B1..B6):"
+
+# _bscaffold DIR → a fully-valid scaffold + an armed marker whose feature points at specs/x (which has
+# a spec/plan/tasks docs-contract). AGENTS.md carries a runnable Test: command whose binary exists.
+_bscaffold() {
+  local d="$1" sha
+  git -C "$d" init -q
+  printf '# constitution\n' > "$d/constitution.md"
+  printf '{"active_spec":"specs/x","specs_dir":"specs","constitution":"constitution.md","adr_dir":"docs/adr"}\n' > "$d/feature.json"
+  mkdir -p "$d/specs/TEMPLATE" "$d/specs/x" "$d/docs/adr"
+  printf '# spec\n' > "$d/specs/x/spec.md"; printf '# plan\n' > "$d/specs/x/plan.md"; printf '# tasks\n' > "$d/specs/x/tasks.md"
+  printf '# AGENTS\n\n- Test: `true`\n' > "$d/AGENTS.md"
+  git -C "$d" add -A >/dev/null 2>&1
+  git -C "$d" -c user.email=t@t -c user.name=t commit -q -m init >/dev/null 2>&1
+  sha="$(git -C "$d" rev-parse --short HEAD)"
+  mkdir -p "$d/.runs/r"
+  printf '{"run":"r","pipeline":"full","intends_code":true,"baseline_sha":"%s","feature":"specs/x"}\n' "$sha" > "$d/.runs/r/RUN"
+}
+_pf() { ( cd "$1" && env -u TEAM_BOOTSTRAP_RUN "$PF" . >/dev/null 2>&1 ); echo $?; }
+
+# AC-B6 — a fully-valid scaffold with a runnable Test: + docs-contract + resolvable baseline → ready (0).
+D="$(mktemp -d)"; _bscaffold "$D"; _chk "$(_pf "$D")" 0 "AC-B6 full scaffold + runnable Test: + docs → ready (0)"; rm -rf "$D"
+# AC-B1 — a scaffold whose AGENTS.md has NO Test: line (no runnable test command) → HARD fail (1).
+D="$(mktemp -d)"; _bscaffold "$D"; printf '# AGENTS\n\n(no test line)\n' > "$D/AGENTS.md"
+git -C "$D" -c user.email=t@t -c user.name=t commit -aqm "drop Test:" >/dev/null 2>&1
+_chk "$(_pf "$D")" 1 "AC-B1 no runnable Test: command → preflight HARD fail (1)"; rm -rf "$D"
+# AC-B2 — a Test: command whose binary is NOT on PATH / not a file → toolchain HARD fail (1).
+D="$(mktemp -d)"; _bscaffold "$D"; printf '# AGENTS\n\n- Test: `nonexistent-binary-xyz-9f3 run`\n' > "$D/AGENTS.md"
+git -C "$D" -c user.email=t@t -c user.name=t commit -aqm "bad tool" >/dev/null 2>&1
+_chk "$(_pf "$D")" 1 "AC-B2 Test: binary absent from PATH → toolchain HARD fail (1)"; rm -rf "$D"
+# AC-B3a — baseline_sha does not resolve → HARD fail (1) (was WARN in the shipped linter).
+D="$(mktemp -d)"; _bscaffold "$D"
+printf '{"run":"r","pipeline":"full","intends_code":true,"baseline_sha":"deadbeef","feature":"specs/x"}\n' > "$D/.runs/r/RUN"
+_chk "$(_pf "$D")" 1 "AC-B3a baseline_sha unresolvable → preflight HARD fail (1)"; rm -rf "$D"
+# AC-B3b — the run's feature docs-contract (spec.md) absent from the tree → HARD fail (1).
+D="$(mktemp -d)"; _bscaffold "$D"; rm -f "$D/specs/x/spec.md"
+_chk "$(_pf "$D")" 1 "AC-B3b feature docs-contract (spec.md) missing → preflight HARD fail (1)"; rm -rf "$D"
+
+# AC-B5 — governed_waiver_ok(ack,by,reason,expires,[now]): a complete, unexpired waiver clears; a bare
+# ack (missing by/reason/expires) or an expired one does NOT (no standing free pass).
+if grep -q 'governed_waiver_ok' "$LIB" 2>/dev/null; then
+  _gw() { ( . "$LIB"; governed_waiver_ok "$1" "$2" "$3" "$4" "$5" >/dev/null 2>&1; echo $? ); }
+  _chk "$(_gw true founder "scaffold gap" 2999-01-01 2026-08-20)" 0 "AC-B5 complete unexpired waiver → ok (0)"
+  _chk "$(_gw true ''      ''            2999-01-01 2026-08-20)" 1 "AC-B5 bare ack (no by/reason) → not ok (1)"
+  _chk "$(_gw true founder "gap"          2000-01-01 2026-08-20)" 1 "AC-B5 expired waiver → not ok (1)"
+  _chk "$(_gw false founder "gap"         2999-01-01 2026-08-20)" 1 "AC-B5 ack:false → not ok (1)"
+else
+  _chk 1 0 "AC-B5 governed_waiver_ok present in delivery-lib.sh"   # red until T040 lands
+fi
+
 if [ "$fail" -eq 0 ]; then echo "pipeline-integrity-hardening.test.sh: OK"; exit 0; fi
 echo "pipeline-integrity-hardening.test.sh: $fail case(s) FAILED" >&2; exit 1
