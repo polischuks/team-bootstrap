@@ -138,7 +138,11 @@ _self_test() {
     printf '{"run":"r","intends_code":true,"baseline_sha":"%s"}\n' "$sha" > "$d/.runs/r/RUN"
   }
   _expect() { # LABEL DIR WANT_RC
-    local o r; o="$("$0" "$2" 2>&1)"; r=$?
+    # Hermetic: unset any ambient TEAM_BOOTSTRAP_RUN so resolve_marker falls back to `ls .runs/*/RUN` in the
+    # scaffolded DIR (finding its own run), instead of an outer delivery run that isn't present in DIR — else
+    # the self-test spuriously reports "missing run marker" when run under an active delivery (e.g. verify-batch
+    # → check-tdd → run-tests exports TEAM_BOOTSTRAP_RUN).
+    local o r; o="$(env -u TEAM_BOOTSTRAP_RUN "$0" "$2" 2>&1)"; r=$?
     if [ "$r" -eq "$3" ]; then echo "  PASS $1"; else
       echo "  FAIL $1 — want rc=$3 got $r; out: $o" >&2; fail=$((fail + 1)); fi
   }

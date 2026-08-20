@@ -117,6 +117,9 @@ rm -rf "$tmp2"
 # ---------------------------------------------------------------------------------------------------
 # Group 4 — check-preflight.sh detector (B2): its authoritative --self-test + black-box E2E (AC-1/2/9)
 # ---------------------------------------------------------------------------------------------------
+# Drop the run marker Groups 3 exported so it can't leak into the child --self-test / E2E below (which
+# scaffold their own runs); the self-test is hermetic on its own now, but keep this test's env clean too.
+unset TEAM_BOOTSTRAP_RUN
 gate="$here/bin/check-preflight.sh"
 if [ ! -x "$gate" ]; then
   echo "  FAIL check-preflight.sh missing/not executable" >&2; fail=$((fail + 1))
