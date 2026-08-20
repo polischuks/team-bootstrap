@@ -113,7 +113,36 @@ echo "WS-2 — Stop-hook de-dup preserves exit 2 (AC-2b):"
 ws2_dedup
 
 # ---------------------------------------------------------------------------
-# (WS-3..WS-8 assertions land with their own batches.)
+# WS-3 — SIGPIPE false-positive: `producer | consumer-that-returns-early` under
+# `set -o pipefail` → the consumer short-circuits, the producer gets SIGPIPE(141),
+# pipefail makes the pipeline non-zero → a passing check is read as a FAILURE. The
+# live instance is check-completeness --final's `printf "$files" | _ac_in_tests` (fires
+# only when $files > the 64KB pipe buffer, i.e. big repos). Fix: feed via herestring.
+# ---------------------------------------------------------------------------
+ws3_sigpipe() {
+  # Demonstrate the class is real (documents WHY the fix matters), then pin the fix.
+  _consumer() { while IFS= read -r x; do [ "$x" = "1" ] && return 0; done; return 1; }
+  local big; big="$(seq 1 20000)"   # ~115KB > 64KB pipe buffer → forces the SIGPIPE
+  local piped herestr
+  ( set -o pipefail; printf '%s\n' "$big" | _consumer ); piped=$?
+  ( set -o pipefail; _consumer <<< "$big" ); herestr=$?
+  _chk "$piped" "141" "AC-3a the pipe pattern DOES 141 under pipefail (the bug class is real)"
+  _chk "$herestr" "0" "AC-3a the herestring pattern is SIGPIPE-free (rc 0, the fix)"
+
+  # Pin the real gate: check-completeness must NOT feed _ac_in_tests through a pipe (the vulnerable form).
+  local pipes; pipes="$(grep -Ec 'printf[^|]*\|[^|]*_ac_in_tests' "$here/bin/check-completeness.sh" || true)"
+  _chk "$pipes" "0" "AC-3a check-completeness no longer pipes into _ac_in_tests (herestring instead)"
+
+  # Regression: the gate still works (self-test green).
+  local st; ( "$here/bin/check-completeness.sh" --self-test >/dev/null 2>&1 ); st=$?
+  _chk "$st" "0" "AC-3a check-completeness --self-test still green after the fix"
+}
+
+echo "WS-3 — SIGPIPE false-positive elimination (AC-3a):"
+ws3_sigpipe
+
+# ---------------------------------------------------------------------------
+# (WS-4..WS-8 assertions land with their own batches.)
 # ---------------------------------------------------------------------------
 
 fail="$(cat "$FAILF")"; rm -f "$FAILF"
