@@ -14,12 +14,26 @@
 #   If $TEAM_BOOTSTRAP_RUN names a run, resolve to THAT run only (empty if it has no
 #   ledger yet) — a named run means that run, not "whatever's newest", and this keeps
 #   a self-test run isolated from any real ledger in the tree. Unset => newest.
+# _newest_run_file SUFFIX — echo the newest .runs/*/SUFFIX by mtime, GLOB-INDEPENDENT (harness-robustness
+# WS-1). A caller running under `set -f` (delivery-stop-hook.sh sets noglob around its untrusted
+# closed_ids loop, then calls reviewer_dispatch_count→resolve_marker) would otherwise leave `.runs/*/RUN`
+# UNexpanded → `ls` matches nothing → empty marker → the reviewer floor falsely reads "not met" and the
+# Stop-hook false-blocks in a loop. Enable globbing locally and restore the caller's prior -f state
+# (all call sites are `$(resolve_*)` command-subs, so this cannot leak — the restore is belt-and-braces).
+# `ls -t` preserves newest-by-mtime selection (a `find`-based scan would return directory order).
+_newest_run_file() {
+  local _had_noglob=0; case $- in *f*) _had_noglob=1 ;; esac
+  set +f
+  ls -t .runs/*/"$1" 2>/dev/null | head -1 || true
+  [ "$_had_noglob" -eq 1 ] && set -f
+  return 0
+}
 resolve_ledger() {
   if [ -n "${TEAM_BOOTSTRAP_RUN:-}" ]; then
     [ -f ".runs/${TEAM_BOOTSTRAP_RUN}/batches.jsonl" ] && printf '%s' ".runs/${TEAM_BOOTSTRAP_RUN}/batches.jsonl"
     return 0
   fi
-  ls -t .runs/*/batches.jsonl 2>/dev/null | head -1 || true
+  _newest_run_file batches.jsonl
 }
 
 # resolve_marker — echo the active RUN marker path (or empty). Same run-scoping rule.
@@ -28,7 +42,7 @@ resolve_marker() {
     [ -f ".runs/${TEAM_BOOTSTRAP_RUN}/RUN" ] && printf '%s' ".runs/${TEAM_BOOTSTRAP_RUN}/RUN"
     return 0
   fi
-  ls -t .runs/*/RUN 2>/dev/null | head -1 || true
+  _newest_run_file RUN
 }
 
 # Compact-or-spaced JSON field extractors. The `[[:space:]]*` after each colon is load-bearing:
