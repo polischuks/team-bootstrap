@@ -53,6 +53,14 @@ _scan() {
     echo "HARD not a git repository — no delivery run can be anchored here (fix the repo; there is no run to ack)"
     return 0
   fi
+  # WS-5 (harness-robustness): a target repo that TRACKS .runs/ makes the delivery gate Sisyphean — git
+  # restores stale session markers under it, so `rm` never sticks and the Stop-hook re-blocks every
+  # prompt (the retro's committed-.runs cascade, where deleting one orphan surfaced the next). Session
+  # state must never be tracked. Fail HARD with the exact untrack remediation. No `| head` (WS-3): the
+  # whole ls-files output is captured, non-empty ⇒ tracked.
+  if [ -n "$(git -C "$dir" ls-files -- .runs/ 2>/dev/null)" ]; then
+    echo "HARD .runs/ is TRACKED in git — session markers get restored and re-block every run; untrack them: git rm -r --cached .runs/ && echo '.runs/' >> .gitignore"
+  fi
   # feature.json present + minimally parseable
   fj="$dir/feature.json"
   if [ ! -f "$fj" ]; then
