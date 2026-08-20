@@ -116,13 +116,25 @@ _commit_touches_seam() {
 # neuter a gate in place. Scoped to the control surface (AC-C3: a dirty non-surface feature file is
 # ignored). Rename entries ("orig -> new") are matched on the destination.
 _dirty_control_surface() {
-  local tgt="$1" globs_nl="$2" line path
-  while IFS= read -r line; do
-    [ -n "$line" ] || continue
-    path="${line#???}"                       # strip the 2 XY status cols + the separating space
-    case "$path" in *" -> "*) path="${path##* -> }" ;; esac
-    _intersects "$path" "$globs_nl" && printf '%s\n' "$path"
-  done < <(git -C "$tgt" status --porcelain 2>/dev/null)
+  local tgt="$1" globs_nl="$2" tok status path expect_src=0
+  # -z + core.quotepath=false: NUL-delimited, UNQUOTED, UNESCAPED records. git's default `core.quotepath`
+  # wraps a path containing a space / non-ASCII byte / quote / backslash in escaped double quotes; the naive
+  # `${line#???}` left the quotes, so `_intersects` silently dropped such a surface path (review HIGH,
+  # fail-OPEN). Such names are reachable under the whole-tree surface entries (.claude / commands / agents),
+  # so AC-C2's "no uncommitted surface edit escapes" was not held. A rename/copy (R/C) is TWO NUL fields —
+  # the XY record's path AND a following bare source path; BOTH are tested so a `git mv` that moves a surface
+  # gate OUT of its namespace is still flagged (review MEDIUM). read -d '' splits on NUL; IFS= keeps spaces.
+  while IFS= read -r -d '' tok; do
+    [ -n "$tok" ] || continue
+    if [ "$expect_src" -eq 1 ]; then
+      expect_src=0
+      _intersects "$tok" "$globs_nl" && printf '%s\n' "$tok"
+      continue
+    fi
+    status="${tok:0:2}"; path="${tok:3}"     # "XY PATH": 2 status cols, a space, then the (unquoted) path
+    case "$status" in *[RC]*) expect_src=1 ;; esac
+    [ -n "$path" ] && _intersects "$path" "$globs_nl" && printf '%s\n' "$path"
+  done < <(git -C "$tgt" -c core.quotepath=false status --porcelain -z 2>/dev/null)
 }
 
 _evaluate() {

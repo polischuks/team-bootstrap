@@ -142,5 +142,32 @@ _chk "$(_csrun "$D" r)" 0 "AC-C3 clean tree + committed non-surface change → e
 _chk "$(_csrun "$D" r)" 0 "AC-C3 dirty NON-surface file → exit 0 (precondition scoped to control surface)"
 rm -rf "$D"
 
+# AC-C2b (review HIGH) — a dirty surface file whose name contains a SPACE, under a whole-tree surface
+# entry (commands/), must still be flagged. git's default core.quotepath double-quotes such a path; a
+# naive porcelain parse drops it (fail-open). Requires the -z / core.quotepath=false read.
+D="$(_csfixture)"
+( cd "$D" && mkdir -p commands && printf 'x\n' > "commands/space file.md" && git add . && git commit -qm "add spaced surface file" ) >/dev/null 2>&1
+cb="$(cd "$D" && git rev-parse --short HEAD)"
+( cd "$D" && mkdir -p src && echo x > src/app.py && git add . && git commit -qm "non-surface work" ) >/dev/null 2>&1
+( cd "$D" && printf 'tampered\n' >> "commands/space file.md" ) >/dev/null 2>&1   # DIRTY, uncommitted, surface, spaced name
+mkdir -p "$D/.runs/r"
+printf '{"id":"B1","kind":"code","files":["src/app.py"],"status":"announced"}\n' > "$D/.runs/r/batches.jsonl"
+printf '{"run":"r","pipeline":"full","intends_code":true,"source":"harness","baseline_sha":"%s"}\n' "$cb" > "$D/.runs/r/RUN"
+_chk "$(_csrun "$D" r)" 1 "AC-C2b dirty surface file with a SPACE in its name (commands/) → fail closed (quotepath/-z)"
+rm -rf "$D"
+
+# AC-C2c (review MEDIUM) — a STAGED rename that moves a surface gate OUT of its namespace must be flagged
+# on the SOURCE side (git mv bin/check-existing.sh bin/OTHER.sh: dest non-surface, source surface).
+D="$(_csfixture)"
+( cd "$D" && mkdir -p bin && printf '#gate\n' > bin/check-existing.sh && git add . && git commit -qm "add tracked gate" ) >/dev/null 2>&1
+cb="$(cd "$D" && git rev-parse --short HEAD)"
+( cd "$D" && mkdir -p src && echo x > src/app.py && git add . && git commit -qm "non-surface work" ) >/dev/null 2>&1
+( cd "$D" && git mv bin/check-existing.sh bin/OTHER.sh ) >/dev/null 2>&1   # STAGED rename out of the surface
+mkdir -p "$D/.runs/r"
+printf '{"id":"B1","kind":"code","files":["src/app.py"],"status":"announced"}\n' > "$D/.runs/r/batches.jsonl"
+printf '{"run":"r","pipeline":"full","intends_code":true,"source":"harness","baseline_sha":"%s"}\n' "$cb" > "$D/.runs/r/RUN"
+_chk "$(_csrun "$D" r)" 1 "AC-C2c staged rename of a surface gate out (bin/check-existing.sh → bin/OTHER.sh) → fail closed (both rename sides)"
+rm -rf "$D"
+
 if [ "$fail" -eq 0 ]; then echo "pipeline-integrity-hardening.test.sh: OK"; exit 0; fi
 echo "pipeline-integrity-hardening.test.sh: $fail case(s) FAILED" >&2; exit 1

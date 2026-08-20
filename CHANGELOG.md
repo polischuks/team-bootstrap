@@ -32,7 +32,9 @@ All notable changes to team-bootstrap. Format follows [Keep a Changelog](https:/
     vacuity edit (`exit 0`) to any of them is now a declared, ack-required control-surface event, not a
     silent gate-disable (AC-C1).
   - `check-seam-ack` now fails closed on **uncommitted** modifications to any control-surface path in the
-    working tree (`git status --porcelain`), even when `git diff base..HEAD` is clean of them — closing the
+    working tree (`git status --porcelain -z -c core.quotepath=false` — NUL-delimited, unquoted, so a
+    surface path with a space/non-ASCII name under a whole-tree entry isn't hidden by git's default quoting;
+    both sides of a staged rename are checked), even when `git diff base..HEAD` is clean of them — closing the
     hole where a gate edited in place takes effect for the run (verify-batch executes the working tree) yet
     never appears in the committed window (AC-C2). Scoped to the control surface — a dirty feature file is
     unaffected (AC-C3).
