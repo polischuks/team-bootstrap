@@ -80,5 +80,67 @@ printf '%s\n' '{"batch":"B1","subagent_type":"backend-developer"}' > "$T/.runs/s
 _chk "$(_stop space_norev)" 2 "mislabeled 'full ' (trailing space) + closed batch + zero reviewer → Stop exit 2 (AC-A5b)"
 
 rm -rf "$T"
+
+# ---------------------------------------------------------------------------------------------------
+# WS-C — control-surface scope + dirty-tree precondition (AC-C1..C3). Fixtures copy the REAL
+# references/control-surface.txt so T020's additions (guard-git / quality-gate / delivery-stop-hook /
+# delivery-marker-init) are exercised against the shipped list.
+SEAMACK="$here/../bin/check-seam-ack.sh"
+CSREF="$here/../references/control-surface.txt"
+
+echo "WS-C — control-surface scope + dirty-tree (AC-C1..C3):"
+
+# _csfixture → fresh git repo carrying the real control-surface.txt at base; echoes its path.
+_csfixture() {
+  local d; d="$(mktemp -d)"
+  ( cd "$d" && git init -q && git config user.email t@t && git config user.name t
+    mkdir -p references && cp "$CSREF" references/control-surface.txt
+    echo seed > seed && git add . && git commit -qm base ) >/dev/null 2>&1
+  printf '%s' "$d"
+}
+# _csrun DIR RUN → run check-seam-ack in DIR under run RUN; echo exit code
+_csrun() { ( cd "$1" && TEAM_BOOTSTRAP_RUN="$2" "$SEAMACK" . >/dev/null 2>&1 ); echo $?; }
+
+# AC-C1 — a batch committing a vacuity edit to a newly-listed hook/gate script WITHOUT a control-surface
+# ack → seam exit 1 (per file). Before T020 those files aren't in control-surface.txt → exit 0 (red).
+for f in bin/guard-git.sh bin/quality-gate.sh bin/delivery-stop-hook.sh bin/delivery-marker-init.sh; do
+  D="$(_csfixture)"
+  cb="$(cd "$D" && git rev-parse --short HEAD)"                       # baseline = base commit
+  ( cd "$D" && mkdir -p "$(dirname "$f")" && printf 'exit 0\n' > "$f" && git add . && git commit -qm "gut $f" ) >/dev/null 2>&1
+  mkdir -p "$D/.runs/r"
+  printf '{"id":"B1","kind":"code","files":["%s"],"status":"announced"}\n' "$f" > "$D/.runs/r/batches.jsonl"
+  printf '{"run":"r","pipeline":"full","intends_code":true,"source":"harness","baseline_sha":"%s"}\n' "$cb" > "$D/.runs/r/RUN"
+  _chk "$(_csrun "$D" r)" 1 "AC-C1 vacuity edit to $f, no control-surface ack → seam exit 1"
+  rm -rf "$D"
+done
+
+# AC-C2 — a batch closing with UNCOMMITTED modifications to a control-surface path in the working tree,
+# even when git diff base..HEAD is clean of them → fail closed (dirty-tree precondition, T022). The
+# committed window (baseline = the commit that added the tracked gate) touches ONLY a non-surface file;
+# only the uncommitted edit to bin/check-existing.sh makes the tree dirty on the surface.
+D="$(_csfixture)"
+( cd "$D" && mkdir -p bin && printf '#gate\n' > bin/check-existing.sh && git add . && git commit -qm "add tracked gate" ) >/dev/null 2>&1
+cb="$(cd "$D" && git rev-parse --short HEAD)"                          # baseline = post-gate commit
+( cd "$D" && mkdir -p src && echo x > src/app.py && git add . && git commit -qm "non-surface work" ) >/dev/null 2>&1
+( cd "$D" && printf 'exit 0\n' >> bin/check-existing.sh ) >/dev/null 2>&1   # DIRTY, uncommitted, surface
+mkdir -p "$D/.runs/r"
+printf '{"id":"B1","kind":"code","files":["src/app.py"],"status":"announced"}\n' > "$D/.runs/r/batches.jsonl"
+printf '{"run":"r","pipeline":"full","intends_code":true,"source":"harness","baseline_sha":"%s"}\n' "$cb" > "$D/.runs/r/RUN"
+_chk "$(_csrun "$D" r)" 1 "AC-C2 dirty control-surface working tree (uncommitted) + clean committed diff → fail closed"
+rm -rf "$D"
+
+# AC-C3 — clean working tree + in-window committed NON-surface change → exit 0 (no false positive); and
+# a dirty NON-surface file must NOT trip the precondition (it is scoped to control-surface paths).
+D="$(_csfixture)"
+cb="$(cd "$D" && git rev-parse --short HEAD)"
+( cd "$D" && mkdir -p src && echo x > src/app.py && git add . && git commit -qm "non-surface work" ) >/dev/null 2>&1
+mkdir -p "$D/.runs/r"
+printf '{"id":"B1","kind":"code","files":["src/app.py"],"status":"announced"}\n' > "$D/.runs/r/batches.jsonl"
+printf '{"run":"r","pipeline":"full","intends_code":true,"source":"harness","baseline_sha":"%s"}\n' "$cb" > "$D/.runs/r/RUN"
+_chk "$(_csrun "$D" r)" 0 "AC-C3 clean tree + committed non-surface change → exit 0 (no false positive)"
+( cd "$D" && echo more >> src/app.py ) >/dev/null 2>&1                  # dirty a NON-surface file
+_chk "$(_csrun "$D" r)" 0 "AC-C3 dirty NON-surface file → exit 0 (precondition scoped to control surface)"
+rm -rf "$D"
+
 if [ "$fail" -eq 0 ]; then echo "pipeline-integrity-hardening.test.sh: OK"; exit 0; fi
 echo "pipeline-integrity-hardening.test.sh: $fail case(s) FAILED" >&2; exit 1
