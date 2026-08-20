@@ -12,12 +12,18 @@
 #
 # DETECT-AND-REPORT ONLY: never mutates the target project (no mkdir, no file creation).
 #
-# Checks (fail/warn split — see specs/preflight-setup-phase, OQ-2):
-#   HARD (exit 1): not a git repo (non-ackable) · feature.json present+parseable · constitution
-#                  (resolved VIA feature.json 'constitution' key, not a hardcoded name) · specs dir
-#                  (feature.json 'specs_dir', default specs) · adr dir ('adr_dir', default docs/adr) ·
-#                  run marker present with intends_code:true + baseline_sha.
-#   WARN (does not fail): specs/TEMPLATE absent · AGENTS.md absent · baseline_sha does not resolve.
+# Checks (fail/warn split — see specs/preflight-setup-phase, OQ-2; RUNTIME probes added by
+# pipeline-integrity-hardening WS-B):
+#   HARD (exit 1): SCAFFOLD — not a git repo (non-ackable) · feature.json present+parseable · constitution
+#                  (resolved VIA feature.json 'constitution' key) · specs dir · adr dir · run marker with
+#                  intends_code:true + baseline_sha.
+#                  READINESS (WS-B) — a runnable Test: command exists (AC-B1) · its binary resolves on
+#                  PATH / as a file (AC-B2) · a present dep lockfile has its install dir (AC-B2) ·
+#                  baseline_sha RESOLVES to a commit (AC-B3a, was WARN) · the marker's `feature`
+#                  docs-contract (spec/plan/tasks.md) is present in the build tree (AC-B3b).
+#   WARN (does not fail): specs/TEMPLATE absent.
+# HARD gaps are ackable via a governed, dated waiver (delivery-lib governed_waiver_ok; enforced by
+# check-delivery), NOT a bare one-time ack (WS-B AC-B5).
 # A feature.json that DECLARES a constitution/specs_dir/adr_dir which does not resolve fails LOUD,
 # naming the declared path (parity with check-completeness, 823a19f) — P11 (ground in mechanism).
 #
@@ -40,7 +46,7 @@ _feature_val() { [ -f "$1" ] && field_str "$(cat "$1" 2>/dev/null)" "$2"; }
 # _scan DIR → print one gap line per problem: "HARD <msg>" (fail-closed) or "WARN <msg>" (advisory).
 # Pure inspection of DIR; no cd side effects leak (marker lookup is scoped to DIR/.runs).
 _scan() {
-  local dir="$1" fj con sd ad mkfile mk bs
+  local dir="$1" fj con sd ad mkfile mk bs tc tcbin feat fslug _d
   # not a git repo: no run can be anchored here at all — check-preflight fails outright and there is no
   # run marker to hold an ack (the non-git case is why the spec's separate "non-ackable class" is moot).
   if ! git -C "$dir" rev-parse --git-dir >/dev/null 2>&1; then
@@ -74,13 +80,51 @@ _scan() {
     [ "$(field_bool "$mk" intends_code)" = "true" ] || echo "HARD run marker missing intends_code:true — gates would fail-open (silently skip)"
     bs="$(field_str "$mk" baseline_sha)"
     [ -n "$bs" ] || echo "HARD run marker missing baseline_sha — the batch-window diff has no anchor"
+    # WS-B AC-B3a — baseline-unreachable is now HARD (ackable), not WARN: a run whose batch-window base
+    # does not resolve cannot be diff-gated at all (an unenforceable window, not a cosmetic warning).
     if [ -n "$bs" ] && ! git -C "$dir" rev-parse --verify -q "${bs}^{commit}" >/dev/null 2>&1; then
-      echo "WARN baseline_sha '$bs' does not resolve to a commit — the batch-window diff would be broken"
+      echo "HARD baseline_sha '$bs' does not resolve to a commit — the batch-window diff has no anchor (unenforceable)"
     fi
+    # WS-B AC-B3b — operating-tree coherence: the run's OWN docs-contract (spec.md/plan.md/tasks.md under
+    # the marker's `feature` dir) must be present in the tree the build runs against, not only the specs/
+    # parent. A split-brain tree (feature declared, its spec.md absent here) is HARD (ackable).
+    feat="$(field_str "$mk" feature)"
+    case "$feat" in
+      ""|unknown) : ;;                          # no spec declared → nothing to check (direct/non-spec run)
+      *)
+        case "$feat" in *.md) fslug="$(dirname "$feat")" ;; *) fslug="${feat%/}" ;; esac
+        if [ -d "$dir/$fslug" ]; then
+          for _d in spec.md plan.md tasks.md; do
+            [ -f "$dir/$fslug/$_d" ] || echo "HARD run's docs-contract '$fslug/$_d' absent from the build tree — split-brain (the marker's feature is not present here)"
+          done
+        else
+          echo "HARD run's feature dir '$fslug' (marker feature) absent from the build tree — split-brain operating tree"
+        fi ;;
+    esac
+  fi
+  # WS-B AC-B1 — a runnable test command must exist (readiness, not just scaffold): a code run with no
+  # Test:/CLAUDE Test: cannot be red-first-verified. HARD (ackable via a governed waiver).
+  tc="$( cd "$dir" 2>/dev/null && _test_cmd )"
+  if [ -z "$tc" ]; then
+    echo "HARD no runnable test command — AGENTS.md/CLAUDE.md declares no \`Test:\` (a code run cannot be red-first-verified without one)"
+  else
+    # WS-B AC-B2 — the declared toolchain resolves: the Test: command's binary is on PATH or is a file in
+    # the tree, BEFORE Phase B, rather than reactively when quality-gate hits "command not found".
+    tcbin="${tc%% *}"
+    if case "$tcbin" in
+         */*) [ -e "$dir/$tcbin" ] || [ -e "$tcbin" ] ;;
+         *)   command -v "$tcbin" >/dev/null 2>&1 ;;
+       esac; then :; else
+      echo "HARD test-command binary '$tcbin' not resolvable (not on PATH, not a file) — the toolchain the Test: command needs is absent before Phase B"
+    fi
+  fi
+  # WS-B AC-B2 — declared-dependency presence: a lockfile present but its install dir absent means deps
+  # were never provisioned (the `Prepare:` step did not run). HARD (ackable).
+  if { [ -f "$dir/package-lock.json" ] || [ -f "$dir/yarn.lock" ] || [ -f "$dir/pnpm-lock.yaml" ]; } && [ ! -d "$dir/node_modules" ]; then
+    echo "HARD dependency lockfile present but node_modules/ absent — provision deps via the Prepare: step before Phase B, not reactively mid-run"
   fi
   # warn-level scaffold
   [ -d "$dir/$sd/TEMPLATE" ] || echo "WARN $sd/TEMPLATE absent — a milestone can copy a prior spec's structure, but the template helps"
-  [ -f "$dir/AGENTS.md" ] || echo "WARN AGENTS.md absent — the Test:/E2E gates downstream read commands from it"
 }
 
 # _run DIR → run the scan, print human lines, record the verdict, return the exit code (0 ready / 1 hard).
@@ -162,8 +206,24 @@ _self_test() {
   out="$("$0" "$T" 2>&1)"; rc=$?
   if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "nope.md"; then echo "  PASS declared-but-unresolvable constitution → loud fail"; else
     echo "  FAIL declared-but-unresolvable constitution (rc=$rc)" >&2; fail=$((fail + 1)); fi
-  # warn-only elements do NOT fail (TEMPLATE + AGENTS.md absent)
-  T="$(mktemp -d)"; _scaffold "$T"; rm -rf "$T/specs/TEMPLATE"; rm -f "$T/AGENTS.md"; _expect "warn-only (no TEMPLATE/AGENTS) → still ready (0)" "$T" 0
+  # warn-only: TEMPLATE absent does NOT fail (still a WARN)
+  T="$(mktemp -d)"; _scaffold "$T"; rm -rf "$T/specs/TEMPLATE"; _expect "no TEMPLATE → still ready (0, WARN only)" "$T" 0
+  # WS-B AC-B1 — no runnable Test: (AGENTS.md absent, no CLAUDE.md) → HARD (was WARN pre-WS-B)
+  T="$(mktemp -d)"; _scaffold "$T"; rm -f "$T/AGENTS.md"
+  git -C "$T" -c user.email=t@t -c user.name=t commit -aqm "drop AGENTS" >/dev/null 2>&1
+  _expect "AC-B1 no runnable Test: command → HARD fail (1)" "$T" 1
+  # WS-B AC-B2 — Test: binary not resolvable → HARD
+  T="$(mktemp -d)"; _scaffold "$T"; printf '# AGENTS\n\n- Test: `no-such-bin-zzz run`\n' > "$T/AGENTS.md"
+  git -C "$T" -c user.email=t@t -c user.name=t commit -aqm "bad tool" >/dev/null 2>&1
+  _expect "AC-B2 Test: binary absent → HARD fail (1)" "$T" 1
+  # WS-B AC-B3a — baseline_sha unresolvable → HARD (was WARN)
+  T="$(mktemp -d)"; _scaffold "$T"; printf '{"run":"r","intends_code":true,"baseline_sha":"deadbeef"}\n' > "$T/.runs/r/RUN"
+  _expect "AC-B3a baseline_sha unresolvable → HARD fail (1)" "$T" 1
+  # WS-B AC-B3b — the marker's feature docs-contract absent from the tree → HARD
+  T="$(mktemp -d)"; _scaffold "$T"; mkdir -p "$T/specs/y"
+  sha_b="$(git -C "$T" rev-parse --short HEAD)"
+  printf '{"run":"r","intends_code":true,"baseline_sha":"%s","feature":"specs/y"}\n' "$sha_b" > "$T/.runs/r/RUN"
+  _expect "AC-B3b feature docs-contract absent (split-brain tree) → HARD fail (1)" "$T" 1
   # not a git repo → fail-closed (non-ackable)
   T="$(mktemp -d)"; _expect "not a git repo → fail (1)" "$T" 1
   # AC-5 graceful skip — marker not intends_code: records nothing, exits on scaffold verdict (ready)

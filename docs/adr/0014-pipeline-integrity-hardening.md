@@ -87,6 +87,11 @@ without arming a heavier floor on this repo's own delivery runs.
 - **WS-D** — harden `bin/guard-git.sh`'s tokenizer against the three verified parse bypasses (single-quoted
   env, `-c alias`, `--git-dir/--work-tree`) and adopt a fail-closed posture for the unambiguously-git + armed +
   default-branch + non-read case. Determined obfuscation (`eval`, wrappers) stays a disclosed KNOWN GAP (AC-D6).
-- **WS-B** — make preflight a readiness gate (three runtime probes + `Prepare:` phase + governed expiring
-  waiver), founder-gated per OQ-3 (it reopens the [ADR-0010](0010-preflight-setup-gate.md) descope); may reduce
-  to a doc-correction if the descope stands. `governed_waiver_ok` expiry must be darwin-portable.
+- **WS-B — DELIVERED (founder chose the full readiness gate, 2026-08-20, reopening the
+  [ADR-0010](0010-preflight-setup-gate.md) descope).** Three HARD runtime probes in `check-preflight`
+  (test-command presence, toolchain/dependency presence, operating-tree coherence incl. baseline-resolves and
+  the feature docs-contract), the `_test_cmd` promotion into `delivery-lib` (single source with `check-tdd`),
+  a reusable `governed_waiver_ok` (by/reason/unexpired-`expires`, `YYYY-MM-DD` lexical compare — darwin-portable,
+  no `date -d`) that replaces the bare preflight ack in `check-delivery` (AC-B5) with `record_preflight` widened
+  to preserve the waiver fields, and a `Prepare:` contract field run in Phase 0 before the pipeline fires. The
+  shipped scaffold-linter checks are retained (AC-B6). This closes the founder's req 2 that the descope left open.

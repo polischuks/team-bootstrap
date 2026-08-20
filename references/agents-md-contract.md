@@ -34,6 +34,14 @@ A `## Testing` section detailing:
 - Coverage target (`Coverage target:`)
 - Fixture/setup commands
 
+- **`Prepare:`** (readiness, pipeline-integrity-hardening WS-B) — a **network-permitted setup command**
+  that provisions the project's toolchain/dependencies (e.g. `Prepare: \`npm ci\``, `Prepare: \`pip install
+  -r requirements.txt\``; `N/A` when the toolchain needs no install, as for a pure-bash project). `/deliver`
+  runs it in **Phase 0, before Phase A fires**, so the `check-preflight` readiness probes (test-command
+  binary resolvable, lockfile ↔ install-dir) and later `quality-gate` find a provisioned tree instead of
+  failing reactively mid-run. Declaring the field is the "prepare-before-firing" contract; its absence on a
+  project that ships a dependency lockfile surfaces as the preflight lockfile↔deps HARD gap.
+
 ### Test-quality gate fields (v2.17.0 — all optional; absence ⇒ the gate skips+warns, never a false block)
 
 Consumed by the F1/F2/F3 `verify-batch` gates ([enforcement.md](enforcement.md)). Same backtick/bare

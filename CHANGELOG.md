@@ -61,6 +61,29 @@ All notable changes to team-bootstrap. Format follows [Keep a Changelog](https:/
   - **KNOWN GAP (AC-D6):** determined obfuscation (`eval "git commit"`, `$(which git) commit`, wrapper
     scripts, base64) remains uncaught — the guard stays best-effort git-parsing, not a security boundary;
     the hard backstop is remote branch-protection. The push-to-`main` half stays delegated (unchanged).
+- **WS-B — preflight is now a readiness gate, not a scaffold linter (ADR-0014; founder-approved reopening of
+  the ADR-0010 descope).** `bin/check-preflight.sh` adds three runtime probes, all HARD (ackable via a
+  governed waiver):
+  - **test-command presence (AC-B1)** — a code run whose `AGENTS.md`/`CLAUDE.md` declares no runnable
+    `Test:` fails closed (it cannot be red-first-verified), read via the shared `_test_cmd`.
+  - **toolchain/dependency presence (AC-B2)** — the `Test:` command's binary must resolve (PATH or file),
+    and a present dependency lockfile must have its install dir (`node_modules`) — caught *before* Phase B,
+    not reactively when `quality-gate` hits "command not found".
+  - **operating-tree coherence (AC-B3)** — `baseline_sha` must resolve to a commit (now HARD, was WARN),
+    and the run's own docs-contract (`spec/plan/tasks.md` under the marker's `feature`) must be present in
+    the build tree (no split-brain).
+  - **`_test_cmd` promoted into `delivery-lib.sh` (T040/AC-B1)** so `check-tdd` and `check-preflight` share
+    one definition of the project's test command — the T0 the original descope skipped.
+  - **Governed waiver replaces the bare preflight ack (AC-B5).** `delivery-lib`'s new reusable
+    `governed_waiver_ok` (by/reason/unexpired-`expires`, darwin-portable `YYYY-MM-DD` string compare)
+    now gates a failing preflight in `check-delivery`; a one-time `ack:true` no longer papers over a later
+    independent readiness failure on the same run. `record_preflight` was widened to preserve the waiver
+    fields across a re-run.
+  - **`Prepare:` contract field (AC-B4)** — a network-permitted setup command declared in `AGENTS.md` and
+    run by `/deliver` in Phase 0 *before* the pipeline fires, so deps are provisioned in a named phase
+    (documented in `deliver.md` + `references/agents-md-contract.md`; this repo declares `Prepare: N/A`).
+  - Scaffold-linter checks are **retained** (AC-B6 — git-repo/`feature.json`/constitution/`specs`/`adr`/
+    run-marker gaps still fail closed).
 
 ## [2.26.0] - 2026-08-19
 

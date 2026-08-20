@@ -167,8 +167,11 @@ _pf_case "B3 absent preflight + code batch → blocked (P10 not-run)" \
   '{"run":"r","intends_code":true,"source":"harness"}' 1
 _pf_case "B3 failing preflight (exit=1) unacked + code batch → blocked" \
   '{"run":"r","intends_code":true,"source":"harness","preflight":{"exit":1,"gaps":["missing: feature.json"],"ack":false}}' 1
-_pf_case "B3 failing preflight ACKED + code batch → allowed" \
-  '{"run":"r","intends_code":true,"source":"harness","preflight":{"exit":1,"gaps":["x"],"ack":true}}' 0
+# WS-B AC-B5 — a bare ack no longer clears a failing preflight; only a valid governed waiver does.
+_pf_case "B3 failing preflight + BARE ack + code batch → still blocked (WS-B AC-B5)" \
+  '{"run":"r","intends_code":true,"source":"harness","preflight":{"exit":1,"gaps":["x"],"ack":true}}' 1
+_pf_case "B3 failing preflight + VALID governed waiver + code batch → allowed" \
+  '{"run":"r","intends_code":true,"source":"harness","preflight":{"exit":1,"gaps":["x"],"ack":true,"by":"founder","reason":"scaffold gap","expires":"2999-01-01"}}' 0
 _pf_case "B3 present-but-no-exit preflight → blocked (not fail-open)" \
   '{"run":"r","intends_code":true,"source":"harness","preflight":{"gaps":[],"ack":false}}' 1
 _pf_case "B3 passing preflight (exit=0) + code batch → allowed" \

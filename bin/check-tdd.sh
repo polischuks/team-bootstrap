@@ -27,14 +27,8 @@ here="$(cd "$(dirname "$0")" && pwd)"
 
 tdd=""   # path to the run's tdd.jsonl (set in _evaluate; read by _find_red)
 
-_test_cmd() {
-  local doc="" f c
-  for f in AGENTS.md CLAUDE.md; do [ -f "$f" ] && { doc="$f"; break; }; done
-  [ -n "$doc" ] || return 0
-  c="$(grep -iE "^[[:space:]]*[-*]?[[:space:]]*Test:" "$doc" 2>/dev/null | head -1 | grep -oE '`[^`]+`' | head -1 | tr -d '`')"
-  case "$c" in N/A|n/a|None|none) c="" ;; esac
-  printf '%s' "$c"
-}
+# _test_cmd is now defined ONCE in delivery-lib.sh (sourced above) so check-tdd and check-preflight share
+# a single definition of the project's Test: command (pipeline-integrity-hardening WS-B, T040).
 
 # _oldest_sha LINE → the batch's oldest commit_sha (commit_shas is stored newest-first).
 _oldest_sha() { shas_of_line "$1" | awk '{print $NF}'; }

@@ -22,24 +22,37 @@ push without auth"). If that path is unavailable, follow the same 6-step discipl
 Before any analytical step, run `${CLAUDE_PLUGIN_ROOT}/bin/check-preflight.sh` — the setup-readiness
 gate. `check-preconditions.sh` (end of Phase A) asks *"can the output land?"*; this asks the other
 half, at the cheapest point: *"is the project scaffolded so the pre-implementation flow can even run
-correctly here?"* It verifies — fail-**closed** — that the scaffold every downstream gate needs is
-present: a constitution resolvable **via `feature.json`**, the `specs/` dir, a parseable `feature.json`,
-`docs/adr/`, and a run marker with `intends_code`+`baseline_sha`. `specs/TEMPLATE/`, `AGENTS.md`, and an
-unresolvable `baseline_sha` are **warnings**, not blockers. It is **detect-and-report only** — it never
-creates scaffold.
+correctly here?"* It is a **readiness** gate (pipeline-integrity-hardening WS-B), not merely a scaffold
+linter — it verifies, fail-**closed**:
+- **Scaffold:** a constitution resolvable **via `feature.json`**, the `specs/` dir, a parseable
+  `feature.json`, `docs/adr/`, and a run marker with `intends_code`+`baseline_sha`.
+- **Readiness (WS-B):** a runnable `Test:` command exists (a code run must be red-first-verifiable) and
+  its **binary resolves** (on PATH or as a file); a present dependency **lockfile has its install dir**
+  (deps were actually provisioned); `baseline_sha` **resolves** to a commit (now HARD, was a warning); and
+  the run's own **docs-contract** (`spec.md`/`plan.md`/`tasks.md` under the marker's `feature`) is present
+  in the build tree (no split-brain). Only `specs/TEMPLATE/` absence is a warning. **Detect-and-report
+  only** — it never creates scaffold or installs anything.
+
+**`Prepare:` — provision deps in a named phase, before the pipeline fires.** Declare a network-permitted
+setup command as `Prepare:` in `AGENTS.md` (e.g. `Prepare: \`npm ci\``; `N/A` when the toolchain needs no
+install). The orchestrator runs it **here in Phase 0, before Phase A**, so dependencies are present when
+`check-preflight` and later `quality-gate` run — rather than discovering "command not found" reactively
+mid-Phase-B. This is the "prepare-before-firing" that makes the readiness probes meaningful.
 
 - **Exit 0** — setup-ready; it records `preflight:{exit:0,…}` into the run marker and Phase A proceeds.
 - **Exit 1 (hard)** — it prints the named gap set and records `preflight:{exit:1,gaps:[…]}`. **STOP.**
-  Surface the gaps to the human; fix the scaffold (you never create it silently) and re-run, **or**, on
-  the human's go-ahead, set `preflight.ack:true` in `.runs/<run>/RUN` — then Phase A may proceed
-  (`check-delivery` treats `preflight.exit!=0 && preflight.ack==true` as acknowledged; the ack applies to
-  the whole verdict, not per-gap). The one gap no ack can paper over is a target that is **not a git
-  repo**: `check-preflight` fails on it outright, and a non-git target has no delivery run to record an
-  ack in — fix the repo, don't try to proceed.
+  Surface the gaps to the human; fix the scaffold/readiness gap (you never create it silently) and re-run,
+  **or**, on the human's go-ahead, record a **governed waiver** — `preflight.ack:true` **plus**
+  `preflight.by`, `preflight.reason`, and `preflight.expires` (`YYYY-MM-DD`, unexpired) — in
+  `.runs/<run>/RUN`. A **bare** `ack:true` no longer clears it (WS-B AC-B5): `check-delivery` requires
+  `governed_waiver_ok` so a one-time ack can't become a standing free pass across a later independent
+  readiness failure on the same run. The one gap no waiver can paper over is a target that is **not a git
+  repo**: `check-preflight` fails on it outright, and a non-git target has no delivery run to record a
+  waiver in — fix the repo, don't try to proceed.
 
 This is a **blocking machine fact**, not a spoken note: `check-delivery.sh` refuses to let an
 `intends_code` run announce a `kind:code` batch while `preflight` is absent (gate never ran), or
-`preflight.exit!=0 && preflight.ack!=true`. A skipped Phase 0 cannot silently pass. Phase 0 **complements**
+`preflight.exit!=0` without a valid `governed_waiver_ok` (by/reason/unexpired-expires). A skipped Phase 0 cannot silently pass. Phase 0 **complements**
 — does not replace — the end-of-Phase-A deliverability precondition (they answer different questions and
 record different marker keys: `preflight` vs `precond`).
 
