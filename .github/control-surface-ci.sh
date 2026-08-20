@@ -79,7 +79,13 @@ fi
 # Two-dot: ONLY commits introduced by this PR (reachable from HEAD, not from base). Three-dot here would
 # be `git log`'s SYMMETRIC DIFFERENCE and would match an ack trailer on a base-side commit not in the PR
 # (F1 false-pass). The trailer key is canonical/case-sensitive (no -i).
-if git log --format='%B' "$base..HEAD" 2>/dev/null | grep -qE '^[[:space:]]*Control-Surface-Ack:'; then
+#
+# Capture-first, do NOT pipe `git log` straight into `grep -q`: under `set -o pipefail`, grep -q
+# short-circuits on the first match, closing the pipe, and git log (still streaming later commits) then
+# dies with SIGPIPE (141), which pipefail propagates as the pipeline's status → a valid declaration in a
+# recent commit is read as FAIL. Buffering into a var removes the live pipe, so the match is honest.
+acklog="$(git log --format='%B' "$base..HEAD" 2>/dev/null)"
+if printf '%s\n' "$acklog" | grep -qE '^[[:space:]]*Control-Surface-Ack:'; then
   echo "control-surface-ci: control surface touched [$touched] AND a 'Control-Surface-Ack:' declaration is present — OK (visibility; independent human review still required — this trailer is not prevention)."
   exit 0
 fi
