@@ -160,8 +160,16 @@ _obj_span() {
 # now appear in BOTH precond and preflight (drift #2, read side).
 field_in_obj() {
   local mk="$1" obj="$2" key="$3" rest idx body v
-  case "$mk" in *"\"$obj\":{"*) : ;; *) return 0 ;; esac
-  rest="${mk#*\"$obj\":\{}"
+  # WS-4 (harness-robustness): tolerate whitespace/newlines between `"obj":` and `{` — a pretty-printer
+  # (python json.dump(indent=2)) writes `"obj": {\n …`, not the compact `"obj":{`. Match the key, strip
+  # everything up to its colon, ltrim whitespace (incl. newlines), then require an opening brace. Without
+  # this, nested reads (precond/preflight/enforcement — all read via field_in_obj) false-skip on a pretty
+  # marker, turning fail-closed gates OFF silently.
+  case "$mk" in *"\"$obj\":"*) : ;; *) return 0 ;; esac
+  rest="${mk#*\"$obj\":}"
+  rest="${rest#"${rest%%[![:space:]]*}"}"   # ltrim leading whitespace/newlines
+  case "$rest" in \{*) : ;; *) return 0 ;; esac   # the value must be an object
+  rest="${rest#\{}"
   idx="$(_obj_span "$rest")"
   [ -n "$idx" ] || return 0
   body="{${rest:0:idx}}"
