@@ -207,6 +207,11 @@ _chk "$(_gd "$(Pd 'git commit -m x')")"   0 "AC-D4 feature-branch commit → all
 _gon main
 # AC-D5 — the double-quoted env fix (finding #1) still holds
 _chk "$(_gd '{"tool_name":"Bash","tool_input":{"command":"GIT_AUTHOR_NAME=\"A B\" git commit -m x"}}')" 2 "AC-D5 double-quoted env git commit on main → block (regression)"
+# AC-D4b (review Finding 1, R5) — a read on default with a shell metachar INSIDE a quoted arg must NOT
+# false-block: the quote-blind segment split makes a debris fragment (status'), which fail-closed must
+# treat as split debris (punctuation → not a clean subcommand), not as an unrecognized subcommand.
+_chk "$(_gd "$(Pd "git log --grep 'x; git status'")")" 0 "AC-D4b read on main w/ metachar in quoted arg → allow (no R5 false block)"
+_chk "$(_gd "$(Pd "git log --grep 'x; git deploy'")")" 0 "AC-D4b read on main w/ metachar+word in quoted arg → allow"
 rm -rf "$GT"
 
 if [ "$fail" -eq 0 ]; then echo "pipeline-integrity-hardening.test.sh: OK"; exit 0; fi

@@ -8,7 +8,10 @@
 # rare false-positive costs a branch-and-retry, never data.
 #
 # SCOPE (shrunk over two adversarial review rounds — see specs/branch-protection-gate/):
-#   - It blocks ONLY commit/merge-on-default. It does NOT gate `git push` / `gh pr merge` / `gh api`
+#   - It blocks commit/merge-on-default, PLUS — since pipeline-integrity-hardening (WS-D) — any
+#     UNRECOGNIZED git subcommand on the default branch under an armed run (the fail-closed posture that
+#     catches `-c alias.ci=commit ci` and other obfuscating tokens; recognized non-commit/merge
+#     subcommands, incl. push/pull, stay fail-open). It does NOT gate `git push` / `gh pr merge` / `gh api`
 #     (round-1 BF1): a chained push can't be extracted from the command string false-pass-safely, and any
 #     "push_ack" would be orchestrator-self-written in the same turn (hollow). Remote-write authorization
 #     stays P5 prose + check-preconditions advisory; the HARD backstop is the remote's branch-protection
@@ -121,17 +124,25 @@ _sub_blocks() {
   case "$s" in
     add|am|annotate|apply|archive|bisect|blame|branch|bundle|cat-file|check-attr|check-ignore|\
 check-mailmap|check-ref-format|checkout|cherry|cherry-pick|clean|clone|column|commit-tree|config|\
-count-objects|describe|diff|diff-files|diff-index|diff-tree|difftool|fast-export|fast-import|fetch|\
+count-objects|describe|diagnose|diff|diff-files|diff-index|diff-tree|difftool|fast-export|fast-import|fetch|\
 filter-branch|for-each-ref|format-patch|fsck|gc|get-tar-commit-id|grep|gui|hash-object|help|init|\
 instaweb|log|ls-files|ls-remote|ls-tree|maintenance|mailinfo|merge-base|merge-file|merge-tree|mergetool|\
 mktag|mktree|mv|name-rev|notes|pack-objects|pack-refs|patch-id|prune|prune-packed|pull|push|quiltimport|\
-range-diff|read-tree|rebase|reflog|remote|repack|replace|request-pull|rerere|reset|restore|revert|\
+range-diff|read-tree|rebase|reflog|remote|repack|replace|replay|request-pull|rerere|reset|restore|revert|\
 rev-list|rev-parse|rm|send-email|shortlog|show|show-branch|show-ref|sparse-checkout|stash|status|\
 stripspace|submodule|switch|symbolic-ref|tag|unpack-objects|update-index|update-ref|update-server-info|\
 var|verify-commit|verify-pack|verify-tag|version|whatchanged|worktree|write-tree)
       return 1 ;;   # recognized non-commit/merge subcommand → fail-open (allow)
     *)
-      return 0 ;;    # UNRECOGNIZED → fail-closed (alias/obfuscation, e.g. `ci`)
+      # A token carrying punctuation (a trailing quote/paren/etc.) is DEBRIS from the quote-blind segment
+      # split — e.g. `git log --grep 'x; git status'` splits into a fake `status'` fragment. That is NOT a
+      # real subcommand → fail-OPEN, so a read with a metacharacter in a quoted arg never false-blocks on
+      # the default branch (R5, review Finding 1). Only a clean bare-subcommand-shaped token (`^[a-z][a-z0-9-]*$`
+      # — an alias such as `ci`, or obfuscation) fails closed.
+      case "$s" in
+        [!a-z]* | *[!a-z0-9-]*) return 1 ;;   # not a clean bare subcommand → split debris → allow
+        *)                      return 0 ;;   # clean unrecognized token → fail-closed (alias/obfuscation)
+      esac ;;
   esac
 }
 
@@ -231,6 +242,7 @@ if [ "${1:-}" = "--self-test" ]; then
   _chk "$(_g "$(P 'git --git-dir=inner/.git --work-tree=inner commit -m x')")" 2 "B3 --git-dir/--work-tree retarget to inner(main) → block"
   _chk "$(_g "$(P 'git tag v1')")"                            0 "recognized non-commit/merge sub (tag) on default → allow (fail-open, R5)"
   _chk "$(_g "$(P 'git rev-parse HEAD')")"                    0 "recognized read (rev-parse) on default → allow"
+  _chk "$(_g "$(P "git log --grep 'x; git status'")")"       0 "read w/ metachar in quoted arg on default → allow (split debris, R5, review Finding 1)"
   _chk "$(_g "$(P 'git push origin main')")"                   0 "push on default → NOT gated (disclosed)"
   _chk "$(_g "$(P 'gh pr merge 1 --merge')")"                  0 "gh pr merge → NOT gated (disclosed)"
   _on feature

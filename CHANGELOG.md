@@ -51,7 +51,10 @@ All notable changes to team-bootstrap. Format follows [Keep a Changelog](https:/
     alias such as the `ci` from `git -c alias.ci=commit ci`, or an obfuscating token) is now blocked on the
     default branch under an armed run (AC-D2). Recognized non-commit/merge subcommands — reads *and*
     mutations like `tag`/`stash`/`rebase`, and the explicitly-not-gated `push`/`pull` — stay **fail-open**,
-    keeping the false-positive rate low so the guard is never trained-away (R5, AC-D4).
+    keeping the false-positive rate low so the guard is never trained-away (R5, AC-D4). Only a *clean*
+    bare-subcommand-shaped token fails closed; punctuation-carrying debris from the quote-blind segment
+    split (e.g. a `status'` fragment out of `git log --grep 'x; git status'`) is treated as split debris and
+    allowed, so a read with a shell metacharacter in a quoted arg never false-blocks on the default branch.
   - **B3** — `--git-dir` / `--work-tree` are now honored for target-repo resolution, so
     `git --git-dir=… --work-tree=… commit` is judged against the repo it actually writes to, not the guard's
     cwd (AC-D3).
