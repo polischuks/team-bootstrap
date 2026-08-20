@@ -180,7 +180,40 @@ echo "WS-4 — marker reader multiline/nested robustness (AC-4a/4b):"
 ws4_reader
 
 # ---------------------------------------------------------------------------
-# (WS-5..WS-8 assertions land with their own batches.)
+# WS-5 — a target repo that TRACKS .runs/ makes the delivery gate Sisyphean: git
+# restores stale session markers, so `rm` never sticks and every prompt re-blocks (the
+# retro's committed-.runs cascade). Preflight must HARD-fail with the untrack remediation.
+# ---------------------------------------------------------------------------
+_mk_scaffold() { # $1=dir ; sets up a minimal preflight-clean repo (caller adds .runs tracking)
+  git init -q; git config user.email a@b.c; git config user.name t
+  mkdir -p .runs/r specs docs/adr
+  printf '# c\n' > constitution.md
+  printf '{"specs_dir":"specs","constitution":"constitution.md","adr_dir":"docs/adr"}\n' > feature.json
+  printf '{"run":"r","intends_code":true,"baseline_sha":"HEAD"}\n' > .runs/r/RUN
+}
+ws5_tracked_runs() {
+  local T; T="$(mktemp -d)"
+  ( cd "$T"; _mk_scaffold
+    git add -A; git commit -q -m base                       # .runs/ TRACKED
+    local out; out="$(TEAM_BOOTSTRAP_RUN=r "$here/bin/check-preflight.sh" . 2>&1)"
+    _chk "$(printf '%s' "$out" | grep -c '\.runs/ is TRACKED')" "1" "AC-5a tracked .runs → HARD with untrack remediation"
+    _chk "$(printf '%s' "$out" | grep -c 'git rm -r --cached')" "1" "AC-5a HARD names the exact remediation"
+  )
+  local T2; T2="$(mktemp -d)"
+  ( cd "$T2"; _mk_scaffold
+    printf '.runs/\n' > .gitignore
+    git add -A; git commit -q -m base                       # .runs/ gitignored (untracked)
+    local out; out="$(TEAM_BOOTSTRAP_RUN=r "$here/bin/check-preflight.sh" . 2>&1)"
+    _chk "$(printf '%s' "$out" | grep -c '\.runs/ is TRACKED')" "0" "AC-5a gitignored .runs → no tracked-.runs HARD (no false positive)"
+  )
+  rm -rf "$T" "$T2"
+}
+
+echo "WS-5 — tracked-.runs preflight hard-fail (AC-5a):"
+ws5_tracked_runs
+
+# ---------------------------------------------------------------------------
+# (WS-6..WS-8 assertions land with their own batches.)
 # ---------------------------------------------------------------------------
 
 fail="$(cat "$FAILF")"; rm -f "$FAILF"
