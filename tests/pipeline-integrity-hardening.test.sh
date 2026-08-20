@@ -169,5 +169,45 @@ printf '{"run":"r","pipeline":"full","intends_code":true,"source":"harness","bas
 _chk "$(_csrun "$D" r)" 1 "AC-C2c staged rename of a surface gate out (bin/check-existing.sh → bin/OTHER.sh) → fail closed (both rename sides)"
 rm -rf "$D"
 
+# ---------------------------------------------------------------------------------------------------
+# WS-D — branch-guard parse bypasses (AC-D1..D6). Drives bin/guard-git.sh with PreToolUse payloads on a
+# fixture repo whose default branch is main, armed with an intends_code run marker.
+GUARD="$here/../bin/guard-git.sh"
+echo "WS-D — branch-guard parse bypasses (AC-D1..D6):"
+GT="$(mktemp -d)"
+(
+  cd "$GT" || exit 1
+  git init -q; git symbolic-ref HEAD refs/heads/main 2>/dev/null || true
+  git config user.email t@t && git config user.name t
+  echo base > f && git add . && git commit -qm base
+  mkdir -p .runs/r && printf '{"run":"r","pipeline":"full","intends_code":true,"source":"harness","baseline_sha":"x"}\n' > .runs/r/RUN
+  # an inner NESTED repo whose branch is main — target of the --git-dir/--work-tree retarget (B3)
+  mkdir -p inner && ( cd inner && git init -q && git symbolic-ref HEAD refs/heads/main 2>/dev/null || true
+    git config user.email t@t && git config user.name t && echo i > g && git add . && git commit -qm ibase )
+) >/dev/null 2>&1
+_gd()  { ( cd "$GT" && printf '%s' "$1" | TEAM_BOOTSTRAP_RUN=r bash "$GUARD" >/dev/null 2>&1 ); echo $?; }
+_gon() { ( cd "$GT" && git checkout -q "$1" 2>/dev/null || git checkout -q -b "$1" ) >/dev/null 2>&1; }
+Pd()   { printf '{"tool_name":"Bash","tool_input":{"command":"%s"}}' "$1"; }
+
+_gon main
+# AC-D1 — single-quoted env value with a space (the single-quoted twin of the finding-#1 double-quote fix)
+_chk "$(_gd "$(Pd "FOO='a b' git commit -m x")")" 2 "AC-D1 single-quoted env (FOO='a b') git commit on main → block"
+# AC-D2 — git-level alias: -c consumes alias.ci=commit, 'ci' is an unrecognized subcommand → fail-closed
+_chk "$(_gd "$(Pd 'git -c alias.ci=commit ci')")" 2 "AC-D2 git -c alias.ci=commit ci on main → block"
+# AC-D3 — --git-dir/--work-tree retarget: outer on FEATURE, inner on main → only honoring the retarget blocks
+_gon feature
+_chk "$(_gd "$(Pd 'git --git-dir=inner/.git --work-tree=inner commit -m x')")" 2 "AC-D3 --git-dir/--work-tree retarget to inner(main) → block"
+_gon main
+# AC-D4 — reads and legitimate feature commits → allow (no new false positives from the tightened posture)
+_chk "$(_gd "$(Pd 'git log --oneline')")" 0 "AC-D4 git log → allow (read)"
+_chk "$(_gd "$(Pd 'git status')")"        0 "AC-D4 git status → allow (read)"
+_chk "$(_gd "$(Pd 'git push origin main')")" 0 "AC-D4 git push → allow (disclosed not-gated)"
+_gon feature
+_chk "$(_gd "$(Pd 'git commit -m x')")"   0 "AC-D4 feature-branch commit → allow"
+_gon main
+# AC-D5 — the double-quoted env fix (finding #1) still holds
+_chk "$(_gd '{"tool_name":"Bash","tool_input":{"command":"GIT_AUTHOR_NAME=\"A B\" git commit -m x"}}')" 2 "AC-D5 double-quoted env git commit on main → block (regression)"
+rm -rf "$GT"
+
 if [ "$fail" -eq 0 ]; then echo "pipeline-integrity-hardening.test.sh: OK"; exit 0; fi
 echo "pipeline-integrity-hardening.test.sh: $fail case(s) FAILED" >&2; exit 1
