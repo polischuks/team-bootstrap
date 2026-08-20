@@ -111,9 +111,14 @@ _scan() {
   else
     # WS-E / AC-E3 — strip any leading ENV=val assignments (NODE_ENV=test npm test → npm test) before
     # resolving the binary, so an env-prefixed Test: does not false-HARD on the `NODE_ENV=test` token
-    # (review #4). Only a `NAME=… <more>` first token is dropped.
+    # (review #4). Anchored to the FIRST token only: a later assignment (`make VAR=x test`) must NOT strip
+    # the real command word `make` and resolve the builtin `test` — that was a fail-open (WS-E arch review F1).
     while :; do
-      case "$tc" in [A-Za-z_]*=*[[:space:]]*) tc="${tc#* }" ;; *) break ;; esac
+      case "${tc%%[[:space:]]*}" in
+        [A-Za-z_]*=*)                                   # first token IS a NAME=val assignment → drop it
+          case "$tc" in *[[:space:]]*) tc="${tc#*[[:space:]]}" ;; *) break ;; esac ;;
+        *) break ;;                                     # first token is the real command (or no more) → stop
+      esac
     done
     # WS-B AC-B2 — the declared toolchain resolves: the Test: command's binary is on PATH, a file in the
     # tree, or a project-local binary (node_modules/.bin, a venv) — BEFORE Phase B, rather than reactively

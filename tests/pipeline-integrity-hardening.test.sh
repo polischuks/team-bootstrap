@@ -305,6 +305,10 @@ _chk "$(_ge '{"tool_name":"Bash","tool_input":{"command":"git com\"m\"it"}}')"  
 _chk "$(_ge '{"tool_name":"Bash","tool_input":{"command":"git \"merge\" x"}}')"    2 "AC-E1 git \"merge\" (quoted sub) on main → block"
 _chk "$(_ge '{"tool_name":"Bash","tool_input":{"command":"\"git\" commit"}}')"     2 "AC-E1 \"git\" commit (quoted binary) on main → block"
 _chk "$(_ge '{"tool_name":"Bash","tool_input":{"command":"git log --grep '"'"'x; git status'"'"'"}}')" 0 "AC-E1 read w/ metachar in quoted arg → allow (R5 preserved)"
+# AC-E1 (code review) — an ESCAPED quote outside quotes must NOT open a phantom quote that swallows a
+# following ; / && and hides a real commit-on-default (backslash-escape handling in _segments).
+_chk "$(_ge '{"tool_name":"Bash","tool_input":{"command":"echo \\\" ; git commit -m x"}}')" 2 "AC-E1 escaped-quote then ; git commit → block (no phantom quote)"
+_chk "$(_ge '{"tool_name":"Bash","tool_input":{"command":"echo \\\" && git commit -m x"}}')" 2 "AC-E1 escaped-quote then && git commit → block"
 _chk "$(_ge '{"tool_name":"Bash","tool_input":{"command":"git commit"}}')"         2 "AC-E1 (control) git commit on main → block"
 rm -rf "$GTE"
 
@@ -327,6 +331,12 @@ rm -rf "$CE"
 DE="$(mktemp -d)"; _bscaffold "$DE"; printf '# AGENTS\n\n- Test: `NODE_ENV=test true`\n' > "$DE/AGENTS.md"
 git -C "$DE" -c user.email=t@t -c user.name=t commit -aqm "env-prefixed Test" >/dev/null 2>&1
 _chk "$(_pf "$DE")" 0 "AC-E3 env-prefixed Test: (NODE_ENV=test true) → ready (0, strips ENV=)"
+rm -rf "$DE"
+# AC-E3 (arch review F1) — the env-strip must be FIRST-TOKEN-anchored: a LATER assignment must not strip
+# the real command word and resolve a builtin. First command absent + a later NAME=val → HARD, not ready.
+DE="$(mktemp -d)"; _bscaffold "$DE"; printf '# AGENTS\n\n- Test: `nomake-xyz-9f3 VAR=x test`\n' > "$DE/AGENTS.md"
+git -C "$DE" -c user.email=t@t -c user.name=t commit -aqm "later-assign Test" >/dev/null 2>&1
+_chk "$(_pf "$DE")" 1 "AC-E3 later assignment (nomake-xyz VAR=x test), first cmd absent → HARD (1, no strip-to-builtin fail-open)"
 rm -rf "$DE"
 
 # AC-E4 — per-batch reviewer floor: a full run with two closed code batches, only ONE reviewed → block.

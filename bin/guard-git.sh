@@ -159,10 +159,19 @@ _strip_quotes() { local s="${1//\"/}"; printf '%s' "${s//\'/}"; }
 # `'…'` no longer splits, and a genuine chained `echo x && git commit` still does.
 _segments() {
   local s="$1" n i c q="" seg="" NL
-  NL="$(printf '\n')"
+  NL=$'\n'   # a literal newline (command-subst would strip the trailing newline → empty; $'\n' is bash-3.2-safe)
   n=${#s}; i=0
   while [ "$i" -lt "$n" ]; do
     c="${s:i:1}"; i=$((i + 1))
+    # backslash escape (shell semantics: active OUTSIDE quotes and inside "double" quotes, NOT inside
+    # 'single' quotes) — copy `\` and the next char through literally without changing quote state, so a
+    # `\"` never opens a PHANTOM quote that would swallow a following `;`/`&&` and hide a real git commit
+    # (`echo \" ; git commit`). Review WS-E #E1 escaped-quote fail-open regression.
+    if [ "$c" = "\\" ] && [ "$q" != "'" ]; then
+      seg="$seg$c"
+      if [ "$i" -lt "$n" ]; then seg="$seg${s:i:1}"; i=$((i + 1)); fi
+      continue
+    fi
     if [ -n "$q" ]; then                    # inside a quote: copy through; close on the matching quote
       seg="$seg$c"; [ "$c" = "$q" ] && q=""; continue
     fi
@@ -274,6 +283,7 @@ if [ "${1:-}" = "--self-test" ]; then
   # WS-E AC-E1 — quoted subcommand / quoted binary must BLOCK (de-obfuscation + quote-aware split):
   _chk "$(_g '{"tool_name":"Bash","tool_input":{"command":"git \"commit\""}}')"  2 "E1 git \"commit\" (quoted sub) on default → block"
   _chk "$(_g '{"tool_name":"Bash","tool_input":{"command":"\"git\" commit"}}')"  2 "E1 \"git\" commit (quoted binary) on default → block"
+  _chk "$(_g '{"tool_name":"Bash","tool_input":{"command":"echo \\\" ; git commit -m x"}}')" 2 "E1 escaped-quote then ; git commit → block (no phantom quote)"
   _chk "$(_g "$(P 'git push origin main')")"                   0 "push on default → NOT gated (disclosed)"
   _chk "$(_g "$(P 'gh pr merge 1 --merge')")"                  0 "gh pr merge → NOT gated (disclosed)"
   _on feature
