@@ -74,7 +74,46 @@ ws1
 ws1_selftest_guard
 
 # ---------------------------------------------------------------------------
-# (WS-2..WS-8 assertions land with their own batches.)
+# WS-2 — Stop-hook de-dup that ALWAYS preserves exit 2 (T021). The retro's token
+# sink was a REPEATED block re-emitting the full explanation every Stop (each re-reads
+# the whole context). De-dup: fingerprint the block (run + condition + ledger content-
+# hash); an identical repeat emits ONE terse line but STILL exits 2. Never block→allow;
+# any ledger-content change re-fires the full block.
+# ---------------------------------------------------------------------------
+ws2_dedup() {
+  local T; T="$(mktemp -d)"
+  ( cd "$T"
+    git init -q; git config user.email a@b.c; git config user.name t
+    git commit -q --allow-empty -m base; local BASE; BASE="$(git rev-parse HEAD)"
+    printf 'x\n' > code.js; git add -A; git commit -q -m work   # code since baseline
+    mkdir -p .runs/r
+    printf '{"run":"r","pipeline":"full","source":"harness","intends_code":true,"baseline_sha":"%s"}\n' "$BASE" > .runs/r/RUN
+    printf '{"id":"B1","kind":"code","status":"announced"}\n' > .runs/r/batches.jsonl   # unclosed → blocks
+
+    local o1 rc1 o2 rc2 o3 rc3
+    o1="$(TEAM_BOOTSTRAP_RUN=r "$here/bin/delivery-stop-hook.sh" 2>&1 <<<'{}')"; rc1=$?
+    o2="$(TEAM_BOOTSTRAP_RUN=r "$here/bin/delivery-stop-hook.sh" 2>&1 <<<'{}')"; rc2=$?
+    _chk "$rc1" "2" "AC-2b first block → exit 2"
+    _chk "$rc2" "2" "AC-2b repeat identical block → STILL exit 2 (never block→allow)"
+    _chk "$(printf '%s' "$o1" | grep -c 'BLOCKED —')" "1" "AC-2b first block is the FULL message"
+    # repeat must be terser than the first (de-duped), not a re-emit of the full explanation
+    _chk "$([ "$(printf '%s' "$o2" | wc -l)" -lt "$(printf '%s' "$o1" | wc -l)" ] && echo terser || echo same)" \
+      "terser" "AC-2b repeat block is de-duped (terse), not a full re-emit"
+
+    # ledger content change → full block re-fires (not treated as the same fingerprint)
+    printf '{"id":"B2","kind":"code","status":"announced"}\n' >> .runs/r/batches.jsonl
+    o3="$(TEAM_BOOTSTRAP_RUN=r "$here/bin/delivery-stop-hook.sh" 2>&1 <<<'{}')"; rc3=$?
+    _chk "$rc3" "2" "AC-2b ledger changed → still exit 2"
+    _chk "$(printf '%s' "$o3" | grep -c 'BLOCKED —')" "1" "AC-2b ledger content change → FULL block re-fires"
+  )
+  rm -rf "$T"
+}
+
+echo "WS-2 — Stop-hook de-dup preserves exit 2 (AC-2b):"
+ws2_dedup
+
+# ---------------------------------------------------------------------------
+# (WS-3..WS-8 assertions land with their own batches.)
 # ---------------------------------------------------------------------------
 
 fail="$(cat "$FAILF")"; rm -f "$FAILF"
