@@ -66,6 +66,19 @@ printf '%s\n' "{\"id\":\"B1\",\"kind\":\"code\",\"status\":\"closed\",\"commit_s
 printf '%s\n' '{"batch":"B1","subagent_type":"backend-developer"}' > "$T/.runs/full_norev/dispatch.jsonl"
 _chk "$(_stop full_norev)" 2 "full run + closed batch + zero reviewer dispatch → Stop exit 2 (AC-A3b)"
 
+# AC-A5b (review CRITICAL-1) — the reviewer floor must NOT be allowlisted to full|mvp: an ABSENT /
+# unknown / mislabeled pipeline presenting a closed batch with zero reviewer dispatch must ALSO block,
+# else a legacy marker (no `pipeline` field) or a trailing-space "full " evades prong 2 → Stop exit 0.
+mkrun nopipe_norev "{\"run\":\"nopipe_norev\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$BASE\"}"
+printf '%s\n' "{\"id\":\"B1\",\"kind\":\"code\",\"status\":\"closed\",\"commit_shas\":[\"$BASE\"],\"code_delta\":3}" > "$T/.runs/nopipe_norev/batches.jsonl"
+printf '%s\n' '{"batch":"B1","subagent_type":"backend-developer"}' > "$T/.runs/nopipe_norev/dispatch.jsonl"
+_chk "$(_stop nopipe_norev)" 2 "absent-pipeline + closed batch + zero reviewer dispatch → Stop exit 2 (AC-A5b)"
+
+mkrun space_norev "{\"run\":\"space_norev\",\"pipeline\":\"full \",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$BASE\"}"
+printf '%s\n' "{\"id\":\"B1\",\"kind\":\"code\",\"status\":\"closed\",\"commit_shas\":[\"$BASE\"],\"code_delta\":3}" > "$T/.runs/space_norev/batches.jsonl"
+printf '%s\n' '{"batch":"B1","subagent_type":"backend-developer"}' > "$T/.runs/space_norev/dispatch.jsonl"
+_chk "$(_stop space_norev)" 2 "mislabeled 'full ' (trailing space) + closed batch + zero reviewer → Stop exit 2 (AC-A5b)"
+
 rm -rf "$T"
 if [ "$fail" -eq 0 ]; then echo "pipeline-integrity-hardening.test.sh: OK"; exit 0; fi
 echo "pipeline-integrity-hardening.test.sh: $fail case(s) FAILED" >&2; exit 1

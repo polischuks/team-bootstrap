@@ -57,6 +57,15 @@ without arming a heavier floor on this repo's own delivery runs.
   `verify-batch`-written `status:closed` stamp when `dispatch.jsonl` is absent (a hand-forged closure with the
   dispatch file deleted escapes). The win is *harness-observed dispatch at run-close*, not tamper-proofing.
   WS-A stays at that documented ceiling — no overclaim.
+- **Both prongs fail-closed on the same untrusted field (no allowlist asymmetry).** An early draft
+  gated prong 2 (the reviewer-floor assertion) on an *allowlist* — `case full|mvp)` — while prong 1 was
+  fail-closed for unknown pipelines. Independent review (CRITICAL-1) caught that a *closed* batch under an
+  absent/`audit`/mislabeled (`"full "` trailing-space) or legacy (pre-`pipeline`-field) marker would then
+  skip prong 2 entirely and Stop at exit 0 with zero reviewer. Corrected: prong 2 is a **denylist** —
+  exempting only `single-thread` — so every non-single-thread pipeline (full, mvp, absent, unknown) has the
+  ≥1 reviewer floor asserted whenever a closed batch is observable via `dispatch.jsonl`. Where `dispatch.jsonl`
+  is absent the verify-batch stamp is trusted (the ADR-0006 ceiling above). Both prongs now treat an
+  unknown/absent pipeline identically: fail-closed.
 - **The push-to-`main` half of finding D** stays delegated to remote branch-protection (WS-D scope note).
 
 ## Consequences

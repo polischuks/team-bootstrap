@@ -74,11 +74,18 @@ if [ "${1:-}" = "--self-test" ]; then
   printf '%s\n' "{\"id\":\"B1\",\"kind\":\"code\",\"status\":\"closed\",\"commit_shas\":[\"$root_sha\"],\"code_delta\":4}" > ".runs/${d}_fnorev/batches.jsonl"
   printf '%s\n' '{"batch":"B1","subagent_type":"backend-developer"}' > ".runs/${d}_fnorev/dispatch.jsonl"
   _expect "${d}_fnorev" 2 "block — full run, closed batch, zero reviewer dispatch → exit 2 (AC-A3b)"
+  # WS-A AC-A5b (review CRITICAL-1) — block: ABSENT pipeline, closed batch, zero reviewer dispatch. The
+  # reviewer floor is a DENYLIST (only single-thread exempt), so an unknown/legacy pipeline cannot skip it.
+  mkdir -p ".runs/${d}_unkclosed"
+  printf '%s\n' "{\"run\":\"uc\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$root_sha\"}" > ".runs/${d}_unkclosed/RUN"
+  printf '%s\n' "{\"id\":\"B1\",\"kind\":\"code\",\"status\":\"closed\",\"commit_shas\":[\"$root_sha\"],\"code_delta\":4}" > ".runs/${d}_unkclosed/batches.jsonl"
+  printf '%s\n' '{"batch":"B1","subagent_type":"backend-developer"}' > ".runs/${d}_unkclosed/dispatch.jsonl"
+  _expect "${d}_unkclosed" 2 "block — absent-pipeline, closed batch, zero reviewer dispatch → exit 2 (AC-A5b)"
   # block: armed run that delivered nothing (no ledger, no code since baseline=HEAD)
   mkdir -p ".runs/${d}_empty"
   printf '%s\n' "{\"run\":\"e\",\"pipeline\":\"full\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$(git rev-parse --short HEAD 2>/dev/null)\"}" > ".runs/${d}_empty/RUN"
   _expect "${d}_empty" 2 "block — armed run, no ledger, no code since baseline → exit 2"
-  rm -rf ".runs/${d}_block" ".runs/${d}_closed" ".runs/${d}_nomarker" ".runs/${d}_direct" ".runs/${d}_dfull" ".runs/${d}_dnopipe" ".runs/${d}_frev" ".runs/${d}_fnorev" ".runs/${d}_empty"
+  rm -rf ".runs/${d}_block" ".runs/${d}_closed" ".runs/${d}_nomarker" ".runs/${d}_direct" ".runs/${d}_dfull" ".runs/${d}_dnopipe" ".runs/${d}_frev" ".runs/${d}_fnorev" ".runs/${d}_unkclosed" ".runs/${d}_empty"
   if [ "$fail" -eq 0 ]; then echo "delivery-stop-hook --self-test: OK"; exit 0; fi
   echo "delivery-stop-hook --self-test: $fail case(s) FAILED" >&2; exit 1
 fi
@@ -132,14 +139,23 @@ csb_ok=0
 # documented ADR-0006 forgeability ceiling; WS-A stays at that ceiling — no overclaim).
 role_floor_ok=1
 case "$pipeline" in
-  full|mvp)
+  single-thread) : ;;   # the sanctioned one-mind contract: no role fan-out → reviewer floor N/A.
+  *)                    # full | mvp | ABSENT | UNKNOWN → fail-closed, matching prong 1's posture.
+    # DENYLIST, not an allowlist: allowlisting full|mvp let an absent/unknown/mislabeled pipeline
+    # ("full " with a trailing space, a legacy marker written before the `pipeline` field, an `audit`
+    # run) present a CLOSED code batch with zero reviewer dispatch and skip prong 2 entirely — the
+    # exact fail-open the review caught (CRITICAL-1). Whenever a closed batch is observable via
+    # dispatch.jsonl, the >=1 reviewer floor is asserted; dispatch.jsonl absent → the verify-batch
+    # stamp is trusted (the documented ADR-0006 forgeability ceiling).
     rundir_d="$(dirname "$marker")"
     if [ "$closed_code" -gt 0 ] && [ -f "$rundir_d/dispatch.jsonl" ]; then
       role_floor_ok=0
+      set -f            # closed_ids tokens are untrusted (field_str [^"]* capture) — disable globbing (review LOW-1)
       for cid in $closed_ids; do
         [ -n "$cid" ] || continue
         [ "$(reviewer_dispatch_count "$cid")" -ge 1 ] && { role_floor_ok=1; break; }
       done
+      set +f
     fi ;;
 esac
 
