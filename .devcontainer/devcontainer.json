@@ -1,0 +1,14 @@
+{
+  "//": "EXAMPLE repro-env posture for team-bootstrap — repo/org config, NOT plugin enforcement.",
+  "//2": "A Claude Code plugin CANNOT force a container/egress-lock/managed-settings (constitution P7).",
+  "//3": "This is a starting point you/your org adopt. See references/repro-env-posture.md.",
+  "name": "team-bootstrap",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/anthropics/devcontainer-features/claude-code:latest": {}
+  },
+  "//postCreate": "Default-deny egress allowlist — needs NET_ADMIN; see references/repro-env-posture.md §2.",
+  "postCreateCommand": "echo 'adopt .devcontainer/init-firewall.sh for a default-deny egress allowlist (see references/repro-env-posture.md)'",
+  "//security": "Run non-root; do NOT mount host credentials (~/.ssh, ~/.claude) into a --dangerously-skip-permissions run.",
+  "remoteUser": "vscode"
+}

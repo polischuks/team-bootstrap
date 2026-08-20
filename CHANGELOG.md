@@ -41,6 +41,33 @@ All notable changes to team-bootstrap. Format follows [Keep a Changelog](https:/
   the seam-ack is forgeable-honest (declared + reviewable, not impossible) — the same ceiling as
   `risk_rank`/`seam_acks`.
 
+## [2.27.0] - 2026-08-19
+
+### Added
+- **Reproducible-env posture — provenance fingerprint + posture doc (`repro-env-posture`, ADR-0013).** The
+  capstone of the `pipeline-execution-integrity` program (the "documentation + posture" tier). A Claude Code
+  plugin **cannot force** a container / restricted egress / managed settings (constitution P7); so this ships
+  the two things in reach:
+  - **An audit-only `repro_env` provenance stamp folded into the already-consumed
+    [`bin/check-preconditions.sh`](bin/check-preconditions.sh)** (round-1 review: a standalone recorder would be
+    *unconsumed*; fold it into a gate whose record is already read). On an armed `intends_code` run it records a
+    flat `repro_env` array — `container:` (docker/podman/k8s/codespaces/devcontainer/none, from
+    `/.dockerenv`/`/proc/1/cgroup`/env hints), `os:`/`bash:`/`git:`/`dirty:` provenance, and the honest
+    non-observables `egress:unverified` + `sandbox:unknown` — via the shipped `record_marker_list`. It is
+    **exit-preserving** (a pure addition; never changes `check-preconditions`' exit codes, never blocks) and
+    **audit-only** (`check-delivery`/`verify-batch` never read it — a weak posture still closes clean, the
+    fidelity default being the user's real repo). Container signals take injectable `REPRO_*` overrides;
+    `TEAM_BOOTSTRAP_REPRO_ENV=off` disables the stamp. **No new `bin/` artifact.**
+  - **A recommended-posture doc** — [references/repro-env-posture.md](references/repro-env-posture.md): the
+    reference devcontainer + default-deny `init-firewall` egress allowlist + managed-settings floor
+    (`failIfUnavailable` + allowlist + credential isolation) + the fire-all credential-exfil warning (incl. the
+    no-TLS-termination/domain-fronting caveat) + the fidelity-vs-reproducibility tension — each carrying a "the
+    plugin cannot force this — you/your org enable it" note. A [`.devcontainer/`](.devcontainer/devcontainer.json)
+    example ships as adoptable repo config, not enforcement.
+  - **Disclosed limits (P11):** `egress:unverified`/`sandbox:unknown` always (unobservable in jq-free bash);
+    container detection is Linux-centric (macOS reports `none`). Dogfoods control-surface-protection (the
+    `check-preconditions` edit recorded a `control-surface` seam-ack).
+
 ## [2.25.0] - 2026-08-19
 
 ### Added
