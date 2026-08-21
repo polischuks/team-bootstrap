@@ -208,12 +208,31 @@ _marker_strip_flat_key() {
 # marker (JSON_ARRAY = a complete flat array literal, e.g. '["red-first","mutation"]' or '[]'). No
 # marker ⇒ no-op. Preserves every other field. Validates the result is still a single {…} object
 # before writing (never leave a half-written marker).
+# _marker_write MARKER CONTENT → replace MARKER atomically. rename(2) inside a directory is atomic,
+# so a concurrent reader sees the OLD marker or the NEW one — never the truncate window that
+# `printf > "$marker"` leaves open (issue #25). 19 scripts read this file and every fail-closed gate
+# keys on `field_bool intends_code`, so a partial read is a SILENT FAIL-OPEN — the gate concludes
+# "no active run" and allows. The temp file MUST live beside the marker: rename is only atomic within
+# one filesystem, and $TMPDIR is frequently a different mount. A failed write leaves the previous
+# marker untouched, which truncate-then-write could not guarantee. Mirrors verify-batch.sh:114.
+_marker_write() {
+  local marker="$1" content="$2" tmp
+  tmp="$marker.tmp.$$"
+  printf '%s\n' "$content" > "$tmp" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 1; }
+  mv "$tmp" "$marker" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 1; }
+  return 0
+}
+
 record_marker_list() {
   local key="$1" arr="$2" marker mk newmk
   marker="$(resolve_marker)"
   [ -n "$marker" ] && [ -f "$marker" ] || return 0
   mk="$(cat "$marker" 2>/dev/null || true)"
   [ -n "$mk" ] || return 0
+  # The value must actually BE a JSON array. The outer `\{*\}` shape check below only validates the
+  # WRAPPER, so a non-array payload used to splice in verbatim and leave the marker unparseable
+  # (found by the issue-#25 red test). Reject instead, leaving the marker untouched.
+  case "$arr" in \[*\]) : ;; *) return 1 ;; esac
   mk="$(_marker_strip_flat_key "$mk" "$key")"
   newmk="${mk%\}}"                          # strip the final '}'
   if [ "${newmk: -1}" = "{" ]; then
@@ -222,7 +241,7 @@ record_marker_list() {
     newmk="${newmk},\"${key}\":${arr}}"     # append the field, re-close
   fi
   case "$newmk" in
-    \{*\}) printf '%s\n' "$newmk" > "$marker" 2>/dev/null || return 1 ;;
+    \{*\}) _marker_write "$marker" "$newmk" || return 1 ;;
     *) return 1 ;;
   esac
 }
@@ -351,7 +370,7 @@ record_preflight() {
     newmk="${newmk},\"preflight\":{$pf}}"
   fi
   case "$newmk" in
-    \{*\}) printf '%s\n' "$newmk" > "$marker" 2>/dev/null || return 1 ;;
+    \{*\}) _marker_write "$marker" "$newmk" || return 1 ;;
     *) return 1 ;;
   esac
 }
@@ -378,7 +397,7 @@ record_precond() {
   fi
   case "$newmk" in
     \{*\})
-      printf '%s\n' "$newmk" > "$marker" 2>/dev/null || return 1
+      _marker_write "$marker" "$newmk" || return 1
       echo "check-preconditions: recorded precond(exit=$ex) to $marker — Phase B is blocked until acknowledged (ack:true)." >&2 ;;
     *)
       echo "check-preconditions: WARN — could not update precond in $marker; left unchanged." >&2; return 1 ;;

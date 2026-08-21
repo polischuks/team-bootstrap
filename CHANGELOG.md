@@ -2,6 +2,22 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.1] - 2026-08-21
+
+### Fixed
+- **Run marker was written non-atomically — a concurrent gate read could SILENTLY FAIL OPEN** (#25).
+  `printf … > "$marker"` truncates then writes; 19 scripts read the marker and every fail-closed gate
+  keys on `field_bool intends_code`, so a read landing in that window saw an empty marker, concluded
+  "no active delivery run", and allowed. Reproduced: an empty marker makes `delivery-stop-hook` exit 0
+  on a run with undelivered code. Writes now go to a temp file **beside** the marker and `mv` over it —
+  `rename(2)` is atomic, so a reader sees the old marker or the new one, never a partial one (mirrors
+  the ledger writer at `verify-batch.sh:114`). A failed write now leaves the previous marker intact.
+  v2.29.0 had widened this window by making the Stop hook a marker *writer*.
+- **`record_marker_list` accepted a non-array payload and corrupted the marker** — found by the #25
+  concurrency test. The `\{*\}` check validated only the outer wrapper, so a malformed value spliced
+  in verbatim and left the marker unparseable. The payload is now required to be a JSON array;
+  a rejected write leaves the marker untouched.
+
 ## [2.30.0] - 2026-08-21
 
 > **Gate execution cost** (ADR-0016, issue #23) — the economic twin of ADR-0015. A healthy `full`
