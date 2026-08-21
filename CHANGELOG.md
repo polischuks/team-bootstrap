@@ -2,10 +2,49 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.29.0] - 2026-08-20
+
+> **harness-robustness** (ADR-0015) — the gates are correct on a clean greenfield but were fragile on a
+> live, multi-session, real repo: they emitted *false blocking signals* from their own infrastructure
+> (shell-glob, SIGPIPE-under-pipefail, JSON-whitespace, version-skew, stale markers), and the Stop-hook
+> amplified each into a full-context idle turn. Two invariants: **no gate blocks on its own fragility**,
+> and **a repeated identical block costs one turn, not twenty.** Sourced from two agent-written delivery
+> retros. 7 of 9 work-streams delivered (WS-7 + several extras deferred — see ADR-0015).
+
+### Fixed
+- **WS-1 — glob-free `resolve_marker`/`resolve_ledger` (`bin/delivery-lib.sh`).** `ls -t .runs/*/RUN` did
+  not expand under `set -f` (noglob, set by `delivery-stop-hook.sh` around its untrusted `closed_ids`
+  loop) → empty marker → reviewer floor falsely "not met" → the Stop-hook false-blocked in a loop.
+  Fixed with a guarded-`set +f` `_newest_run_file` (keeps `ls -t` recency). **Root of the worst loop.**
+- **WS-2 — Stop-hook block de-dup (`bin/delivery-stop-hook.sh`).** A repeated identical block emits one
+  terse line but **always exits 2** (fingerprint = run + block-counters + ledger content-hash in
+  `reported_blocks`); a ledger change re-fires the full block. Never block→allow.
+- **WS-3 — `check-completeness --final` SIGPIPE FP.** `printf … | _ac_in_tests` SIGPIPEd (141) under
+  `pipefail` on a large test-file list → an asserted AC falsely reported unasserted. Fixed with a herestring.
+- **WS-4 — `field_in_obj` reads pretty-printed markers (`bin/delivery-lib.sh`).** Matched only compact
+  `"obj":{`; `json.dump(indent=2)` made nested `precond`/`preflight`/`enforcement` reads return empty →
+  fail-closed gates silently skipped. Now whitespace/newline-tolerant.
+- **WS-5 — preflight rejects a tracked `.runs/` (`bin/check-preflight.sh`).** A target repo that commits
+  session markers makes `rm` Sisyphean (git restores them → re-block cascade); HARD-fails with the
+  `git rm -r --cached .runs/` remediation.
+- **WS-6 — plugin version-skew probe (`bin/check-preflight.sh`).** WARNs when `$CLAUDE_PLUGIN_ROOT` (live
+  hooks) and the invoked bin resolve to different VERSIONs (the 2.19.1-vs-2.28.0 skew that made
+  `review-types.txt` diverge and dispatches go unrecognized).
+- **WS-8 — gate-integrity governed waiver (`bin/check-gate-integrity.sh`).** A run-level
+  `gate_integrity_waiver` (ack/by/reason/expires) clears pre-existing green-by-skip / continue-on-error
+  findings outside the batch delta **without silencing them** (findings still printed); expiry forces
+  re-review; CI (no marker) still blocks.
+
+### Notes
+- The **live hooks run from the cached plugin root** — these fixes reach the live Stop/UserPromptSubmit
+  hooks only after a **reinstall at 2.29.0**. `run-tests.sh` verifies the committed `bin/` directly.
+- **Deferred (ADR-0015):** WS-7 characterization red-first; WS-2 race/staleness/optional evidence-stamp;
+  WS-3 repo-wide SIGPIPE sweep-lint; WS-5 orphan-prune/re-arm; WS-8 full per-finding delta-scoping.
+
 ## [2.28.0] - 2026-08-20
 
 > **pipeline-integrity-hardening** — closes the four confirmed bypass gaps the 2026-08-20 audit
-> ([specs/pipeline-execution-integrity/findings.md](specs/pipeline-execution-integrity/findings.md) A–D)
+> (`specs/pipeline-execution-integrity/findings.md` (local dev artifact, gitignored) A–D)
 > found in the *shipped* implementations of A–D. Hardening, not new capability: each already-shipped
 > gate is made to actually hold on the path the audit walked. Landing batch-by-batch; WS-A first.
 

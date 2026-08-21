@@ -167,6 +167,20 @@ esac
 # allowance does not apply (prong 1); OR the run-close reviewer floor is unmet (prong 2).
 if [ "$announced_code" -gt 0 ] || { [ "$closed_code" -eq 0 ] && [ "$csb_ok" -eq 0 ]; } || [ "$role_floor_ok" -eq 0 ]; then
   run="$(field_str "$mk" run)"
+  # WS-2 (T021) — de-dup an identical REPEAT block to one terse line, ALWAYS preserving exit 2.
+  # The retro's biggest token sink was a repeated block re-emitting the full explanation every Stop
+  # (each Stop re-reads the whole conversation for one canned paragraph). Fingerprint the block by
+  # run + the four block-condition counters + the ledger CONTENT (cksum); if that exact fingerprint was
+  # already reported this run, emit ONE line and still exit 2. This NEVER turns a block into a pass, and
+  # any ledger-content change yields a new fingerprint → the full block re-fires. (Note: the LIVE hook
+  # benefits only after a plugin reinstall; run-tests.sh verifies the committed bin/ directly.)
+  _bfp="$( { printf '%s|%s|%s|%s|%s|' "$run" "$announced_code" "$closed_code" "$csb_ok" "$role_floor_ok"
+            [ -n "$ledger" ] && [ -f "$ledger" ] && cat "$ledger"; } | cksum | cut -d' ' -f1 )"
+  case " $(marker_list reported_blocks | tr -d '[]"' | tr ',' ' ') " in
+    *" $_bfp "*)
+      echo "delivery-stop-hook: BLOCKED (repeat) — run '${run:-?}' still has undelivered code; the fix is in this run's first block above. Unchanged since — not re-explaining (P6/P9, exit 2)." >&2
+      exit 2 ;;
+  esac
   {
     echo "delivery-stop-hook: BLOCKED — active delivery run '${run:-?}' has unfinished code delivery"
     echo "  (pipeline: ${pipeline:-<absent>}; announced-but-unclosed kind:code batches: $announced_code;"
@@ -186,6 +200,13 @@ if [ "$announced_code" -gt 0 ] || { [ "$closed_code" -eq 0 ] && [ "$csb_ok" -eq 
     echo "  If the run is genuinely finished or abandoned, end it by removing its marker"
     echo "  (.runs/${run:-<run>}/RUN). A delivery run may not stop with code work undelivered (P6/P9)."
   } >&2
+  # record this block's fingerprint so an IDENTICAL repeat de-dups to the terse line (still exit 2).
+  _prev="$(marker_list reported_blocks)"
+  if [ -z "$_prev" ] || [ "$_prev" = "[]" ]; then
+    record_marker_list reported_blocks "[\"$_bfp\"]"
+  else
+    record_marker_list reported_blocks "${_prev%]},\"$_bfp\"]"
+  fi
   exit 2
 fi
 exit 0

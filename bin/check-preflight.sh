@@ -53,6 +53,27 @@ _scan() {
     echo "HARD not a git repository — no delivery run can be anchored here (fix the repo; there is no run to ack)"
     return 0
   fi
+  # WS-5 (harness-robustness): a target repo that TRACKS .runs/ makes the delivery gate Sisyphean — git
+  # restores stale session markers under it, so `rm` never sticks and the Stop-hook re-blocks every
+  # prompt (the retro's committed-.runs cascade, where deleting one orphan surfaced the next). Session
+  # state must never be tracked. Fail HARD with the exact untrack remediation. No `| head` (WS-3): the
+  # whole ls-files output is captured, non-empty ⇒ tracked.
+  if [ -n "$(git -C "$dir" ls-files -- .runs/ 2>/dev/null)" ]; then
+    echo "HARD .runs/ is TRACKED in git — session markers get restored and re-block every run; untrack them: git rm -r --cached .runs/ && echo '.runs/' >> .gitignore"
+  fi
+  # WS-6 (harness-robustness): plugin version skew. Hooks run from $CLAUDE_PLUGIN_ROOT; if that root's
+  # VERSION differs from the VERSION of the bin/ actually invoked (this script, BASH_SOURCE-relative),
+  # review-types.txt and gate logic diverge — the retro's 2.19.1-vs-2.28.0 skew where reviewer dispatches
+  # went unrecognized. Detect-and-report WARN (advisory) with the reinstall remediation; matched → silent;
+  # no $CLAUDE_PLUGIN_ROOT (bin run outside a session) → skipped.
+  if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/VERSION" ]; then
+    local hookv binv
+    hookv="$(cat "${CLAUDE_PLUGIN_ROOT}/VERSION" 2>/dev/null)"
+    binv="$(cat "$(dirname "${BASH_SOURCE[0]}")/../VERSION" 2>/dev/null)"
+    if [ -n "$hookv" ] && [ -n "$binv" ] && [ "$hookv" != "$binv" ]; then
+      echo "WARN plugin version skew — live hooks are $hookv (\$CLAUDE_PLUGIN_ROOT) but this bin is $binv; review-types.txt/gate logic can diverge (dispatches unrecognized). Reinstall the plugin so hooks and bin share one root."
+    fi
+  fi
   # feature.json present + minimally parseable
   fj="$dir/feature.json"
   if [ ! -f "$fj" ]; then
