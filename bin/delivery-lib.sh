@@ -28,21 +28,47 @@ _newest_run_file() {
   [ "$_had_noglob" -eq 1 ] && set -f
   return 0
 }
+# _active_run_id → the id of the ACTIVE run, or empty. ONE selection rule, used by BOTH resolvers so
+# the marker and the ledger can never name two different runs (issue #20: they were resolved
+# independently, so a stale sibling could win one race and not the other — every gate reading both
+# then reasoned about run A's marker with run B's ledger). Precedence:
+#   1. $TEAM_BOOTSTRAP_RUN — an explicit pin means THAT run, always.
+#   2. .runs/current — the pointer delivery-marker-init writes when it arms a run. EXPLICIT BEATS
+#      MTIME: a finished sibling whose RUN merely gets touched can no longer hijack selection.
+#   3. newest .runs/*/RUN by mtime — legacy fallback for runs armed before the pointer existed.
+# Deliberately NOT fail-closed on ambiguity: this is on the hot path of every gate and the Stop hook,
+# so refusing to resolve would manufacture a NEW false-block class — the exact failure mode
+# harness-robustness (ADR-0015) removed. Ambiguity degrades to the legacy rule, never to empty.
+_active_run_id() {
+  local id
+  if [ -n "${TEAM_BOOTSTRAP_RUN:-}" ]; then printf '%s' "$TEAM_BOOTSTRAP_RUN"; return 0; fi
+  if [ -f .runs/current ]; then
+    id="$(head -1 .runs/current 2>/dev/null | tr -d '[:space:]')"
+    # A DANGLING pointer (its run was removed/archived) must not resolve to empty — fall through.
+    [ -n "$id" ] && [ -f ".runs/$id/RUN" ] && { printf '%s' "$id"; return 0; }
+  fi
+  id="$(_newest_run_file RUN)"        # .runs/<id>/RUN → <id>
+  id="${id#.runs/}"; id="${id%/RUN}"
+  printf '%s' "$id"
+}
+
 resolve_ledger() {
-  if [ -n "${TEAM_BOOTSTRAP_RUN:-}" ]; then
-    [ -f ".runs/${TEAM_BOOTSTRAP_RUN}/batches.jsonl" ] && printf '%s' ".runs/${TEAM_BOOTSTRAP_RUN}/batches.jsonl"
+  local id; id="$(_active_run_id)"
+  if [ -n "$id" ]; then
+    [ -f ".runs/$id/batches.jsonl" ] && printf '%s' ".runs/$id/batches.jsonl"
     return 0
   fi
+  # No run resolves at all (no RUN anywhere) — legacy behaviour: a ledger left behind by a run whose
+  # marker was removed is still findable. Nothing is gated on it (every gate is marker-gated).
   _newest_run_file batches.jsonl
 }
 
 # resolve_marker — echo the active RUN marker path (or empty). Same run-scoping rule.
 resolve_marker() {
-  if [ -n "${TEAM_BOOTSTRAP_RUN:-}" ]; then
-    [ -f ".runs/${TEAM_BOOTSTRAP_RUN}/RUN" ] && printf '%s' ".runs/${TEAM_BOOTSTRAP_RUN}/RUN"
-    return 0
-  fi
-  _newest_run_file RUN
+  local id; id="$(_active_run_id)"
+  [ -n "$id" ] || return 0
+  [ -f ".runs/$id/RUN" ] && printf '%s' ".runs/$id/RUN"
+  return 0
 }
 
 # Compact-or-spaced JSON field extractors. The `[[:space:]]*` after each colon is load-bearing:
