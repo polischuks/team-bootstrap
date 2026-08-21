@@ -56,6 +56,20 @@ convention as `Test:`/`Typecheck:`; the framework declares the *contract*, the p
   path). It must cover **all changed files** (cover-all / `--include`) so an untested changed file appears
   as `DA` misses, not as an absence. Emitted natively by coverage.py, lcov, nyc, tarpaulin, …
 - **`CoverageFile:`** (F2) — optional path the `Coverage:` command writes LCOV to (else stdout is parsed).
+- **`CoverageFrom:`** (F2, optional) — set to `test` when your **`Test:` command already emits the
+  coverage artifact** named by `CoverageFile:`. The gate then **reads that artifact and runs no coverage
+  command at all**, so one instrumented suite run serves both the test verdict and diff-coverage instead
+  of executing the suite twice per closure attempt (issue #23 item 2). Requires `CoverageFile:`.
+  **Omit it and nothing changes** — the field is additive, and any unrecognised value falls back to
+  running `Coverage:` rather than silently taking the cheaper path.
+  ```
+  - Test: `vitest run --coverage`            # one instrumented run…
+  - CoverageFile: `coverage/lcov.info`       # …writes the artifact here
+  - CoverageFrom: `test`                     # …and diff-coverage just reads it
+  ```
+  Because reuse could otherwise score current code against an old report, the gate **fails loud** — never
+  skips — when the artifact is missing, when `CoverageFile:` is absent, or when any changed source file
+  is **newer** than the artifact.
 - **`CoverageThreshold:`** (F2) — minimum percent of the batch's changed non-doc lines that must be
   covered. Default **80**.
 - **`CoverageStrict:`** (F2) — `true` counts changed lines the report never measured as **misses**

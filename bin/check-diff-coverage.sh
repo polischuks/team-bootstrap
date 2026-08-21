@@ -65,13 +65,51 @@ _evaluate() {
   changed="$(mktemp)"; changed_nondoc_lines "$base" | sort -u > "$changed"
   local changed_n; changed_n="$(grep -c . "$changed" 2>/dev/null || echo 0)"
 
-  # run the Coverage command; take LCOV from CoverageFile if given, else its stdout
+  # `CoverageFrom: test` (issue #23 item 2) — ADDITIVE, opt-in. Declares that the `Test:` run ITSELF
+  # produced the artifact named by `CoverageFile:`, so this gate READS it instead of running a coverage
+  # command that would execute the whole suite a second time. Absent/unrecognised ⇒ the original
+  # behaviour, unchanged (AC-F1/AC-F6): an unknown value must never silently select the weaker path.
+  local covfrom stale
+  covfrom="$(_val CoverageFrom "$doc")"; covfrom="$(printf '%s' "$covfrom" | tr '[:upper:]' '[:lower:]')"
   lcov="$(mktemp)"
-  if [ -n "$covfile" ]; then
-    eval "$cov" >/dev/null 2>&1 || true
-    [ -f "$covfile" ] && cat "$covfile" > "$lcov" 2>/dev/null || true
+  if [ "$covfrom" = "test" ]; then
+    # Reuse is only sound if the artifact provably describes THIS code. Each failure below is LOUD:
+    # a graceful skip here would render the gate unenforceable while still reading green.
+    if [ -z "$covfile" ]; then
+      echo "  FAIL: 'CoverageFrom: test' needs 'CoverageFile:' — there is no artifact path to read (AGENTS.md contract)." >&2
+      return 1
+    fi
+    if [ ! -f "$covfile" ]; then
+      echo "  FAIL: 'CoverageFrom: test' declared but '$covfile' does not exist — the Test: run must emit it (or drop CoverageFrom to run Coverage: here)." >&2
+      return 1
+    fi
+    # STALENESS is the risk this reuse introduces: an artifact from an earlier run would score CURRENT
+    # code against OLD coverage — a silent fail-open. Any changed file newer than the artifact ⇒ fail.
+    stale="$(git diff --name-only "$base" 2>/dev/null | while IFS= read -r f; do
+               [ -n "$f" ] && [ -f "$f" ] && [ "$f" -nt "$covfile" ] && printf '%s ' "$f"; done)"
+    if [ -n "$stale" ]; then
+      echo "  FAIL: '$covfile' is OLDER than changed source ($stale) — the coverage does not describe this code. Re-run Test: so it re-emits the artifact." >&2
+      return 1
+    fi
+    cat "$covfile" > "$lcov" 2>/dev/null || true
   else
-    eval "$cov" > "$lcov" 2>/dev/null || true
+    # Same expensive-gate cache as check-mutation (issue #23 item 1): a retry whose diff, dirty state
+    # and declared command are all identical reuses the LCOV rather than re-running the suite. An empty
+    # key (no marker/repo/baseline, or a pathologically dirty tree) means EXECUTE.
+    local ck cached
+    ck="$(gate_cache_key diff-coverage "$cov")"
+    if cached="$(gate_cache_get "$ck")"; then
+      printf '%s' "$cached" > "$lcov"
+      echo "check-diff-coverage: reusing the cached LCOV — diff and Coverage: command unchanged since the last run (issue #23; any code change re-executes)."
+    else
+      if [ -n "$covfile" ]; then
+        eval "$cov" >/dev/null 2>&1 || true
+        [ -f "$covfile" ] && cat "$covfile" > "$lcov" 2>/dev/null || true
+      else
+        eval "$cov" > "$lcov" 2>/dev/null || true
+      fi
+      gate_cache_put "$ck" "$(cat "$lcov" 2>/dev/null)"
+    fi
   fi
 
   # LCOV → two temp lists: measured "sfpath:line", covered "sfpath:line" (count>0)
