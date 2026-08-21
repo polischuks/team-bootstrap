@@ -173,18 +173,33 @@ Then, for **each batch, one at a time**:
    `Test:` suite to actually fail and records the observed red. `check-tdd.sh` (in `verify-batch`, below)
    fails the batch if this code batch has no red recorded before its own commits — every code batch must
    be red-first in its own window (see [../references/tdd.md](../references/tdd.md)).
-5. **Integration gate (hard).** The pipeline's `integration-verifier` runs after the builders,
+5. **The four review roles run AFTER the builders — but CONCURRENTLY with each other (#23 item 4).**
+   `integration-verifier`, `architecture-reviewer` (conformance), `regression-guardian` and the
+   `code-reviewer` all read the same closed batch diff and **do not consume each other's output**, so
+   nothing orders them: `roles_covered` is a set-union and `reviewer_dispatch_count` is a count —
+   neither depends on dispatch order. Dispatch them in ONE parallel fan-out. Serialising them was a
+   doctrine artefact, and it is expensive: each reviewer is a full subagent (measured 3.6–11.8 min), so
+   a chain of four costs 4× the latency of the slowest one. Their gates below are still **each hard**;
+   collect all four verdicts, then act on every finding.
+   *(Caveat: two of them execute test suites — on a machine where those are CPU-bound, expect
+   contention rather than a clean 4× win. The saving is in the reasoning time, which dominates.)*
+   **Re-verification after remediation is scoped to the FIX (#23 item 3):** when you send findings back
+   and they are fixed, re-review the **remediation diff plus the findings it claims to close**, not the
+   whole batch window again. A full re-fan-out is right when the fix is structural — not for a 40-line
+   point fix. (Measured: a second full four-role round on one batch cost ~30–80 min.)
+
+   **Integration gate (hard).** The pipeline's `integration-verifier` runs after the builders,
    with a clean context: it executes the E2E command from `AGENTS.md` and scans for orphans
    (any endpoint/component the batch produced with no live consumer). **Do not mark the batch
    done, and do not present the next batch, while `orphans_found > 0` or the E2E path fails.**
    Send the orphan back to the builder; after 3–5 failed attempts, **stop and ask the human**
    (rollback the batch's local commits rather than shipping unwired code). Outcome over
    self-report: trust the verifier's run, not the builders' "done."
-   Then the **architecture conformance gate (hard):** `architecture-reviewer` (`review_mode:
+   The **architecture conformance gate (hard):** `architecture-reviewer` (`review_mode:
    conformance`) runs the fitness functions against the [baseline](../references/architecture-baseline.md)
    — a batch can pass E2E and still **drift** (wrong layer, bypassed boundary). Do not close the
    batch while `drift_findings > 0`; send drift back to the builder, 3–5 attempts → human / rollback.
-   Then the **regression & invariant gate (hard):** `regression-guardian` re-runs the accumulated
+   The **regression & invariant gate (hard):** `regression-guardian` re-runs the accumulated
    invariant/regression suite **across all workflows**, **graduates** this batch's verified acceptance
    into the suite, and meta-checks gate integrity (no green-by-skip / no disabled gate). Do not close
    the batch while `regressions_found > 0`, the suite isn't current, or a gate didn't actually run —
