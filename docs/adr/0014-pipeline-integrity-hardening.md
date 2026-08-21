@@ -12,7 +12,7 @@
 
 ## Context
 
-The 2026-08-20 audit ([specs/pipeline-execution-integrity/findings.md](../../specs/pipeline-execution-integrity/findings.md))
+The 2026-08-20 audit (`specs/pipeline-execution-integrity/findings.md` (local dev artifact, gitignored))
 confirmed that milestones A–D each shipped a **real, working mechanism for its central case**, but each
 left a bypass or scope-miss that re-opens the exact hole its milestone was chartered to close — the
 founder's req 1/3 ("kill the silent third state") partially open on a path the original milestone did not

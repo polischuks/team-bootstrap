@@ -44,7 +44,7 @@ All notable changes to team-bootstrap. Format follows [Keep a Changelog](https:/
 ## [2.28.0] - 2026-08-20
 
 > **pipeline-integrity-hardening** — closes the four confirmed bypass gaps the 2026-08-20 audit
-> ([specs/pipeline-execution-integrity/findings.md](specs/pipeline-execution-integrity/findings.md) A–D)
+> (`specs/pipeline-execution-integrity/findings.md` (local dev artifact, gitignored) A–D)
 > found in the *shipped* implementations of A–D. Hardening, not new capability: each already-shipped
 > gate is made to actually hold on the path the audit walked. Landing batch-by-batch; WS-A first.
 
