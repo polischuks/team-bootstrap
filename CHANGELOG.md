@@ -2,6 +2,42 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.0] - 2026-08-21
+
+> **Gate execution cost** (ADR-0016, issue #23) — the economic twin of ADR-0015. A healthy `full`
+> delivery of one spec measured **203 min** wall-clock, **97** of them in a single review+closure gap:
+> no gate was wrong, the harness was **re-running identical work** and **serialising work with no data
+> dependency**. Nothing here weakens a gate — every change removes duplicate execution or ordering.
+
+### Added
+- **`CoverageFrom: test`** (optional `AGENTS.md` field) — declares that the `Test:` run already emits
+  the `CoverageFile:` artifact, so `check-diff-coverage` **reads it and runs no coverage command**:
+  one instrumented suite run serves both gates instead of two. Additive — omitting it is byte-for-byte
+  the previous behaviour, and an *unrecognised* value falls back to running `Coverage:` rather than
+  silently taking the cheaper path.
+
+### Changed
+- **Expensive-gate result cache** — `check-mutation` and `check-diff-coverage` reuse their own previous
+  output when the code under test is provably unchanged. The key covers the gate id, the declared
+  command, the committed window, uncommitted tracked changes, and the **content** of every
+  dirty/untracked non-ignored path. No marker (CI), no repo, no baseline, or a pathologically dirty
+  tree ⇒ **execute**. Verdicts are always re-derived from the payload, so cached and fresh runs cannot
+  drift.
+- **The four review roles now fan out in parallel** (`commands/deliver.md`) — they read the same closed
+  diff and consume none of each other's output; `roles_covered` (set-union) and
+  `reviewer_dispatch_count` (count) were verified order-independent first. Each gate stays hard.
+- **Re-verification after remediation is scoped to the fix diff**, not the whole batch window.
+
+### Fixed
+- **Stale-coverage fail-open** — a coverage artifact older than the code it describes could pass the
+  gate silently. Reuse now fails **loud** on a stale, missing, or unlocatable artifact.
+
+### Notes
+- Reaches live hooks only after a **plugin reinstall at 2.30.0**.
+- A fail-open was found *during* this work and closed: the first cut of the cache keyed on git-tracked
+  state only, and this repo's own `check-mutation --self-test` caught a stale hit for a tool reading an
+  untracked fixture. Untracked content is now in the key.
+
 ## [2.29.0] - 2026-08-20
 
 > **harness-robustness** (ADR-0015) — the gates are correct on a clean greenfield but were fragile on a
