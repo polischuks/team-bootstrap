@@ -53,6 +53,7 @@ T="$(mktemp -d)"; _fixture "$T"                      # no pointer → legacy mti
 touch "$T/.runs/run-active/batches.jsonl"            # make the OTHER run's ledger newest
 env -u TEAM_BOOTSTRAP_RUN bash -c "cd '$T'; . '$here/bin/delivery-lib.sh'; printf '%s|%s' \"\$(resolve_marker)\" \"\$(resolve_ledger)\"" > "$T/out"
 IFS='|' read -r m l < "$T/out"
+_chk "$([ -n "$(_rundir "$m")" ] && echo nonempty || echo empty)" "nonempty" "AC-20b (guard) the fixture actually resolves a run"
 _chk "$(_rundir "$l")" "$(_rundir "$m")" "AC-20b marker and ledger resolve to the SAME run (no split-brain)"
 rm -rf "$T"
 

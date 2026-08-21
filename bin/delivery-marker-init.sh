@@ -65,7 +65,7 @@ mkdir -p ".runs/$run" 2>/dev/null || exit 0
 # resolve to two different runs). Written on EVERY arm — including when the marker already exists —
 # so re-arming an in-flight run re-points the pointer at it. Best-effort: a write failure just
 # degrades to the legacy mtime rule, it never blocks the run.
-printf '%s\n' "$run" > .runs/current 2>/dev/null || true
+{ printf '%s\n' "$run" > .runs/current; } 2>/dev/null || true
 [ -f "$marker" ] && exit 0                      # idempotent: never clobber baseline_sha
 base="$(git rev-parse --short HEAD 2>/dev/null || true)"
 # Normalize the feature to the spec.md PATH check-completeness expects: a bare dir/slug gets /spec.md

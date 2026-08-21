@@ -39,11 +39,23 @@ _newest_run_file() {
 # Deliberately NOT fail-closed on ambiguity: this is on the hot path of every gate and the Stop hook,
 # so refusing to resolve would manufacture a NEW false-block class — the exact failure mode
 # harness-robustness (ADR-0015) removed. Ambiguity degrades to the legacy rule, never to empty.
+# STICKINESS (accepted residual): the pointer is explicit, so it does NOT self-correct the way mtime did
+# — if a stray prompt arms the wrong run mid-flight, that pointer holds for the session. Recovery is
+# re-arming the intended run, `rm .runs/current`, or pinning $TEAM_BOOTSTRAP_RUN. The failure direction
+# is fail-CLOSED (the Stop hook still blocks), never a silent pass.
 _active_run_id() {
   local id
   if [ -n "${TEAM_BOOTSTRAP_RUN:-}" ]; then printf '%s' "$TEAM_BOOTSTRAP_RUN"; return 0; fi
   if [ -f .runs/current ]; then
-    id="$(head -1 .runs/current 2>/dev/null | tr -d '[:space:]')"
+    # `read` (not head|tr): fork-free and `set -e`-safe — a pipeline whose status is 1 on an
+    # unreadable pointer must never abort a future -e caller into an EMPTY marker.
+    id=""; read -r id < .runs/current 2>/dev/null || id=""
+    id="${id//[[:space:]]/}"
+    # Confine to a plain run id. A pointer like `..` (a prompt containing `specs/..`) would otherwise
+    # escape `.runs/` — resolving a marker outside the gitignored tree, where the tracked-.runs
+    # preflight remediation does not apply and the run-id regexes cannot extract an id. Rejected
+    # values FALL THROUGH to the mtime rule (same as a dangling pointer), never to empty.
+    case "$id" in ''|.|..|*/*|*[!A-Za-z0-9._-]*) id="" ;; esac
     # A DANGLING pointer (its run was removed/archived) must not resolve to empty — fall through.
     [ -n "$id" ] && [ -f ".runs/$id/RUN" ] && { printf '%s' "$id"; return 0; }
   fi
