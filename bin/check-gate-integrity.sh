@@ -19,6 +19,10 @@
 # Exit:  0 clean / not machine-checkable · 1 integrity violation · 64 bad usage
 set -uo pipefail
 
+here="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=bin/delivery-lib.sh
+. "$here/delivery-lib.sh"
+
 root="${1:-.}"
 cd "$root" 2>/dev/null || { echo "check-gate-integrity: bad dir '$root'" >&2; exit 64; }
 
@@ -71,6 +75,25 @@ fi
 
 if [ "$viol" -gt 0 ]; then
   echo "check-gate-integrity: $viol integrity issue(s) — a gate that doesn't run is a failure, not a pass." >&2
+  # WS-8 (harness-robustness): a GOVERNED run-level waiver clears pre-existing findings the batch did not
+  # introduce (the retro's dashboard skips + e2e continue-on-error OUTSIDE the batch delta, which forced a
+  # hand-stamp every batch). It does NOT silence them — the findings are already printed above. Governed =
+  # ack + by + reason + expires; expiry forces re-review, so a disabled gate cannot pass forever. In CI
+  # there is no run marker, so the waiver is impossible there and a genuinely disabled gate is never hidden.
+  # (Full per-finding delta-scoping is deferred — arch-review flagged its risk of silently dropping a
+  # finding outside the delta; a surfaced-and-expiring waiver is the sound, simpler mechanism.)
+  marker="$(resolve_marker)"
+  if [ -n "$marker" ] && [ -f "$marker" ]; then
+    mk="$(cat "$marker" 2>/dev/null || true)"
+    if governed_waiver_ok \
+         "$(field_in_obj "$mk" gate_integrity_waiver ack)" \
+         "$(field_in_obj "$mk" gate_integrity_waiver by)" \
+         "$(field_in_obj "$mk" gate_integrity_waiver reason)" \
+         "$(field_in_obj "$mk" gate_integrity_waiver expires)"; then
+      echo "check-gate-integrity: WAIVED by a governed gate_integrity_waiver (findings surfaced above; by/reason/expires recorded, expiry forces re-review) — exit 0." >&2
+      exit 0
+    fi
+  fi
   exit 1
 fi
 echo "check-gate-integrity: OK — no green-by-skip or can't-fail gate detected."

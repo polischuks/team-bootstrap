@@ -248,7 +248,7 @@ ws8_gate_integrity_waiver() {
   local T; T="$(mktemp -d)"
   ( cd "$T"; git init -q >/dev/null 2>&1
     mkdir -p .runs/r
-    printf '@pytest.mark.skip\ndef test_gate_invariant():\n    pass\n' > gate_test.py   # green-by-skip on a "gate" test
+    printf '@pytest.mark.skip\n' > gate_test.py   # gate-integrity: sanctioned — fixture line (filename 'gate' + skip token triggers the gate; no def → no orphan FP)
     printf '{"run":"r","intends_code":true}\n' > .runs/r/RUN
     local rc out
     ( TEAM_BOOTSTRAP_RUN=r "$here/bin/check-gate-integrity.sh" . >/dev/null 2>&1 ); rc=$?
