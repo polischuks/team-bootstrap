@@ -100,6 +100,83 @@ shas_of_line() {
     | grep -oE '"[0-9a-fA-F]+"' | tr -d '"' | tr '\n' ' '
 }
 
+# --- expensive-gate result cache (issue #23 item 1) ----------------------------
+# verify-batch re-runs EVERY gate on EVERY attempt, and the first attempt usually fails on some other
+# gate — so a project that honestly declares `Coverage:`/`Mutation: enforce` pays a full Stryker (and a
+# second instrumented suite run) again on each retry, with a byte-identical diff. These helpers let a
+# gate reuse its own previous OUTPUT when the code under test is provably unchanged.
+#
+# FAIL-CLOSED BY CONSTRUCTION. The key covers everything that can change the answer:
+#   - the gate id and the DECLARED COMMAND string (a different tool asks a different question),
+#   - the committed window `base..HEAD`,
+#   - the uncommitted tracked changes `git diff HEAD` (gates run against the WORKING TREE, so caching
+#     on committed state alone would be a stale-pass fail-open).
+# Anything that does not resolve (no marker, not a repo, no hash) returns an EMPTY key, and an empty
+# key means DO NOT CACHE — the gate executes. A cache miss costs time; a stale hit costs correctness,
+# which is the ADR-0015 class of defect, so every ambiguity resolves toward re-running.
+#
+# UNTRACKED files are in the key too, by CONTENT. Leaving them out looked defensible ("the gates derive
+# their scope from git anyway") until this repo's own check-mutation self-test proved otherwise: its
+# mutation tool reads an untracked fixture file, so a changed fixture kept hitting a stale verdict. Any
+# input a gate can read must be able to invalidate. Ignored paths (build scratch such as `.stryker-tmp`)
+# are excluded by `git status --porcelain`, which is what keeps this affordable.
+# Pathological trees (many dirty/untracked files) simply DISABLE the cache rather than pay to hash them.
+
+_GATE_CACHE_MAX_DIRTY=200
+
+# gate_cache_key GATE_ID CMD → a stable key, or EMPTY when caching must not happen.
+gate_cache_key() {
+  local gate="$1" cmd="$2" marker base st n
+  marker="$(resolve_marker)"; [ -n "$marker" ] && [ -f "$marker" ] || return 0
+  git rev-parse --git-dir >/dev/null 2>&1 || return 0
+  base="$(field_str "$(cat "$marker" 2>/dev/null)" baseline_sha)"
+  [ -n "$base" ] || return 0
+  st="$(git status --porcelain 2>/dev/null)"
+  n="$(printf '%s\n' "$st" | grep -c . || true)"
+  [ "${n:-0}" -le "$_GATE_CACHE_MAX_DIRTY" ] || return 0   # too noisy to key honestly → do not cache
+  {
+    printf '%s\0%s\0' "$gate" "$cmd"
+    git diff "$base"..HEAD 2>/dev/null          # committed window
+    printf '\0'
+    git diff HEAD 2>/dev/null                   # uncommitted TRACKED changes
+    printf '\0%s\0' "$st"                       # which paths are dirty/untracked at all
+    # …and the CONTENT of every dirty/untracked path, so editing any of them invalidates.
+    printf '%s\n' "$st" | while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      p="${line#???}"; p="${p##* -> }"          # strip the XY status prefix; take a rename's target
+      [ -f "$p" ] && printf '%s:%s\0' "$p" "$(git hash-object "$p" 2>/dev/null)"
+    done
+  } | git hash-object --stdin 2>/dev/null || true
+}
+
+# _gate_cache_dir → the active run's cache directory (created on demand), or empty.
+_gate_cache_dir() {
+  local marker d
+  marker="$(resolve_marker)"; [ -n "$marker" ] || return 0
+  d="$(dirname "$marker")/gate-cache"
+  mkdir -p "$d" 2>/dev/null || return 0
+  printf '%s' "$d"
+}
+
+# gate_cache_get KEY → print the cached payload and return 0 on a hit; return 1 on a miss.
+gate_cache_get() {
+  local key="$1" d
+  [ -n "$key" ] || return 1
+  d="$(_gate_cache_dir)"; [ -n "$d" ] || return 1
+  [ -f "$d/$key" ] || return 1
+  cat "$d/$key" 2>/dev/null || return 1
+}
+
+# gate_cache_put KEY PAYLOAD → store a verdict payload. Best-effort: a write failure just means the
+# next run re-executes (the safe direction), so it never fails the gate.
+gate_cache_put() {
+  local key="$1" payload="$2" d
+  [ -n "$key" ] || return 0
+  d="$(_gate_cache_dir)"; [ -n "$d" ] || return 0
+  printf '%s' "$payload" > "$d/$key" 2>/dev/null || true
+  return 0
+}
+
 # --- marker list fields (closure-fidelity gates A/C) ---------------------------
 # One definition of the pure-bash marker-list rewrite, mirroring record_precond's surgery in
 # check-preconditions.sh: NO sed — list items (gap strings, seam paths) contain '/', which would

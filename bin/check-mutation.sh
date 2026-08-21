@@ -47,7 +47,19 @@ _evaluate() {
   [ -n "$mode" ] || mode="advisory"
   thr="$(_val MutationThreshold "$doc")"; case "$thr" in ''|*[!0-9]*) thr="$DEFAULT_MUTATION_THRESHOLD" ;; esac
 
-  out="$(eval "$mut" 2>&1 || true)"
+  # Mutation runs the test suite ONCE PER MUTANT — by far the most expensive gate. verify-batch re-runs
+  # every gate on every attempt, so a retry that changed nothing (the first attempt usually fails on some
+  # OTHER gate) used to pay for Stryker again. Reuse this gate's own previous OUTPUT only when the key —
+  # command string + committed window + uncommitted tracked changes — is identical; an empty key (no
+  # marker, no repo, no baseline) means execute (issue #23 item 1). The cached payload is the RAW OUTPUT,
+  # so the score parsing and threshold verdict below are re-derived every time and cannot drift.
+  ck="$(gate_cache_key mutation "$mut")"
+  if out="$(gate_cache_get "$ck")"; then
+    echo "check-mutation: reusing the cached verdict — the diff and the Mutation: command are unchanged since the last run (issue #23; any code change re-executes)."
+  else
+    out="$(eval "$mut" 2>&1 || true)"
+    gate_cache_put "$ck" "$out"
+  fi
 
   # score: prefer an explicit mutation_score: line (last one); else killed:/total: (last of each).
   score="$(printf '%s\n' "$out" | grep -oiE 'mutation_score:[[:space:]]*[0-9]+(\.[0-9]+)?' | tail -1 | grep -oE '[0-9]+(\.[0-9]+)?' | tail -1)"
