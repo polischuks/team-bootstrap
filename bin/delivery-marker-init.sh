@@ -59,8 +59,14 @@ run="$(printf '%s' "$spec" | sed -E 's#^specs/([^/]+).*#\1#')"
 [ -n "$run" ] || run="deliver-run"
 
 marker=".runs/$run/RUN"
-[ -f "$marker" ] && exit 0                      # idempotent: never clobber baseline_sha
 mkdir -p ".runs/$run" 2>/dev/null || exit 0
+# issue #20 — record the ACTIVE run EXPLICITLY so the resolvers never have to guess by mtime (a
+# finished sibling whose RUN gets touched used to win that race, and marker vs ledger could even
+# resolve to two different runs). Written on EVERY arm — including when the marker already exists —
+# so re-arming an in-flight run re-points the pointer at it. Best-effort: a write failure just
+# degrades to the legacy mtime rule, it never blocks the run.
+{ printf '%s\n' "$run" > .runs/current; } 2>/dev/null || true
+[ -f "$marker" ] && exit 0                      # idempotent: never clobber baseline_sha
 base="$(git rev-parse --short HEAD 2>/dev/null || true)"
 # Normalize the feature to the spec.md PATH check-completeness expects: a bare dir/slug gets /spec.md
 # appended (a value already ending in .md is left as-is; no specs path ⇒ "unknown", the no-spec sentinel).
