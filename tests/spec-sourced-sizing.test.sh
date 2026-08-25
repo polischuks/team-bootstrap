@@ -181,6 +181,111 @@ T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git confi
   _chk "$rc" "2" "R4 pipeline=auto still blocks an undelivered code batch (fails closed, not open)" )
 rm -rf "$T"
 
+echo
+echo "WS-3 — the role plan is PER WORK-STREAM, not per milestone (AC-4):"
+
+# The floor must not be the milestone's overall tier. This very milestone sizes to `full` (28 files,
+# 5 layers) — applying that as a blanket floor would give every batch the four-role fan-out again,
+# which is precisely the uniform-cost failure #27 existed to end. So the plan is keyed by work-stream:
+# a doc-only stream earns no reviewers, an auth stream earns all four, in the SAME milestone.
+_mkspec2() {
+  mkdir -p "$1"
+  printf '# Spec — fixture\n\n## Acceptance criteria\n- **AC-1** — a thing.\n' > "$1/spec.md"
+  printf '# Plan — fixture\n' > "$1/plan.md"
+  cat > "$1/tasks.md" <<'EOT'
+# Tasks — fixture
+
+- Total tasks: 4
+
+## Phase 1 — WS-1: docs only
+- [ ] T010 Write the guide.
+  - file: docs/guide.md · (docs · P10) — AC-1
+- [ ] T011 Note it in the changelog.
+  - file: CHANGELOG.md · (docs · P10) — AC-1
+
+## Phase 2 — WS-2: the auth path
+- [ ] T020 Harden the login flow.
+  - file: src/auth/login.ts · (feat · P5) — AC-1
+- [ ] T021 Test it.
+  - file: tests/auth.test.ts · (test · P9) — AC-1
+EOT
+}
+
+# AC-4a — the evaluator emits one entry per work-stream, each sized on ITS OWN paths.
+T="$(mktemp -d)"; ( cd "$T"
+  _mkspec2 specs/two-streams
+  out="$("$here/bin/size-from-spec.sh" --per-batch specs/two-streams 2>/dev/null || true)"
+  n="$(printf '%s\n' "$out" | grep -c '^ws=' || true)"
+  _chk "$n" "2" "AC-4a --per-batch emits one entry per work-stream"
+  t1="$(printf '%s\n' "$out" | sed -n '1s/.*[[:space:]]tier=\([a-z-]*\).*/\1/p')"
+  t2="$(printf '%s\n' "$out" | sed -n '2s/.*[[:space:]]tier=\([a-z-]*\).*/\1/p')"
+  _chk "${t1:-<none>}" "single-thread" "AC-4a docs-only stream sizes light"
+  _chk "${t2:-<none>}" "full"          "AC-4a auth stream sizes full — same milestone, different tier" )
+rm -rf "$T"
+
+# AC-4b — the plan reaches the marker as a machine fact, written by the hook.
+T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git config user.name t
+  git commit -q --allow-empty -m base
+  _mkspec2 specs/two-streams
+  m="$(_arm '/deliver specs/two-streams/spec.md')"
+  got="$(python3 -c "
+import json,sys
+try: d=json.load(open('$m'))
+except Exception: print('<unreadable>'); sys.exit()
+rp=d.get('role_plan')
+print('<absent>' if rp is None else len(rp))" 2>/dev/null || echo '<err>')"
+  _chk "$got" "2" "AC-4b role_plan lands in the marker, one entry per work-stream" )
+rm -rf "$T"
+
+# AC-4c — THE POINT, isolated: the batch touches ONE benign file, so the diff alone sizes it light.
+# The risk lives in a DIFFERENT file of the same work-stream, which only the spec knows about. If the
+# full set still comes back, it came from the plan and nowhere else.
+T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git config user.name t
+  git commit -q --allow-empty -m base
+  mkdir -p .runs/two-streams lib
+  printf '{"run":"two-streams","pipeline":"mvp","source":"harness","intends_code":true,"spec_present":true,"role_plan":[{"ws":"WS-2","tier":"full","paths":["db/migrations/002.sql","lib/helper.ts"]}]}\n' > .runs/two-streams/RUN
+  printf 'two-streams\n' > .runs/current
+  printf 'x\n' > lib/helper.ts; git add -A; git commit -q -m b1
+  printf '{"id":"B1","kind":"code","status":"announced","base":"%s"}\n' "$(git rev-parse HEAD~1)" > .runs/two-streams/batches.jsonl
+  # sanity: the diff on its own is light — otherwise this test proves nothing
+  diffonly="$(printf '1\t0\tlib/helper.ts\n' | "$here/bin/select-pipeline.sh" --from-stdin 2>/dev/null \
+              | sed -n 's/.*RECOMMENDED pipeline: \([a-z-]*\).*/\1/p' | head -1)"
+  _chk "$diffonly" "single-thread" "AC-4c (setup) the batch diff alone sizes light"
+  got="$( . "$here/bin/delivery-lib.sh"; TEAM_BOOTSTRAP_RUN=two-streams required_roles_for_batch B1 )"
+  _chk "$(printf '%s' "$got" | grep -cw architecture-reviewer)" "1" \
+       "AC-4c a light diff in a risky work-stream still earns the full set (plan is a floor)" )
+rm -rf "$T"
+
+# AC-4d — one-directional. A HEAVY diff in a light work-stream still escalates: the diff may LIFT the
+# planned floor, never lower it. Text-sourced sizing can under-state (R2); the diff is the backstop.
+T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git config user.name t
+  git commit -q --allow-empty -m base
+  _mkspec2 specs/two-streams
+  mkdir -p .runs/two-streams db/migrations
+  printf '{"run":"two-streams","pipeline":"mvp","source":"harness","intends_code":true,"spec_present":true,"spec_path":"specs/two-streams/spec.md","role_plan":[{"ws":"WS-1","tier":"single-thread","paths":["docs/guide.md"]}]}\n' > .runs/two-streams/RUN
+  printf 'two-streams\n' > .runs/current
+  printf 'x\n' > db/migrations/001.sql; git add -A; git commit -q -m b1
+  printf '{"id":"B1","kind":"code","status":"announced","base":"%s"}\n' "$(git rev-parse HEAD~1)" > .runs/two-streams/batches.jsonl
+  got="$( . "$here/bin/delivery-lib.sh"; TEAM_BOOTSTRAP_RUN=two-streams required_roles_for_batch B1 )"
+  _chk "$(printf '%s' "$got" | grep -cw regression-guardian)" "1" \
+       "AC-4d a migration in a light work-stream still escalates (diff lifts, never lowers)" )
+rm -rf "$T"
+
+# AC-5 (INVARIANT) — whatever the plan says, a kind:code batch never drops below one reviewer, and a
+# doc batch never gains one. The anti-collapse floor is not sizeable.
+T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git config user.name t
+  git commit -q --allow-empty -m base
+  mkdir -p .runs/r
+  printf '{"run":"r","pipeline":"single-thread","source":"harness","intends_code":true,"role_plan":[{"ws":"WS-1","tier":"single-thread","paths":["docs/x.md"]}]}\n' > .runs/r/RUN
+  printf 'r\n' > .runs/current
+  printf 'x\n' > c.js; git add -A; git commit -q -m b1
+  printf '{"id":"B1","kind":"code","status":"announced","base":"%s"}\n{"id":"B2","kind":"doc","status":"announced"}\n' "$(git rev-parse HEAD~1)" > .runs/r/batches.jsonl
+  c="$( . "$here/bin/delivery-lib.sh"; TEAM_BOOTSTRAP_RUN=r required_roles_for_batch B1 )"
+  d="$( . "$here/bin/delivery-lib.sh"; TEAM_BOOTSTRAP_RUN=r required_roles_for_batch B2 )"
+  _chk "$(printf '%s' "$c" | grep -cw code-reviewer)" "1" "AC-5 the lightest plan still keeps one reviewer on a code batch"
+  _chk "$(printf '%s' "$d" | tr -d ' \n')" ""            "AC-5 …and a doc batch still earns none" )
+rm -rf "$T"
+
 fail="$(cat "$FAILF")"; rm -f "$FAILF"
 [ "$fail" -eq 0 ] && { echo "spec-sourced-sizing.test.sh: OK"; exit 0; }
 echo "spec-sourced-sizing.test.sh: $fail failure(s)"; exit 1
