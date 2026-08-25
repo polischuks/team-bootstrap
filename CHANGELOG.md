@@ -2,6 +2,35 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.32.0] - 2026-08-21
+
+> **review-loop escalation** (issue #22) — every gate here is closure-time, so the *shape* of review
+> effort was invisible. A run could spend six architecture-review rounds in Phase A with **zero** closed
+> batches (~900k tokens, no code), or sink 16+ dispatches into one batch while a sibling closed on 4,
+> and nothing noticed until a human read `dispatch.jsonl` by hand.
+
+### Added
+- **`review_loop_signals`** — three predicates over data already recorded (`dispatch.jsonl` +
+  `batches.jsonl`), surfaced in `verify-batch` output:
+  - **P1** ≥3 dispatches of one role while zero `kind:code` batches have closed (and the run
+    `intends_code`) — the Phase-A loop;
+  - **P2** ≥8 review dispatches on a single **unclosed** batch — two full four-role fan-outs;
+  - **P3** `total/closed > 8` once ≥2 closures exist — the aggregate P1 and P2 both miss, because N
+    batches each costing a healthy-looking amount never trip a per-subject threshold.
+  P3 is a **ratio, not a raw total**: a large milestone legitimately has many batches, so punishing
+  scale would be wrong — it reports the absolute count too, since a ratio hides scale.
+
+### Notes
+- **All three are non-blocking** and run *after* `stamp_batch_closed`, so they can never gate a
+  closure. Blocking a dispatch would push the orchestrator to review inline — the spec-169 collapse
+  that got `attempt-budget-protocol` rejected. Reporting *is* the intervention.
+- Surfaced in `verify-batch` output rather than a hook: a `PreToolUse` hook's exit-0 stderr is not
+  surfaced by the harness (the open design question in #22, settled empirically).
+- Verified against live data in a product repo: a batch closed on 4 dispatches stays silent; one with
+  22 and still open escalates.
+- Dispatch count is a **proxy** — the plugin cannot observe tokens or wall-clock (ADR-0008). It reports
+  counts and the measured per-dispatch range, never a fabricated cost.
+
 ## [2.31.0] - 2026-08-21
 
 > **harness-owned-pipeline-sizing** (ADR-0017, issue #27) — `full` stops meaning "four roles on every

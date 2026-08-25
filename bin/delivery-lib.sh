@@ -100,6 +100,99 @@ shas_of_line() {
     | grep -oE '"[0-9a-fA-F]+"' | tr -d '"' | tr '\n' ' '
 }
 
+# --- review-loop escalation (issue #22) ----------------------------------------
+# Every gate in this plugin is CLOSURE-time, so the SHAPE of the review effort is invisible: a run can
+# spend six architecture-review rounds in Phase A with zero closed batches, or sink 16 dispatches into
+# one batch while a sibling closed on 4, and nothing notices until a human reads dispatch.jsonl.
+#
+# Three predicates over data already recorded. Each fires at most once and is NON-BLOCKING — blocking a
+# dispatch would push the orchestrator to review INLINE, which is the spec-169 collapse that got
+# attempt-budget-protocol rejected. Reporting IS the intervention.
+#
+# Thresholds are chosen against the healthy baseline actually observed (a batch closing on ONE full
+# four-role fan-out = 4 dispatches):
+#   P1  >=3 dispatches of ONE role while zero kind:code batches have closed   (the Phase-A loop)
+#   P2  >=8 review dispatches on a single UNCLOSED batch  (= two full fan-outs: find → fix → re-verify
+#       already happened once in full)
+#   P3  total/closed > 8 once >=2 closures exist          (the aggregate P1 and P2 both miss: N batches
+#       each costing a "healthy-looking" amount never trips a per-subject threshold)
+# P3 is a RATIO, not a raw total: a large milestone legitimately has many batches, so punishing scale
+# would be wrong — what matters is whether each closure costs more than it should.
+_RL_P1_MIN=3; _RL_P2_MIN=8; _RL_RATIO_MAX=8; _RL_PER_DISPATCH="3.6-11.8 min"
+
+review_loop_signals() {
+  local ledger disp line l bid total=0 closed=0 role mk marker
+  marker="$(resolve_marker)"; [ -n "$marker" ] && [ -f "$marker" ] || return 0
+  disp="$(dirname "$marker")/dispatch.jsonl"
+  [ -f "$disp" ] || return 0
+  # Glob-free from here on: batch ids come from the ledger (`field_str`'s [^"]* capture), so an id like
+  # `*` would otherwise expand against the CWD and make the advisory name FILES, and `B[1` / `-v` would
+  # leak raw grep errors into operator-facing output (review MEDIUM-LOW). Same guard _newest_run_file uses.
+  local _had_noglob=0; case $- in *f*) _had_noglob=1 ;; esac
+  set -f
+  ledger="$(resolve_ledger)"
+
+  # closed code batches + the set of ids the ledger knows (records naming an unknown id are tolerated:
+  # the #20 split-brain mis-stamped Phase-A reviews onto a FOREIGN batch id, and historical runs still
+  # carry those, so the counter must not be surprised by them).
+  local closed_ids="" open_ids=""
+  if [ -n "$ledger" ] && [ -f "$ledger" ]; then
+    while IFS= read -r l || [ -n "$l" ]; do
+      [ -n "$l" ] || continue
+      [ "$(field_str "$l" kind)" = "code" ] || continue
+      bid="$(field_str "$l" id)"; [ -n "$bid" ] || continue
+      case "$(field_str "$l" status)" in
+        closed) closed=$((closed + 1)); closed_ids="$closed_ids $bid" ;;
+        *)      open_ids="$open_ids $bid" ;;
+      esac
+    done < "$ledger"
+  fi
+
+  # tally review dispatches: total, per batch, per role
+  local per_batch="" per_role="" stype r b
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ -n "$line" ] || continue
+    stype="$(field_str "$line" subagent_type)"
+    is_review_type "$stype" || continue
+    total=$((total + 1))
+    r="$(role_of_slug "$stype")"; [ -n "$r" ] || r="$stype"
+    per_role="$per_role $r"
+    b="$(field_str "$line" batch)"; [ -n "$b" ] && per_batch="$per_batch $b"
+  done < "$disp"
+  [ "$total" -gt 0 ] || { [ "$_had_noglob" -eq 1 ] || set +f; return 0; }
+
+  # --- P1: one role re-run while NOTHING has closed ---------------------------
+  # Only for a run that intends to ship CODE. A doc-only run legitimately closes no code batch, and
+  # telling it to "ship a batch" is advice it cannot act on (review MEDIUM-1).
+  mk="$(cat "$marker" 2>/dev/null || true)"
+  if [ "$closed" -eq 0 ] && [ "$(field_bool "$mk" intends_code)" = "true" ]; then
+    for role in $(printf '%s\n' $per_role | sort -u); do
+      local n; n="$(printf '%s\n' $per_role | grep -cxF -e "$role" || true)"
+      if [ "${n:-0}" -ge "$_RL_P1_MIN" ]; then
+        echo "review-loop: '$role' has run ${n}x with ZERO closed code batches. Each dispatch is a full subagent (~${_RL_PER_DISPATCH}). Reviews find gaps because that is what they are asked to do — ship a batch, or scope the next review to the remediation diff. (advisory, #22)"
+      fi
+    done
+  fi
+
+  # --- P2: a single UNCLOSED batch absorbing two full fan-outs ----------------
+  for bid in $open_ids; do
+    local nb; nb="$(printf '%s\n' $per_batch | grep -cxF -e "$bid" || true)"
+    if [ "${nb:-0}" -ge "$_RL_P2_MIN" ]; then
+      echo "review-loop: batch '$bid' has taken ${nb} review dispatches and is STILL OPEN (unclosed) — two full four-role fan-outs' worth. Close it and file the remainder, or re-review only the fix diff. (advisory, #22)"
+    fi
+  done
+
+  # --- P3: the aggregate both of the above miss -------------------------------
+  if [ "$closed" -ge 2 ]; then
+    local ratio; ratio=$(( total / closed ))
+    if [ "$ratio" -gt "$_RL_RATIO_MAX" ]; then
+      echo "review-loop: this run has spent ${total} review dispatches across ${closed} closed batches (~${ratio} per closure; a healthy full fan-out is 4). At this rate the remaining batches cost hours. Scope re-reviews to the remediation diff, or split the batch. (advisory, #22)"
+    fi
+  fi
+  [ "$_had_noglob" -eq 1 ] || set +f
+  return 0
+}
+
 # --- harness-owned role sizing (issue #27) -------------------------------------
 # required_roles_for_batch BATCH_ID → the review roles THIS batch needs, space-separated (empty for a
 # doc batch). The harness decides; the operator no longer picks one tier for the whole run before any

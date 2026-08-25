@@ -180,5 +180,10 @@ if [ "$fails" -gt 0 ]; then
   exit 1
 fi
 stamp_batch_closed
+# issue #22 — surface a review LOOP before it eats the budget. Advisory only: it never affects the exit
+# code, and it runs AFTER the stamp so it can never gate a closure. This is the one place the operator
+# reliably reads (per batch), which is why the escalation lives here rather than in a PreToolUse hook
+# whose exit-0 stderr the harness does not surface.
+review_loop_signals || true
 echo "verify-batch: all gates passed."
 exit 0
