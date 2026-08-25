@@ -114,6 +114,11 @@ When ready to cut a skill release:
 4. Run the version gate: `bin/eval-role.sh --all` (Layer 1) + replay representative specs, one per pipeline (Layer 2)
 5. Ship
 
+**On a major bump**, first archive the outgoing series: move its `## [X.*]` entries out of
+`CHANGELOG.md` into `docs/changelog/vX.md` and add a line to the *Earlier releases* list. One file
+per major keeps `CHANGELOG.md` the size of the live series instead of the whole project history
+(it had reached 130 KB in a single file before the 1.x split).
+
 Pre-1.0 had implicit versioning via git history; from 1.0 onward the file-level `version` is authoritative.
 
 ## Anti-patterns

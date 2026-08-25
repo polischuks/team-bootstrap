@@ -47,14 +47,14 @@ _repo() { # build a repo whose RUN window is heavy but whose batch B3 is tiny
   printf '{"run":"r","pipeline":"full","intends_code":true,"baseline_sha":"%s"}\n' "$BASE" > .runs/r/RUN
   printf '{"id":"B3","kind":"code","risk_rank":"feature","status":"announced","commit_shas":["%s"]}\n' "$B3" > .runs/r/batches.jsonl
 }
-T="$(mktemp -d)"; ( cd "$T"; _repo
+T="$(mktemp -d)"; ( cd "$T" || exit 1; _repo
   out="$(TEAM_BOOTSTRAP_RUN=r "$SP" --batch B3 2>&1)"
   _chk "$(printf '%s' "$out" | grep -ciE 'RECOMMENDED pipeline: single-thread')" "1" \
     "AC-2 --batch sizes from the BATCH's window (tiny), not the run's (risky migration)"
 ) ; rm -rf "$T"
 
 # AC-3: a risk touch inside the batch lifts it to full regardless of how small it is
-T="$(mktemp -d)"; ( cd "$T"
+T="$(mktemp -d)"; ( cd "$T" || exit 1
   git init -q; git config user.email a@b.c; git config user.name t
   printf 'x\n' > seed.txt; git add -A; git commit -q -m base
   BASE="$(git rev-parse --short HEAD)"; mkdir -p src/auth .runs/r
@@ -68,7 +68,7 @@ T="$(mktemp -d)"; ( cd "$T"
 ) ; rm -rf "$T"
 
 # AC-3: risk_rank alone lifts it, even with a trivial diff and no risky path
-T="$(mktemp -d)"; ( cd "$T"
+T="$(mktemp -d)"; ( cd "$T" || exit 1
   git init -q; git config user.email a@b.c; git config user.name t
   printf 'x\n' > seed.txt; git add -A; git commit -q -m base
   BASE="$(git rev-parse --short HEAD)"; mkdir -p src .runs/r
@@ -82,7 +82,7 @@ T="$(mktemp -d)"; ( cd "$T"
 ) ; rm -rf "$T"
 
 # ---- AC-4: a kind:doc batch is sized as the lightest tier ----
-T="$(mktemp -d)"; ( cd "$T"
+T="$(mktemp -d)"; ( cd "$T" || exit 1
   git init -q; git config user.email a@b.c; git config user.name t
   printf 'x\n' > seed.txt; git add -A; git commit -q -m base
   BASE="$(git rev-parse --short HEAD)"; mkdir -p docs .runs/r
@@ -99,7 +99,7 @@ T="$(mktemp -d)"; ( cd "$T"
 # CRITICAL: an in-flight batch (no commit_shas) must NOT be sized over the whole run. Using the run's
 # baseline_sha attributes every previously CLOSED batch's commits to the in-flight one — reproducing
 # both defects of #27 inside the fix. The repo already owns the one true window: current_batch_base().
-T="$(mktemp -d)"; ( cd "$T"
+T="$(mktemp -d)"; ( cd "$T" || exit 1
   git init -q; git config user.email a@b.c; git config user.name t
   printf 'x\n' > seed.txt; git add -A; git commit -q -m base
   BASE="$(git rev-parse --short HEAD)"; mkdir -p db/migrations src .runs/r
@@ -118,7 +118,7 @@ T="$(mktemp -d)"; ( cd "$T"
 
 # HIGH: the declared-risk lift must survive an EMPTY window — sizing a batch BEFORE its code exists is
 # the primary use of the flag (pick the tier when you announce, not after you have coded).
-T="$(mktemp -d)"; ( cd "$T"
+T="$(mktemp -d)"; ( cd "$T" || exit 1
   git init -q; git config user.email a@b.c; git config user.name t
   printf 'x\n' > seed.txt; git add -A; git commit -q -m base
   BASE="$(git rev-parse --short HEAD)"; mkdir -p .runs/r
@@ -131,7 +131,7 @@ T="$(mktemp -d)"; ( cd "$T"
 
 # HIGH: an unresolvable --batch must fail LOUD, not read as "no changes" with exit 0 — that silently
 # voids the exit-2 contract (the check-completeness declared-but-unresolvable class, already fixed once).
-T="$(mktemp -d)"; ( cd "$T"
+T="$(mktemp -d)"; ( cd "$T" || exit 1
   git init -q; git config user.email a@b.c; git config user.name t
   printf 'x\n' > seed.txt; git add -A; git commit -q -m base
   BASE="$(git rev-parse --short HEAD)"; mkdir -p src/auth .runs/r
@@ -145,7 +145,7 @@ T="$(mktemp -d)"; ( cd "$T"
 
 # MEDIUM: files/layers are SET cardinalities — a path touched by both the red and the green commit must
 # count once. Otherwise every batch inflates upward and suppresses the OVER-PROVISIONED verdict.
-T="$(mktemp -d)"; ( cd "$T"
+T="$(mktemp -d)"; ( cd "$T" || exit 1
   git init -q; git config user.email a@b.c; git config user.name t
   printf 'x\n' > seed.txt; git add -A; git commit -q -m base
   BASE="$(git rev-parse --short HEAD)"; mkdir -p src .runs/r
@@ -161,7 +161,7 @@ T="$(mktemp -d)"; ( cd "$T"
 # Round-2 review finding: the id was still interpolated into a BRE, and `.` was inside the allowed
 # charset — so `--batch 'B.'` matched B1 and silently sized ANOTHER batch's window and risk_rank.
 # It also defeated the exit-64 guard: an unresolvable-but-regex-matching id reached sizing.
-T="$(mktemp -d)"; ( cd "$T"
+T="$(mktemp -d)"; ( cd "$T" || exit 1
   git init -q; git config user.email a@b.c; git config user.name t
   printf 'x\n' > seed.txt; git add -A; git commit -q -m base
   BASE="$(git rev-parse --short HEAD)"; mkdir -p src/auth src .runs/r
@@ -185,7 +185,7 @@ _rr() { # $1=batch id → the computed role set, space-separated
   ( . "$here/bin/delivery-lib.sh"; TEAM_BOOTSTRAP_RUN=r required_roles_for_batch "$1" )
 }
 _mkrun() { # $1=dir $2=path-to-touch $3=risk_rank $4=kind
-  cd "$1"; git init -q; git config user.email a@b.c; git config user.name t
+  cd "$1" || return 1; git init -q; git config user.email a@b.c; git config user.name t
   printf 'x\n' > seed.txt; git add -A; git commit -q -m base
   BASE="$(git rev-parse --short HEAD)"; mkdir -p "$(dirname "$2")" .runs/r
   printf 'b\n' > "$2"; git add -A; git commit -q -m work; S="$(git rev-parse --short HEAD)"
@@ -209,7 +209,7 @@ T="$(mktemp -d)"; ( _mkrun "$T" src/tiny.ts feature code
 
 # mvp-sized batch (several files across layers, no risk touch) → the OQ-2 reduced set:
 # code-reviewer (the semantic class no fitness function sees) + integration-verifier (wiring/orphans).
-T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git config user.name t
+T="$(mktemp -d)"; ( cd "$T" || exit 1; git init -q; git config user.email a@b.c; git config user.name t
   printf 'x\n' > seed.txt; git add -A; git commit -q -m base
   BASE="$(git rev-parse --short HEAD)"; mkdir -p src lib .runs/r
   printf 'a\n' > src/x.ts; printf 'b\n' > src/y.ts; printf 'c\n' > lib/z.ts; printf 'd\n' > lib/w.ts
@@ -251,7 +251,7 @@ T="$(mktemp -d)"; ( _mkrun "$T" src/tiny.ts feature code
 # what a freshly-announced entry looks like (deliver.md has the orchestrator author it), and because
 # record_required_roles REWRITES the ledger, the entry is deleted and rc=0 is reported. The same drop
 # makes a kind:code batch resolve to an EMPTY role set — the >=1 anti-collapse floor evaporates.
-T="$(mktemp -d)"; ( cd "$T"; mkdir -p .runs/r
+T="$(mktemp -d)"; ( cd "$T" || exit 1; mkdir -p .runs/r
   printf '{"run":"r","intends_code":true,"baseline_sha":"x"}\n' > .runs/r/RUN
   { printf '{"id":"A0","kind":"code","status":"closed","commit_shas":["dead"]}\n'
     printf '{"id":"B1","kind":"code","status":"announced"}'; } > .runs/r/batches.jsonl   # no final \n
@@ -275,7 +275,7 @@ T="$(mktemp -d)"; ( _mkrun "$T" src/tiny.ts feature code
 
 # MEDIUM: the repo deliberately tolerates spaced ledger JSON. Writing over a spaced required_roles must
 # REPLACE it (not append a duplicate key), and reading it must return roles (not the line prefix).
-T="$(mktemp -d)"; ( cd "$T"; mkdir -p .runs/r
+T="$(mktemp -d)"; ( cd "$T" || exit 1; mkdir -p .runs/r
   printf '{"run":"r","intends_code":true,"baseline_sha":"x"}\n' > .runs/r/RUN
   printf '{"id": "B1", "kind": "code", "required_roles": ["code-reviewer"], "status": "announced"}\n' > .runs/r/batches.jsonl
   got="$( . "$here/bin/delivery-lib.sh"; TEAM_BOOTSTRAP_RUN=r required_roles_recorded B1 )"
@@ -288,7 +288,7 @@ T="$(mktemp -d)"; ( cd "$T"; mkdir -p .runs/r
 # Round-2 finding: a SPACED required_roles that is the LAST key left `", "` before it, so neither
 # comma-drop branch in _marker_strip_flat_key fired and the splice produced `, ,` — INVALID JSON, a
 # regression versus the duplicate-key it replaced. The shape check (first/last char) cannot see it.
-T="$(mktemp -d)"; ( cd "$T"; mkdir -p .runs/r
+T="$(mktemp -d)"; ( cd "$T" || exit 1; mkdir -p .runs/r
   printf '{"run":"r","intends_code":true,"baseline_sha":"x"}\n' > .runs/r/RUN
   printf '{"id":"B1","kind":"code", "required_roles": [ "stale" ]}\n' > .runs/r/batches.jsonl
   ( . "$here/bin/delivery-lib.sh"; TEAM_BOOTSTRAP_RUN=r record_required_roles B1 )
@@ -301,7 +301,7 @@ T="$(mktemp -d)"; ( cd "$T"; mkdir -p .runs/r
 _crd() { ( cd "$1" && TEAM_BOOTSTRAP_RUN=r "$here/bin/check-role-dispatch.sh" . 2>&1 ); }
 _mkclose() { # $1=dir  $2=required_roles JSON array  $3...=dispatched role slugs
   local d="$1" req="$2"; shift 2
-  cd "$d"; git init -q; git config user.email a@b.c; git config user.name t
+  cd "$d" || return 1; git init -q; git config user.email a@b.c; git config user.name t
   printf 'x\n' > seed.txt; git add -A; git commit -q -m base
   BASE="$(git rev-parse --short HEAD)"; mkdir -p src .runs/r
   printf 'b\n' > src/x.ts; git add -A; git commit -q -m work; S="$(git rev-parse --short HEAD)"

@@ -35,7 +35,7 @@ _arm() { printf '%s' "$1" | "$here/bin/delivery-marker-init.sh" >/dev/null 2>&1 
 echo "WS-1 — the harness sees the spec on disk (AC-1):"
 
 # AC-1a — file form. The marker must carry the resolved path AND the machine fact that it EXISTS.
-T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git config user.name t
+T="$(mktemp -d)"; ( cd "$T" || exit 1; git init -q; git config user.email a@b.c; git config user.name t
   git commit -q --allow-empty -m base
   _mkspec specs/widget-cache '- [ ] T010 Do it.
   - file: bin/widget.sh · (feat · P10) — AC-1'
@@ -45,7 +45,7 @@ T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git confi
 rm -rf "$T"
 
 # AC-1b — dir form must normalise to spec.md (the dir-form silent-skip class, 823a19f).
-T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git config user.name t
+T="$(mktemp -d)"; ( cd "$T" || exit 1; git init -q; git config user.email a@b.c; git config user.name t
   git commit -q --allow-empty -m base
   _mkspec specs/widget-cache '- [ ] T010 Do it.
   - file: bin/widget.sh · (feat · P10) — AC-1'
@@ -56,14 +56,14 @@ rm -rf "$T"
 
 # AC-1c — a path that does NOT resolve is a description, not a spec. Fail-closed the honest way:
 # claiming a spec is present when it is not would skip Phase A over nothing.
-T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git config user.name t
+T="$(mktemp -d)"; ( cd "$T" || exit 1; git init -q; git config user.email a@b.c; git config user.name t
   git commit -q --allow-empty -m base
   m="$(_arm '/deliver specs/does-not-exist/spec.md')"
   _chk "$(_field spec_present "$m")" "false" "AC-1c non-existent path → spec_present:false" )
 rm -rf "$T"
 
 # AC-1d — a prose description containing a slash must not be mistaken for a spec path.
-T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git config user.name t
+T="$(mktemp -d)"; ( cd "$T" || exit 1; git init -q; git config user.email a@b.c; git config user.name t
   git commit -q --allow-empty -m base
   m="$(_arm '/deliver mvp "add a retry/backoff wrapper to the client"')"
   _chk "$(_field spec_present "$m")" "false" "AC-1d description with a slash → spec_present:false" )
@@ -75,7 +75,7 @@ echo "WS-1 — the tier stops being decided by substring luck (AC-8, latent):"
 # The hook greps the WHOLE payload for `full`/`mvp` (delivery-marker-init.sh:46-48). A slug that
 # CONTAINS one of those words therefore sets the tier. `specs/full-text-search` is not a request for
 # the 20-role pipeline.
-T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git config user.name t
+T="$(mktemp -d)"; ( cd "$T" || exit 1; git init -q; git config user.email a@b.c; git config user.name t
   git commit -q --allow-empty -m base
   _mkspec specs/full-text-search '- [ ] T010 Do it.
   - file: bin/search.sh · (feat · P10) — AC-1'
@@ -86,7 +86,7 @@ T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git confi
 rm -rf "$T"
 
 # AC-8 — an unrecognised first token must mean "harness decides", not "take the heaviest".
-T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git config user.name t
+T="$(mktemp -d)"; ( cd "$T" || exit 1; git init -q; git config user.email a@b.c; git config user.name t
   git commit -q --allow-empty -m base
   _mkspec specs/widget-cache '- [ ] T010 Do it.
   - file: bin/widget.sh · (feat · P10) — AC-1'
@@ -98,7 +98,7 @@ T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git confi
 rm -rf "$T"
 
 # AC-8 — an EXPLICIT tier still pins. The operator decides (P1).
-T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git config user.name t
+T="$(mktemp -d)"; ( cd "$T" || exit 1; git init -q; git config user.email a@b.c; git config user.name t
   git commit -q --allow-empty -m base
   _mkspec specs/widget-cache '- [ ] T010 Do it.
   - file: bin/widget.sh · (feat · P10) — AC-1'
@@ -111,7 +111,7 @@ echo
 echo "WS-2 — the spec is the sizing input (AC-2, AC-3):"
 
 # AC-2 — a milestone whose tasks touch ONE non-risk file is not a 20-role job.
-T="$(mktemp -d)"; ( cd "$T"
+T="$(mktemp -d)"; ( cd "$T" || exit 1
   _mkspec specs/widget-cache '- [ ] T010 Do it.
   - file: bin/widget.sh · (feat · P10) — AC-1'
   out="$("$here/bin/size-from-spec.sh" specs/widget-cache 2>/dev/null || true)"
@@ -127,7 +127,7 @@ rm -rf "$T"
 for cat in "auth:src/auth/login.ts:full" "schema:db/migrations/001.sql:full" \
            "infra:.github/workflows/ci.yml:full" "api:src/api/routes.ts:full" "deps:package.json:mvp"; do
   name="${cat%%:*}"; rest="${cat#*:}"; path="${rest%:*}"; want="${rest##*:}"
-  T="$(mktemp -d)"; ( cd "$T"
+  T="$(mktemp -d)"; ( cd "$T" || exit 1
     _mkspec specs/risky "- [ ] T010 Touch it.
   - file: ${path} · (feat · P10) — AC-1"
     out="$("$here/bin/size-from-spec.sh" specs/risky 2>/dev/null || true)"
@@ -138,13 +138,13 @@ done
 
 # AC-3 — a broken/absent tasks.md must DEGRADE, never crash. This script is called from the
 # UserPromptSubmit hook; a non-zero exit there would take the run's fail-closed posture with it.
-T="$(mktemp -d)"; ( cd "$T"
+T="$(mktemp -d)"; ( cd "$T" || exit 1
   mkdir -p specs/broken; printf 'not a spec\n' > specs/broken/spec.md
   rc=0; "$here/bin/size-from-spec.sh" specs/broken >/dev/null 2>&1 || rc=$?
   _chk "$rc" "0" "AC-3 absent tasks.md → exit 0 (degrade, never crash the hook)" )
 rm -rf "$T"
 
-T="$(mktemp -d)"; ( cd "$T"
+T="$(mktemp -d)"; ( cd "$T" || exit 1
   rc=0; "$here/bin/size-from-spec.sh" specs/nothing-here >/dev/null 2>&1 || rc=$?
   _chk "$rc" "0" "AC-3 missing spec dir → exit 0 (degrade)" )
 rm -rf "$T"
@@ -171,7 +171,7 @@ echo "WS-1 — an unresolved tier must ENFORCE, not exempt (R4):"
 # single-thread and failing closed on anything else (check-review-ack:131, check-role-dispatch:47,
 # delivery-stop-hook:105). If any reader ever exempts an unknown token instead, `auto` becomes a
 # silent bypass of the reviewer floor — the worst possible regression from this milestone.
-T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git config user.name t
+T="$(mktemp -d)"; ( cd "$T" || exit 1; git init -q; git config user.email a@b.c; git config user.name t
   git commit -q --allow-empty -m base; printf 'x\n' > c.js; git add -A; git commit -q -m work
   mkdir -p .runs/r
   printf '{"run":"r","pipeline":"auto","source":"harness","intends_code":true,"baseline_sha":"%s"}\n' \
@@ -212,7 +212,7 @@ EOT
 }
 
 # AC-4a — the evaluator emits one entry per work-stream, each sized on ITS OWN paths.
-T="$(mktemp -d)"; ( cd "$T"
+T="$(mktemp -d)"; ( cd "$T" || exit 1
   _mkspec2 specs/two-streams
   out="$("$here/bin/size-from-spec.sh" --per-batch specs/two-streams 2>/dev/null || true)"
   n="$(printf '%s\n' "$out" | grep -c '^ws=' || true)"
@@ -224,7 +224,7 @@ T="$(mktemp -d)"; ( cd "$T"
 rm -rf "$T"
 
 # AC-4b — the plan reaches the marker as a machine fact, written by the hook.
-T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git config user.name t
+T="$(mktemp -d)"; ( cd "$T" || exit 1; git init -q; git config user.email a@b.c; git config user.name t
   git commit -q --allow-empty -m base
   _mkspec2 specs/two-streams
   m="$(_arm '/deliver specs/two-streams/spec.md')"
@@ -240,7 +240,7 @@ rm -rf "$T"
 # AC-4c — THE POINT, isolated: the batch touches ONE benign file, so the diff alone sizes it light.
 # The risk lives in a DIFFERENT file of the same work-stream, which only the spec knows about. If the
 # full set still comes back, it came from the plan and nowhere else.
-T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git config user.name t
+T="$(mktemp -d)"; ( cd "$T" || exit 1; git init -q; git config user.email a@b.c; git config user.name t
   git commit -q --allow-empty -m base
   mkdir -p .runs/two-streams lib
   printf '{"run":"two-streams","pipeline":"mvp","source":"harness","intends_code":true,"spec_present":true,"role_plan":[{"ws":"WS-2","tier":"full","paths":"db/migrations/002.sql lib/helper.ts"}]}\n' > .runs/two-streams/RUN
@@ -258,7 +258,7 @@ rm -rf "$T"
 
 # AC-4d — one-directional. A HEAVY diff in a light work-stream still escalates: the diff may LIFT the
 # planned floor, never lower it. Text-sourced sizing can under-state (R2); the diff is the backstop.
-T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git config user.name t
+T="$(mktemp -d)"; ( cd "$T" || exit 1; git init -q; git config user.email a@b.c; git config user.name t
   git commit -q --allow-empty -m base
   _mkspec2 specs/two-streams
   mkdir -p .runs/two-streams db/migrations
@@ -273,7 +273,7 @@ rm -rf "$T"
 
 # AC-5 (INVARIANT) — whatever the plan says, a kind:code batch never drops below one reviewer, and a
 # doc batch never gains one. The anti-collapse floor is not sizeable.
-T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git config user.name t
+T="$(mktemp -d)"; ( cd "$T" || exit 1; git init -q; git config user.email a@b.c; git config user.name t
   git commit -q --allow-empty -m base
   mkdir -p .runs/r
   printf '{"run":"r","pipeline":"single-thread","source":"harness","intends_code":true,"role_plan":[{"ws":"WS-1","tier":"single-thread","paths":"docs/x.md"}]}\n' > .runs/r/RUN
@@ -298,7 +298,7 @@ echo "WS-5 — the Phase A skip is OBSERVED, not asserted (AC-7):"
 _pf() { TEAM_BOOTSTRAP_RUN=r "$here/bin/check-preflight.sh" "$1" 2>&1 || true; }
 
 _setup_drift() {   # $1 = dir
-  ( cd "$1"; git init -q; git config user.email a@b.c; git config user.name t
+  ( cd "$1" || exit 1; git init -q; git config user.email a@b.c; git config user.name t
     printf 'x\n' > f.txt; git add -A; git commit -q -m base
     mkdir -p specs/m docs .runs/r
     printf '# Spec\n' > specs/m/spec.md; printf '# Plan\n' > specs/m/plan.md; printf '# Tasks\n' > specs/m/tasks.md
@@ -330,7 +330,7 @@ _chk "$rc" "0" "AC-7c drift is WARN, not HARD, for one release (OQ-3)"
 rm -rf "$T"
 
 # AC-7d — a run with no spec on disk has nothing to drift, and must not gain a spurious report.
-T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git config user.name t
+T="$(mktemp -d)"; ( cd "$T" || exit 1; git init -q; git config user.email a@b.c; git config user.name t
   printf 'x\n' > f.txt; git add -A; git commit -q -m base
   mkdir -p specs .runs/r docs/adr
   printf '{"active_spec":null,"specs_dir":"specs","constitution":"constitution.md","adr_dir":"docs/adr"}\n' > feature.json
@@ -346,7 +346,7 @@ echo "WS-6 — the description form does not regress (AC-10):"
 # The milestone changes what happens when a spec EXISTS. A description-form run must be untouched:
 # no spec fields invented, and every gate that enforced before still enforces. The one intentional
 # difference is the tier token (full -> auto), and it must not weaken anything — AC-8/R4 pin that.
-T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git config user.name t
+T="$(mktemp -d)"; ( cd "$T" || exit 1; git init -q; git config user.email a@b.c; git config user.name t
   git commit -q --allow-empty -m base
   m="$(_arm '/deliver "add a retry wrapper to the http client"')"
   _chk "$(_field spec_present "$m")" "false"   "AC-10 description form → spec_present:false"
@@ -357,7 +357,7 @@ rm -rf "$T"
 
 # AC-10 — check-role-dispatch must NOT treat the new token as an exemption. Only single-thread is
 # exempt; if `auto` ever fell into that branch, the reviewer-independence check would go silent.
-T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git config user.name t
+T="$(mktemp -d)"; ( cd "$T" || exit 1; git init -q; git config user.email a@b.c; git config user.name t
   git commit -q --allow-empty -m base; printf 'x\n' > c.js; git add -A; git commit -q -m work
   mkdir -p .runs/r
   printf '{"run":"r","pipeline":"auto","source":"harness","intends_code":true,"baseline_sha":"%s"}\n' "$(git rev-parse HEAD~1)" > .runs/r/RUN
@@ -374,7 +374,7 @@ echo "WS-1 — hostile tasks.md content cannot corrupt the marker (adversarial):
 # tasks.md is authored content, and its paths are spliced into the marker JSON. A path containing a
 # quote or a backslash produced an INVALID marker. That marker is the machine fact every gate reads,
 # and an unparseable one is exactly the state atomic-marker.test.sh AC-A1 pins as a fail-OPEN.
-T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git config user.name t
+T="$(mktemp -d)"; ( cd "$T" || exit 1; git init -q; git config user.email a@b.c; git config user.name t
   git commit -q --allow-empty -m base
   mkdir -p specs/evil
   printf '# Spec\n' > specs/evil/spec.md; printf '# Plan\n' > specs/evil/plan.md
