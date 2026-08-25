@@ -2,6 +2,68 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.34.1] — 2026-08-25
+
+### Fixed — two tests asserted the author's machine, and a stray directive hid a third of a file
+
+An external audit of v2.34.0 found six issues; all are addressed here. No runtime behaviour changed —
+`bin/` and `hooks/` are untouched.
+
+**Two tests were not testing the code.**
+
+`repro-env-posture.test.sh` AC-7 asserted `command -v timeout` → `absent`. That is a property of the
+host, not of the harness: the case goes red on any machine shipping GNU coreutils. AC-7's actual claim
+is that the repro-env stamp never *wraps* a timeout, so it now asserts that against
+`check-preconditions.sh` and prints the host's PATH as a note.
+
+`harness-robustness.test.sh` AC-1a/AC-1e established `run-b` as the newest run by write order alone.
+Where mtime granularity is coarse (overlayfs, some CI volumes) both markers take the same timestamp,
+`ls -t` ties, and the tie breaks lexicographically — `run-a` wins and the case fails for a reason
+unrelated to `_newest_run_file`. The runs are now stamped a day apart with `touch -t` (POSIX;
+granularity-immune). The mtime rule itself is unchanged and stays a last resort behind
+`$TEAM_BOOTSTRAP_RUN` and `.runs/current`.
+
+**A misplaced lint directive was hiding real findings.** Two test files carried
+`# shellcheck disable=SC2086` trailing a function's closing brace. bash parses that fine; shellcheck
+emits SC1070 *"Parsing stopped here"* and checks nothing below — in one file, from line 32 of 100.
+Moving both directives up one line restored coverage and immediately exposed a dead assertion:
+`repro-env-posture.test.sh` captured the off-delivery run's exit code in `$ecx` and never checked it.
+AC-4 claims a no-op, and a no-op is an exit code as much as an absent marker. Now asserted.
+
+**All 56 bare `cd "$T"` sites in `tests/` are guarded** (SC2164). Each is a temp-dir setup; a failed
+`cd` would have run the case against the repo root. `bin/` and `hooks/` had none. Across
+`bin/ tests/ hooks/`: 153 shellcheck findings → 93, and zero errors.
+
+### Changed — SECURITY.md describes the runtime that actually ships
+
+The threat model opened with *"the project ships no runtime of its own"*. `hooks/hooks.json` wires
+`bin/` scripts into four hook points, two of them blocking, and hooks run without a permission prompt.
+
+More significant: no document named the trust boundary that exists. The gates read their commands from
+the **target repository's** `AGENTS.md`/`CLAUDE.md` and run them through `eval` —
+`quality-gate.sh` (`Lint:`, `Typecheck:`) on the **Stop hook, unprompted**; `check-tdd.sh`/`tdd-red.sh`
+(`Test:`), `check-diff-coverage.sh` (`Coverage:`) and `check-mutation.sh` (`Mutation:`) during a batch.
+Opening a session in an unfamiliar repository is therefore equivalent to running its build commands.
+
+That is the intended design — a gate that cannot run a project's own tooling cannot gate anything — but
+it has to be stated rather than discovered. SECURITY.md now carries the hook table, the eval sites with
+the contract each reads, the guidance (treat a cloned `AGENTS.md` as untrusted input, as you would a
+`Makefile`), and the kill switches. A malicious `AGENTS.md` is an accepted, documented risk; reaching
+`eval` by a path those lines do not describe is the reportable bug.
+
+### Changed — README carries no version, CHANGELOG is split by major
+
+README read `Status: v2.11.0` against `VERSION` 2.34.0 — 23 minor releases of drift.
+`check-version-sync.sh` holds its locations *byte-equal*, and README prose cannot join that set (a `v`
+prefix and a trailing period). Rather than bolt a prose parser onto a gate whose value is exactness,
+the version is gone from the README, which links `VERSION` and `CHANGELOG.md` instead. The drift class
+is removed rather than policed.
+
+`CHANGELOG.md` had reached 130 KB in one file. 1.x and Pre-1.0 move to
+[docs/changelog/v1.md](docs/changelog/v1.md); this file keeps the live 2.x series and links the
+archive. `references/versioning.md` now makes archiving the outgoing series part of a major bump, so it
+stays a convention. No entry text was edited.
+
 ## [2.34.0] — 2026-08-25
 
 ### Sizing reads what the spec says, not only which files it names (ADR-0019)
