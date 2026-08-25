@@ -99,15 +99,27 @@ _evaluate() {
     done
     mode="enforce"
   else
-    # No recorded set ⇒ legacy blanket mandate. Enforcing THAT was deliberately never armed (a blanket
-    # four-role demand on a one-line change leaves under-declaring risk as the only escape — worse than
-    # the over-spend), so the per-role floor stays ADVISORY here even when the enforce marker is
-    # present. Arming buys hardness for RIGHT-SIZED sets only; the >=1 anti-collapse floor above is
-    # hard either way (#27, OQ-3).
     # No recorded set ⇒ exactly today's behaviour, untouched: warn unless the operator/marker says
     # enforce. This milestone changes nothing for legacy runs and hand-written ledgers.
+    #
+    # …but the harness still SIZES the batch and says so, so the feature is not inert on a run whose
+    # orchestrator never recorded the set (review HIGH: nothing wired record_required_roles, which made
+    # the whole recorded-set branch unreachable in production). Computing here is also more accurate
+    # than at announce, where the batch window is still empty. Advisory only — upgrading a
+    # non-adopter's run to hard per-role enforcement is exactly the blanket demand this design rejects.
     mandated="$(mandated_roles "$pipeline")"
     missing="$(missing_roles "$pipeline" "$bid")"
+    local sized sized_missing
+    sized="$(required_roles_for_batch "$bid" 2>/dev/null || true)"
+    if [ -n "$sized" ]; then
+      sized_missing=""
+      for r in $sized; do
+        case " $covered " in *" $r "*) : ;; *) sized_missing="${sized_missing:+$sized_missing }$r" ;; esac
+      done
+      if [ "$sized" != "$mandated" ]; then
+        echo "check-role-dispatch: SIZED — the harness sizes batch '$bid' at [$sized] (not the blanket [$mandated]); dispatched [${covered:-none}]${sized_missing:+, short of the sized set: [$sized_missing]}. Record required_roles on the ledger entry to make this floor hard (#27)."
+      fi
+    fi
   fi
   # Surplus is REPORTED, never blocked (#27 boundary): blocking a supernumerary dispatch would push the
   # orchestrator to review INLINE — the spec-169 collapse. Cost is visible where gate results are read.

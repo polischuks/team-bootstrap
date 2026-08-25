@@ -143,7 +143,18 @@ _evaluate() {
       # until references/role-dispatch-enforce is committed) the ≥1 corroboration above is the floor. Mirrors
       # the role-dispatch gate via the same delivery-lib helpers (N3 — no drift).
       if [ "$(role_floor_mode)" = "enforce" ]; then
-        local _miss; _miss="$(missing_roles "$pipeline" "$bid")"
+        # Read the SAME set check-role-dispatch enforces (N3 — no drift): a batch whose recorded
+        # required_roles the harness sized down must not pass that gate and then fail here for the
+        # blanket roles it was deliberately sized out of (review MEDIUM).
+        local _miss _rec _r; _rec="$(required_roles_recorded "$bid" 2>/dev/null || true)"
+        if [ -n "$_rec" ]; then
+          _miss=""
+          for _r in $_rec; do
+            case " $(roles_covered "$bid") " in *" $_r "*) : ;; *) _miss="${_miss:+$_miss }$_r" ;; esac
+          done
+        else
+          _miss="$(missing_roles "$pipeline" "$bid")"
+        fi
         if [ -n "$_miss" ]; then
           echo "  FAIL: review_acks for '$bid' (pipeline='$pipeline', enforce) is missing mandated review role(s) [$_miss] — the per-role floor requires every mandated role dispatched under its dedicated review type, not just ≥1 (all-four-role-dispatch)." >&2
           viol=$((viol + 1))

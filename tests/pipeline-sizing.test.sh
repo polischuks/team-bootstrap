@@ -328,6 +328,16 @@ T="$(mktemp -d)"; ( _mkclose "$T" '["code-reviewer"]' tb-code-reviewer integrati
 T="$(mktemp -d)"; ( _mkclose "$T" '["code-reviewer"]'
   ( _crd "$T" >/dev/null ); _chk "$?" "1" "AC-5 zero reviewer dispatches still fails, whatever the recorded set says" ) ; rm -rf "$T"
 
+# Review HIGH: nothing wired record_required_roles, so the recorded-set branch was unreachable in a
+# real run — the milestone shipped a no-op and the doctrine claimed a fact the harness never produced.
+# The gate must SIZE the batch and say so even when no set was recorded (advisory), so the feature is
+# live on every run; recording it is what upgrades that floor to hard.
+T="$(mktemp -d)"; ( _mkclose "$T" 'null' tb-code-reviewer
+  sed -i.bak 's/,"required_roles":null//' .runs/r/batches.jsonl 2>/dev/null || true
+  out="$(_crd "$T")"; rc=$?
+  _chk "$(printf '%s' "$out" | grep -c 'SIZED')" "1" "AC-9 the harness announces the sized set even with nothing recorded (not inert)"
+  _chk "$rc" "0" "AC-9 …and that announcement is advisory — it does not block a non-adopter's run" ) ; rm -rf "$T"
+
 fail="$(cat "$FAILF")"; rm -f "$FAILF"
 [ "$fail" -eq 0 ] && { echo "pipeline-sizing.test.sh: OK"; exit 0; }
 echo "pipeline-sizing.test.sh: $fail failure(s)"; exit 1
