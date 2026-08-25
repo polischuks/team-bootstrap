@@ -130,8 +130,9 @@ if [ "$spec_present" = "true" ]; then
     _w="$(printf '%s' "$_l" | sed -n 's/^ws=\([^	]*\).*/\1/p')"
     _t="$(printf '%s' "$_l" | sed -n 's/.*	tier=\([a-z-]*\).*/\1/p')"
     _pp="$(printf '%s' "$_l" | sed -n 's/.*	paths=\(.*\)$/\1/p')"
+    _rr="$(printf '%s' "$_l" | sed -n 's/.*	roles=\([^	]*\).*/\1/p')"
     [ -n "$_w" ] && [ -n "$_t" ] || continue
-    role_plan="${role_plan:+$role_plan,}{\"ws\":\"$_w\",\"tier\":\"$_t\",\"paths\":\"$_pp\"}"
+    role_plan="${role_plan:+$role_plan,}{\"ws\":\"$_w\",\"tier\":\"$_t\",\"roles\":\"$_rr\",\"paths\":\"$_pp\"}"
   done <<EOF
 $("$(dirname "$0")/size-from-spec.sh" --per-batch "$spec_path" 2>/dev/null || true)
 EOF

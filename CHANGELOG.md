@@ -2,6 +2,34 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.34.0] — 2026-08-25
+
+### Sizing reads what the spec says, not only which files it names (ADR-0019)
+
+v2.33.x sized a milestone from the **paths** its tasks name. A spec about exactly-once distributed
+payout settlement — consensus, split-brain reconciliation, irreversible money movement — sized to
+`single-thread`, because it touched two files in one directory. Its `tasks.md` already declared
+`⚠ architecture-reviewer` and `⚠ regression-guardian`; those were discarded too.
+
+**Added — prose complexity.** `spec.md` and `plan.md` are scanned for five vocabularies:
+security/auth · money/irreversible · data/schema · distributed/concurrency · infra/deploy. The
+distributed/concurrency category is the one no path pattern can express. A hit lifts the tier and is
+named in `reasons` as `prose:<category>`.
+
+**Added — declared roles.** `⚠ <role>` markers in `tasks.md` are unioned into the required review set
+per work-stream, through the existing `required_roles_for_batch` path — so a declaration reaches
+`check-role-dispatch`, not just the report. Same trust model as `risk_rank` (ADR-0006): forgeable,
+therefore lift-only. `⚠ code-reviewer` on an auth batch cannot shrink the set the paths earned.
+
+**Two false positives found and closed while building this**, both by running the scan over this
+repository's own specs: `ledger` matched the plugin's **batch ledger** (removed from the money
+vocabulary), and markdown headings were scanned, so the stock template's `## Migration shape` lifted
+**every** milestone using it (headings and `<placeholders>` are now stripped). Both pinned by fixtures.
+
+Residual limit, stated plainly: this is vocabulary matching, not comprehension. A spec that describes
+something hard in words no list contains still sizes on its paths — and the `⚠ <role>` marker is the
+escape hatch that is now honoured.
+
 ## [2.33.1] — 2026-08-25
 
 ### Fixed — the tier is read by position, not by keyword search
