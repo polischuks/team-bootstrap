@@ -2,6 +2,30 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.33.1] — 2026-08-25
+
+### Fixed — the tier is read by position, not by keyword search
+
+v2.33.0 fixed one symptom of a wider defect and left the cause in place. The hook selected the
+pipeline by grepping the **whole prompt** for `single-thread`/`full`/`mvp`, so any prompt merely
+*containing* one of those words selected it:
+
+```
+/deliver "give the user full control over billing"   → full   (20 roles, from a sentence)
+/deliver "make the mvp checkout flow work"           → mvp
+```
+
+v2.33.0 addressed only the spec-slug case (`specs/full-text-search`) by excising the path before the
+grep, which did nothing for a tier word appearing in prose.
+
+`commands/deliver.md` has always specified *"First whitespace-delimited token = `PIPELINE`"*. The hook
+now implements that: it anchors on the command name and reads the single token that follows. Anchoring
+on the command also removes any need to parse the JSON envelope — a tier word in `cwd`
+(`/Users/x/full-stack-app`) can no longer be read as a tier, which a whole-payload grep could not
+guarantee. The path-excision patch is deleted rather than layered over.
+
+Explicit `mvp`/`full` still pin the tier; analysis pipelines still never arm a code run.
+
 ## [2.33.0] — 2026-08-25
 
 ### Spec-sourced role planning (ADR-0018)

@@ -43,29 +43,34 @@ fi
 # The trailing path is OPTIONAL: `/deliver full specs/<slug>` (a bare directory, no /spec.md) must still
 # be captured — else `feature` falls to "unknown" and the completeness gate can only skip (green-by-skip;
 # see check-completeness.sh). Both `specs/<slug>` and `specs/<slug>/spec.md` derive run=<slug>.
-# Moved AHEAD of tier selection (ADR-0018): the spec path must be excised from the payload before the
-# tier is grepped, and — when it resolves on disk — it IS the sizing input.
+# Resolved ahead of tier selection (ADR-0018): when this path exists on disk it IS the sizing input.
 spec="$(printf '%s' "$payload" | grep -oE 'specs/[A-Za-z0-9._-]+(/[A-Za-z0-9._/-]*)?' | head -1)"
 
-# Require an explicit CODE-pipeline token (single-thread|mvp|full). This confirms a real delivery
-# run and excludes analysis pipelines (audit/audit-dd/l2p) that ship no code — arming those with
-# intends_code:true would falsely demand a code closure.
+# The tier is the FIRST ARGUMENT TOKEN — the one immediately after the command — exactly as
+# commands/deliver.md has always specified. Nothing else in the prompt is a tier.
 #
-# ADR-0018, two fixes here:
-#  1. The tier is grepped from the payload with the specs/ path REMOVED. It used to be grepped from the
-#     whole blob, so a slug that merely CONTAINS a tier word decided the tier: `/deliver
-#     specs/full-text-search/spec.md` silently selected the 20-role pipeline. A slug is not a request.
-#  2. No token no longer means `full`. It means `auto` — the harness sizes from the spec on disk. The
-#     old default contradicted this plugin's own architecture doc, which calls single-thread "The
-#     recommended default" (references/pipelines/single-thread.md), and it was unreachable-by-design
-#     for anyone passing a spec path, since a path is never the literal token `mvp` or `full`.
-tier_search="$payload"
-[ -n "$spec" ] && tier_search="$(printf '%s' "$payload" | sed "s#${spec}##g")"
+# It used to be grepped from the whole payload, so ANY prompt containing `full`, `mvp` or
+# `single-thread` selected that pipeline: `/deliver "give the user full control over billing"` bought
+# the 20-role fan-out from a sentence. v2.33.0 patched one symptom — a specs/ slug containing a tier
+# word — by excising the path before the grep, which did nothing for the same word in prose. Position
+# is the actual contract, so position is what gets read.
+#
+# Anchoring on the command name also removes any need to parse JSON. The real UserPromptSubmit payload
+# is an envelope ({"cwd":"…","prompt":"/deliver …"}), and a command sits contiguously with its
+# arguments inside the prompt string — so a tier word in `cwd` (e.g. /Users/x/full-stack-app) can never
+# be mistaken for a tier, which a whole-payload grep could not guarantee.
+#
+# `full` is NOT a fallback (ADR-0018). No recognised first token means `auto`: the harness sizes the run
+# from the spec. Analysis pipelines (audit/audit-dd/l2p) still never arm a code run — their first token
+# is not one of the three code tiers, so `pipeline` stays empty and a non-/deliver invocation exits.
+_first_arg="$(printf '%s' "$payload" \
+  | grep -oE '(/deliver|:deliver|/team-bootstrap:[A-Za-z0-9_-]+)[[:space:]]+[^[:space:]]+' \
+  | head -1 | sed -E 's#^.*[[:space:]]+##')"
 pipeline=""
-printf '%s' "$tier_search" | grep -qE '(^|[^A-Za-z])single-thread([^A-Za-z]|$)' && pipeline="single-thread"
-printf '%s' "$tier_search" | grep -qE '(^|[^A-Za-z])full([^A-Za-z]|$)'          && pipeline="${pipeline:-full}"
-printf '%s' "$tier_search" | grep -qE '(^|[^A-Za-z])mvp([^A-Za-z]|$)'           && pipeline="${pipeline:-mvp}"
 tier_source="operator"
+case "$_first_arg" in
+  single-thread|mvp|full) pipeline="$_first_arg" ;;
+esac
 if [ -z "$pipeline" ]; then
   [ "$is_deliver" -eq 1 ] || exit 0        # a bare skill invocation still needs an explicit token
   tier_source="harness"
