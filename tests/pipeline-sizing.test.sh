@@ -177,6 +177,42 @@ T="$(mktemp -d)"; ( cd "$T"
     "AC-2 …and an exact id still sizes its own window"
 ) ; rm -rf "$T"
 
+# ---- WS-2: the harness computes the required role set per batch ------------
+# The set is derived from the SAME sizer WS-1 built (one definition, no drift). The >=1 independent
+# reviewer floor is an INVARIANT: it is never sized away, whatever the computation returns, because it
+# is the anti-collapse guarantee itself (exec-role-integrity).
+_rr() { # $1=batch id → the computed role set, space-separated
+  ( . "$here/bin/delivery-lib.sh"; TEAM_BOOTSTRAP_RUN=r required_roles_for_batch "$1" )
+}
+_mkrun() { # $1=dir $2=path-to-touch $3=risk_rank $4=kind
+  cd "$1"; git init -q; git config user.email a@b.c; git config user.name t
+  printf 'x\n' > seed.txt; git add -A; git commit -q -m base
+  BASE="$(git rev-parse --short HEAD)"; mkdir -p "$(dirname "$2")" .runs/r
+  printf 'b\n' > "$2"; git add -A; git commit -q -m work; S="$(git rev-parse --short HEAD)"
+  printf '{"run":"r","pipeline":"full","intends_code":true,"baseline_sha":"%s"}\n' "$BASE" > .runs/r/RUN
+  printf '{"id":"B1","kind":"%s","risk_rank":"%s","status":"announced","commit_shas":["%s"]}\n' "$4" "$3" "$S" > .runs/r/batches.jsonl
+}
+
+T="$(mktemp -d)"; ( _mkrun "$T" src/auth/login.ts feature code
+  got="$(_rr B1)"
+  for r in integration-verifier architecture-reviewer regression-guardian code-reviewer; do
+    _chk "$(printf '%s' "$got" | grep -cw "$r")" "1" "AC-3 risky batch requires $r"
+  done ) ; rm -rf "$T"
+
+T="$(mktemp -d)"; ( _mkrun "$T" src/tiny.ts feature code
+  got="$(_rr B1)"
+  _chk "$(printf '%s' "$got" | grep -cw code-reviewer)" "1" "AC-5 ordinary batch still requires code-reviewer (>=1 floor INVARIANT)"
+  _chk "$(printf '%s' "$got" | grep -cw integration-verifier)" "1" "AC-2 ordinary batch requires integration-verifier (OQ-2 reduced set)"
+  _chk "$(printf '%s' "$got" | grep -cw architecture-reviewer)" "0" "AC-2 …and NOT architecture-reviewer (sized down)"
+  _chk "$(printf '%s' "$got" | grep -cw regression-guardian)" "0" "AC-2 …and NOT regression-guardian (sized down)" ) ; rm -rf "$T"
+
+T="$(mktemp -d)"; ( _mkrun "$T" src/tiny.ts irreversible code
+  got="$(_rr B1)"
+  _chk "$(printf '%s' "$got" | grep -cw architecture-reviewer)" "1" "AC-3 risk_rank:irreversible lifts a tiny batch to the full set" ) ; rm -rf "$T"
+
+T="$(mktemp -d)"; ( _mkrun "$T" docs/note.md doc doc
+  _chk "$(printf '%s' "$(_rr B1)" | grep -c .)" "0" "AC-4 a kind:doc batch requires NO review roles" ) ; rm -rf "$T"
+
 fail="$(cat "$FAILF")"; rm -f "$FAILF"
 [ "$fail" -eq 0 ] && { echo "pipeline-sizing.test.sh: OK"; exit 0; }
 echo "pipeline-sizing.test.sh: $fail failure(s)"; exit 1
