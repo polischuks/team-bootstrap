@@ -243,7 +243,7 @@ rm -rf "$T"
 T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git config user.name t
   git commit -q --allow-empty -m base
   mkdir -p .runs/two-streams lib
-  printf '{"run":"two-streams","pipeline":"mvp","source":"harness","intends_code":true,"spec_present":true,"role_plan":[{"ws":"WS-2","tier":"full","paths":["db/migrations/002.sql","lib/helper.ts"]}]}\n' > .runs/two-streams/RUN
+  printf '{"run":"two-streams","pipeline":"mvp","source":"harness","intends_code":true,"spec_present":true,"role_plan":[{"ws":"WS-2","tier":"full","paths":"db/migrations/002.sql lib/helper.ts"}]}\n' > .runs/two-streams/RUN
   printf 'two-streams\n' > .runs/current
   printf 'x\n' > lib/helper.ts; git add -A; git commit -q -m b1
   printf '{"id":"B1","kind":"code","status":"announced","base":"%s"}\n' "$(git rev-parse HEAD~1)" > .runs/two-streams/batches.jsonl
@@ -262,7 +262,7 @@ T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git confi
   git commit -q --allow-empty -m base
   _mkspec2 specs/two-streams
   mkdir -p .runs/two-streams db/migrations
-  printf '{"run":"two-streams","pipeline":"mvp","source":"harness","intends_code":true,"spec_present":true,"spec_path":"specs/two-streams/spec.md","role_plan":[{"ws":"WS-1","tier":"single-thread","paths":["docs/guide.md"]}]}\n' > .runs/two-streams/RUN
+  printf '{"run":"two-streams","pipeline":"mvp","source":"harness","intends_code":true,"spec_present":true,"spec_path":"specs/two-streams/spec.md","role_plan":[{"ws":"WS-1","tier":"single-thread","paths":"docs/guide.md"}]}\n' > .runs/two-streams/RUN
   printf 'two-streams\n' > .runs/current
   printf 'x\n' > db/migrations/001.sql; git add -A; git commit -q -m b1
   printf '{"id":"B1","kind":"code","status":"announced","base":"%s"}\n' "$(git rev-parse HEAD~1)" > .runs/two-streams/batches.jsonl
@@ -276,7 +276,7 @@ rm -rf "$T"
 T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git config user.name t
   git commit -q --allow-empty -m base
   mkdir -p .runs/r
-  printf '{"run":"r","pipeline":"single-thread","source":"harness","intends_code":true,"role_plan":[{"ws":"WS-1","tier":"single-thread","paths":["docs/x.md"]}]}\n' > .runs/r/RUN
+  printf '{"run":"r","pipeline":"single-thread","source":"harness","intends_code":true,"role_plan":[{"ws":"WS-1","tier":"single-thread","paths":"docs/x.md"}]}\n' > .runs/r/RUN
   printf 'r\n' > .runs/current
   printf 'x\n' > c.js; git add -A; git commit -q -m b1
   printf '{"id":"B1","kind":"code","status":"announced","base":"%s"}\n{"id":"B2","kind":"doc","status":"announced"}\n' "$(git rev-parse HEAD~1)" > .runs/r/batches.jsonl

@@ -30,7 +30,9 @@ here="$(cd "$(dirname "$0")" && pwd)"
 
 _degrade() { printf 'degraded=1\nreason=%s\n' "$1"; exit 0; }
 
-[ $# -ge 1 ] || { echo "usage: size-from-spec.sh <specs/<slug>|specs/<slug>/spec.md>" >&2; exit 64; }
+per_batch=0
+[ "${1:-}" = "--per-batch" ] && { per_batch=1; shift; }
+[ $# -ge 1 ] || { echo "usage: size-from-spec.sh [--per-batch] <specs/<slug>|specs/<slug>/spec.md>" >&2; exit 64; }
 
 arg="$1"
 case "$arg" in
@@ -42,19 +44,70 @@ esac
 tasks="$dir/tasks.md"
 [ -f "$tasks" ] || _degrade "no-tasks-md"
 
+# _tier_for PATHS — hand a newline-separated path list to select-pipeline's classifier and read back
+# the tier. One place calls the classifier; both modes go through it.
+_tier_for() {
+  local v
+  v="$(printf '%s\n' "$1" | while IFS= read -r q || [ -n "$q" ]; do
+         [ -n "$q" ] && printf '0\t0\t%s\n' "$q"
+       done | "$here/select-pipeline.sh" --from-stdin 2>/dev/null || true)"
+  printf '%s\n' "$v" | sed -n 's/^select-pipeline: RECOMMENDED pipeline: \([a-z-]*\).*/\1/p' | head -1
+}
+
+# _paths_in TEXT — the `- file: a, b · (meta)` convention, then the conservative backtick fallback.
+_paths_in() {
+  local out
+  out="$(printf '%s\n' "$1" | sed -n 's/^[[:space:]]*-[[:space:]]*file:[[:space:]]*\(.*\)$/\1/p' \
+         | sed 's/·.*$//' | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' \
+         | sort -u || true)"   # dedup: one file named by two tasks is one file, not two — counting it
+                                # twice inflates the files>=3 / files>=10 thresholds and buys a tier
+  if [ -z "$out" ]; then
+    out="$(printf '%s\n' "$1" | grep -oE '`[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)+\.[A-Za-z0-9]+`' 2>/dev/null \
+           | tr -d '`' | sort -u || true)"
+  fi
+  printf '%s' "$out"
+}
+
+# --- per-work-stream mode (ADR-0018, OQ-2) -----------------------------------
+# One entry per `## …` section of tasks.md, each sized on ITS OWN paths. Emitted as a template rather
+# than as batch ids, because the orchestrator is free to batch across phase boundaries and the harness
+# cannot force its control flow (ADR-0006/0008) — only observe it. A batch is matched to an entry at
+# announce time by path overlap; no overlap means no floor, and the diff decides alone.
+if [ "$per_batch" -eq 1 ]; then
+  _ws=""; _body=""
+  _emit_ws() {
+    [ -n "$_ws" ] || return 0
+    local wp wt
+    wp="$(_paths_in "$_body")"
+    [ -n "$wp" ] || return 0                 # a section that names no path earns no floor
+    wt="$(_tier_for "$wp")"
+    [ -n "$wt" ] || return 0
+    printf 'ws=%s\ttier=%s\tpaths=%s\n' "$_ws" "$wt" \
+      "$(printf '%s' "$wp" | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+  }
+  # Read in the CURRENT shell (redirect on `done`), not a pipeline — a subshell would discard the
+  # accumulated section on every iteration and emit nothing.
+  while IFS= read -r _line || [ -n "$_line" ]; do
+    case "$_line" in
+      '## '*)
+        _emit_ws
+        _ws="$(printf '%s' "$_line" | grep -oE 'WS-[A-Za-z0-9]+' | head -1)"
+        [ -n "$_ws" ] || _ws="$(printf '%s' "$_line" \
+          | sed -E 's/^##[[:space:]]*//; s/[[:space:]]*[—:-].*$//; s/[^A-Za-z0-9]+/-/g; s/^-//; s/-$//')"
+        _body=""
+        ;;
+      *) _body="$_body$_line
+" ;;
+    esac
+  done < "$tasks"
+  _emit_ws
+  exit 0
+fi
+
 # --- target paths ------------------------------------------------------------
 # Primary form is this repo's task convention:  `  - file: bin/a.sh, tests/b.sh · (feat · P10) — AC-1`
 # Everything after the ` · ` is metadata, not a path, so the field is cut at the first middot.
-paths="$(sed -n 's/^[[:space:]]*-[[:space:]]*file:[[:space:]]*\(.*\)$/\1/p' "$tasks" \
-         | sed 's/·.*$//' | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' || true)"
-
-# Fallback for milestones that do not use the `file:` convention: backtick-quoted tokens that look
-# like a repo path (a slash and a file extension). Deliberately conservative — a false path would
-# invent a risk category and inflate the tier, which is the failure mode this milestone exists to fix.
-if [ -z "$paths" ]; then
-  paths="$(grep -oE '`[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)+\.[A-Za-z0-9]+`' "$tasks" 2>/dev/null \
-           | tr -d '`' | sort -u || true)"
-fi
+paths="$(_paths_in "$(cat "$tasks")")"
 [ -n "$paths" ] || _degrade "no-target-paths"
 
 # --- task count --------------------------------------------------------------
@@ -71,7 +124,7 @@ numstat="$(printf '%s\n' "$paths" | while IFS= read -r p || [ -n "$p" ]; do
 done)"
 
 verdict="$(printf '%s\n' "$numstat" | "$here/select-pipeline.sh" --from-stdin 2>/dev/null || true)"
-tier="$(printf '%s\n' "$verdict" | sed -n 's/^select-pipeline: RECOMMENDED pipeline: \([a-z-]*\).*/\1/p' | head -1)"
+tier="$(_tier_for "$paths")"
 [ -n "$tier" ] || _degrade "classifier-unavailable"
 
 files="$(printf '%s\n' "$paths" | grep -c . || true)"

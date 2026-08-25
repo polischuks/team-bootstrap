@@ -115,6 +115,23 @@ fi
 # single-thread and fails CLOSED on anything else. So an unresolved tier enforces the strictest
 # posture rather than opening a bypass — enforce until we know, which is the correct default. It
 # persists only on the description form, where Phase A resolves it at the A->B boundary.
+role_plan=""
+if [ "$spec_present" = "true" ]; then
+  # Per-work-stream floors (OQ-2). `paths` is a SPACE-SEPARATED STRING, not a nested array: the shipped
+  # marker_list reader slices its body at the first ']', so an entry containing an array would truncate
+  # the whole list. Match the parser that exists rather than widen it here.
+  while IFS= read -r _l || [ -n "$_l" ]; do
+    [ -n "$_l" ] || continue
+    _w="$(printf '%s' "$_l" | sed -n 's/^ws=\([^	]*\).*/\1/p')"
+    _t="$(printf '%s' "$_l" | sed -n 's/.*	tier=\([a-z-]*\).*/\1/p')"
+    _pp="$(printf '%s' "$_l" | sed -n 's/.*	paths=\(.*\)$/\1/p')"
+    [ -n "$_w" ] && [ -n "$_t" ] || continue
+    role_plan="${role_plan:+$role_plan,}{\"ws\":\"$_w\",\"tier\":\"$_t\",\"paths\":\"$_pp\"}"
+  done <<EOF
+$("$(dirname "$0")/size-from-spec.sh" --per-batch "$spec_path" 2>/dev/null || true)
+EOF
+fi
+
 if [ "$tier_source" = "harness" ]; then
   pipeline="auto"
   if [ "$spec_present" = "true" ]; then
@@ -135,6 +152,7 @@ _spec_f="\"spec_present\":$spec_present,\"tier_source\":\"$tier_source\","
 [ -n "$spec_path" ] && _spec_f="$_spec_f\"spec_path\":\"$spec_path\","
 [ -n "$artifacts" ] && _spec_f="$_spec_f\"spec_artifacts\":[$artifacts],"
 [ -n "$sizing" ]    && _spec_f="$_spec_f\"sizing\":\"$sizing\","
+[ -n "$role_plan" ] && _spec_f="$_spec_f\"role_plan\":[$role_plan],"
 printf '{"run":"%s","pipeline":"%s","source":"harness","feature":"%s","intends_code":true,%s%s"precond":{"exit":0,"items":[],"ack":false}}\n' \
   "$run" "$pipeline" "$feat" "$_base_f" "$_spec_f" > "$marker" 2>/dev/null || true
 printf 'delivery-marker-init: wrote harness RUN marker %s (run=%s pipeline=%s tier_source=%s spec_present=%s)\n' \
