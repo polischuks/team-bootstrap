@@ -126,5 +126,102 @@ _chk "$(grep -q '"required_roles"' "$T2/.runs/r/batches.jsonl" 2>/dev/null && ec
   "verify-batch recorded required_roles on the in-flight entry with no orchestrator involvement"
 rm -rf "$T2"
 
+# ---------------------------------------------------------------------------
+# Step 3 — SubagentStart: hand the role its plan, in ITS OWN context
+# ---------------------------------------------------------------------------
+# SubagentStart cannot block (established), so this channel CANNOT push review inline — the spec-169
+# collapse a PreToolUse[Agent|Task] gate would risk is excluded by construction, not by discipline.
+# Its additionalContext is addressed to the SUBAGENT, not the parent, which is exactly what "hand the
+# role its brief" needs.
+BRIEF="$here/bin/subagent-brief.sh"
+
+echo "AC-11 — the hook exists and is registered on SubagentStart:"
+_chk "$([ -x "$BRIEF" ] && echo yes || echo no)" yes "bin/subagent-brief.sh is executable"
+_chk "$(PY 'import json,sys
+h=json.load(open(sys.argv[1]))["hooks"]
+print("yes" if "SubagentStart" in h else "no")' "$here/hooks/hooks.json")" yes "hooks.json registers SubagentStart"
+_chk "$(PY 'import json,sys
+h=json.load(open(sys.argv[1]))["hooks"].get("SubagentStart",[])
+cmds=[c.get("command","") for g in h for c in g.get("hooks",[])]
+print("yes" if any("subagent-brief" in c for c in cmds) else "no")' "$here/hooks/hooks.json")" yes "  …pointing at subagent-brief.sh"
+_chk "$(PY 'import json,sys
+h=json.load(open(sys.argv[1]))["hooks"].get("SubagentStart",[])
+t=[c.get("type","command") for g in h for c in g.get("hooks",[])]
+print(",".join(sorted(set(t))))' "$here/hooks/hooks.json")" command "  …as a command handler (prompt/agent support here is unconfirmed)"
+
+T3="$(mktemp -d)"
+( cd "$T3" || exit 1
+  git init -q; git config user.email a@b.c; git config user.name t
+  printf 'x\n' > seed.txt; git add -A; git commit -q -m base
+  BASE="$(git rev-parse --short HEAD)"
+  mkdir -p src/api .runs/r
+  printf 'export const pay = 1\n' > src/api/pay.ts; git add -A; git commit -q -m work
+  printf '{"run":"r","pipeline":"full","intends_code":true,"source":"harness","baseline_sha":"%s"}\n' "$BASE" > .runs/r/RUN
+  printf '{"id":"B1","kind":"code","status":"announced","risk_rank":"reversible","required_roles":["integration-verifier","code-reviewer"]}\n' > .runs/r/batches.jsonl
+  printf '{"batch":"B1","subagent_type":"team-bootstrap:integration-verifier"}\n' > .runs/r/dispatch.jsonl
+) >/dev/null 2>&1
+
+_brief() { ( cd "$T3" || exit 1; printf '%s' "${1:-{\"agent_type\":\"team-bootstrap:tb-code-reviewer\"\}}" \
+  | TEAM_BOOTSTRAP_RUN=r "$BRIEF" 2>/dev/null ); }
+_brief_rc() { ( cd "$T3" || exit 1; printf '%s' "$1" | TEAM_BOOTSTRAP_RUN=r "$BRIEF" >/dev/null 2>&1 ); echo $?; }
+
+BOUT="$(_brief)"
+echo "AC-12 — it emits the sanctioned context envelope:"
+_chk "$(PY 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())["hookSpecificOutput"]; print(d.get("hookEventName","<absent>"))
+except Exception as e: print("invalid")' <<<"$BOUT")" SubagentStart "stdout is JSON with hookEventName SubagentStart"
+BCTX="$(PY 'import json,sys
+try: print(json.loads(sys.stdin.read())["hookSpecificOutput"].get("additionalContext",""))
+except Exception: print("")' <<<"$BOUT")"
+_chk "$([ -n "$BCTX" ] && echo nonempty || echo empty)" nonempty "additionalContext is non-empty"
+
+echo "AC-13 — the brief names the SIZED set for the in-flight batch:"
+for tok in 'B1' 'integration-verifier' 'code-reviewer'; do
+  _chk "$(printf '%s' "$BCTX" | grep -qF "$tok" && echo yes || echo no)" yes "brief names '$tok'"
+done
+
+echo "AC-13b — the brief is ADDRESSED to the role that was spawned:"
+_chk "$(printf '%s' "$BCTX" | grep -qF 'tb-code-reviewer' && echo yes || echo no)" yes \
+  "brief names the spawned agent type (sed BRE alternation is GNU-only — it must not be used here)"
+
+echo "AC-14 — and what has ALREADY been dispatched (so the role knows the gap):"
+_chk "$(printf '%s' "$BCTX" | grep -qiE 'dispatch' && echo yes || echo no)" yes "brief states the dispatched-so-far set"
+
+echo "AC-15/16 — same discipline as the UserPromptSubmit channel:"
+_chk "$(printf '%s' "$BCTX" | grep -qiE '\b(you must|do not|never |always |ignore |disregard|instruction)' && echo imperative || echo factual)" factual \
+  "no imperative/out-of-band phrasing"
+_chk "$([ "${#BCTX}" -le 10000 ] && echo ok || echo over)" ok "brief is <= 10000 chars (len=${#BCTX})"
+
+echo "AC-17 — it can never disrupt a dispatch:"
+_chk "$(_brief_rc '{"agent_type":"team-bootstrap:tb-code-reviewer"}')" 0 "exit 0 on the happy path"
+_chk "$(_brief_rc 'not json at all')" 0 "exit 0 on an unparseable payload"
+_chk "$(_brief_rc '')" 0 "exit 0 on an empty payload"
+
+echo "AC-18 — silent off-delivery and under the kill switch:"
+T4="$(mktemp -d)"
+_chk "$( ( cd "$T4" || exit 1; printf '{}' | "$BRIEF" 2>/dev/null ) )" "" "no active run → stdout EMPTY"
+_chk "$( ( cd "$T3" || exit 1; printf '{}' | TEAM_BOOTSTRAP_RUN=r TEAM_BOOTSTRAP_DELIVERY_GATE=off "$BRIEF" 2>/dev/null ) )" "" "kill switch → stdout EMPTY"
+rm -rf "$T3" "$T4"
+
+echo "AC-19 — EVERY registered hook body is control surface (the class, not just this instance):"
+# references/control-surface.txt names hook bodies one by one, so a NEW hook is covered only if someone
+# remembers to add it — and an uncovered hook body can be gutted to `exit 0` as a silent gate-disable,
+# which is the exact thing that file exists to make declarable. Assert the invariant instead.
+_uncovered=""
+while IFS= read -r _c; do
+  _b="$(basename "$_c")"
+  grep -qF "$_b" "$here/references/control-surface.txt" || _uncovered="${_uncovered:+$_uncovered }$_b"
+done <<EOF
+$(PY 'import json,sys
+h=json.load(open(sys.argv[1]))["hooks"]
+for ev in h:
+    for g in h[ev]:
+        for c in g.get("hooks", []):
+            cmd = c.get("command", "")
+            if cmd: print(cmd)' "$here/hooks/hooks.json")
+EOF
+_chk "${_uncovered:-none}" none "every hooks.json command body appears in references/control-surface.txt"
+
 [ "$fail" -eq 0 ] && { echo "harness-context-delivery.test.sh: OK"; exit 0; }
 echo "harness-context-delivery.test.sh: $fail failure(s)" >&2; exit 1

@@ -42,6 +42,26 @@ Two more hooks make the delivery-occurred gate ([enforcement.md](enforcement.md)
   blocking their `SubagentStop` on an unclosed batch would deadlock the step that closes it — the
   premature-completion this guards is the **main orchestrator's** (`Stop`).
 
+### Pre-dispatch brief (harness research §5 step 3)
+
+- **`SubagentStart` (matcher: the review-role agent types) →
+  [`../bin/subagent-brief.sh`](../bin/subagent-brief.sh)** — a **non-blocking, read-only** hook. When a
+  review role is spawned during an armed `intends_code` run with an in-flight `kind:code` batch, it
+  returns `hookSpecificOutput.additionalContext` naming the batch, the **sized** role set for it
+  (preferring the set `verify-batch.sh` recorded against the real diff), and the reviewer dispatches
+  already recorded. `SubagentStart` addresses its context to the **subagent**, not to the parent
+  conversation — which is precisely the delivery a per-role brief needs.
+
+  **Why this event rather than a `PreToolUse[Agent|Task]` gate.** A blocking pre-dispatch gate was
+  considered and rejected: refusing an off-plan dispatch pushes the orchestrator to review **inline**,
+  which is the spec-169 collapse the review pipeline exists to prevent. `SubagentStart` **cannot block**,
+  so that failure mode is excluded by construction rather than by discipline — influence without a veto.
+
+  Registered as a `command` handler. The text is written as **fact statements**, never as imperatives:
+  the hooks reference is explicit that out-of-band-instruction phrasing trips the prompt-injection
+  defence, after which Claude shows the text to the user instead of accepting it as context. Always
+  exits 0, emits nothing off-delivery, and honours `TEAM_BOOTSTRAP_DELIVERY_GATE=off`.
+
 ### Role-execution recorder (v2.21.0, exec-role-integrity)
 
 - **`PreToolUse` (matcher `Agent|Task`) → [`../bin/record-dispatch.sh`](../bin/record-dispatch.sh)** — a

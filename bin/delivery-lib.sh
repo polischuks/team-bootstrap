@@ -309,6 +309,23 @@ required_roles_for_batch() {
   printf '%s' "${out# }"
 }
 
+# json_esc TEXT → TEXT safe inside a JSON string. Control characters are DROPPED rather than escaped:
+# additionalContext is a one-line fact statement, so an embedded newline is a defect, not content.
+json_esc() {
+  printf '%s' "$1" | tr -d '\000-\037' | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+
+# emit_hook_context EVENT ESCAPED_TEXT → one line of hook stdout on the sanctioned context channel.
+# ESCAPED_TEXT must already be json_esc'd. The documented ceiling is 10 000 characters; we cut well
+# under it and then drop a trailing lone backslash, which a cut landing inside an escape pair would
+# otherwise leave behind and break the JSON. Empty text emits nothing at all.
+emit_hook_context() {
+  local ev="$1" t; t="$(printf '%s' "$2" | cut -c1-9000)"
+  case "$t" in *\\\\) : ;; *\\) t="${t%\\}" ;; esac
+  [ -n "$t" ] || return 0
+  printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$ev" "$t"
+}
+
 # inflight_batch → the in-flight ledger line (last announced; else last non-empty). Single source: it
 # was copy-pasted into check-role-dispatch.sh and check-review-ack.sh, and verify-batch now needs the
 # same window to record the sized role set before the dispatch gate reads it.
