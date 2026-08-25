@@ -121,15 +121,18 @@ T="$(mktemp -d)"; ( cd "$T"
 rm -rf "$T"
 
 # AC-3 — the five risk categories must fire from TEXT (paths named by tasks), not from a diff.
-for cat in "auth:src/auth/login.ts" "schema:db/migrations/001.sql" "infra:.github/workflows/ci.yml" \
-           "api:src/api/routes.ts" "deps:package.json"; do
-  name="${cat%%:*}"; path="${cat#*:}"
+# NOTE: expectations follow select-pipeline's SHIPPED classification (its --self-test is the contract):
+# auth/schema/infra/api lift to full; a dependency manifest lifts to mvp. This milestone reuses that
+# classifier verbatim — it must not silently reclassify anything as a side effect.
+for cat in "auth:src/auth/login.ts:full" "schema:db/migrations/001.sql:full" \
+           "infra:.github/workflows/ci.yml:full" "api:src/api/routes.ts:full" "deps:package.json:mvp"; do
+  name="${cat%%:*}"; rest="${cat#*:}"; path="${rest%:*}"; want="${rest##*:}"
   T="$(mktemp -d)"; ( cd "$T"
     _mkspec specs/risky "- [ ] T010 Touch it.
   - file: ${path} · (feat · P10) — AC-1"
     out="$("$here/bin/size-from-spec.sh" specs/risky 2>/dev/null || true)"
     tier="$(printf '%s\n' "$out" | sed -n 's/^tier=//p')"
-    _chk "${tier:-<none>}" "full" "AC-3 risk '${name}' (${path}) lifts to full from text" )
+    _chk "${tier:-<none>}" "$want" "AC-3 risk '${name}' (${path}) → ${want}, from text" )
   rm -rf "$T"
 done
 
