@@ -246,6 +246,45 @@ T="$(mktemp -d)"; ( _mkrun "$T" src/tiny.ts feature code
   _chk "$(printf '%s' "$got" | grep -c .)" "0" "AC-8 an entry with no required_roles reads empty (legacy fallback, not a guess)"
 ) ; rm -rf "$T"
 
+# ---- HS-2 review findings --------------------------------------------------
+# CRITICAL: a final ledger line with NO trailing newline is dropped by `while read`. That is exactly
+# what a freshly-announced entry looks like (deliver.md has the orchestrator author it), and because
+# record_required_roles REWRITES the ledger, the entry is deleted and rc=0 is reported. The same drop
+# makes a kind:code batch resolve to an EMPTY role set — the >=1 anti-collapse floor evaporates.
+T="$(mktemp -d)"; ( cd "$T"; mkdir -p .runs/r
+  printf '{"run":"r","intends_code":true,"baseline_sha":"x"}\n' > .runs/r/RUN
+  { printf '{"id":"A0","kind":"code","status":"closed","commit_shas":["dead"]}\n'
+    printf '{"id":"B1","kind":"code","status":"announced"}'; } > .runs/r/batches.jsonl   # no final \n
+  got="$( . "$here/bin/delivery-lib.sh"; TEAM_BOOTSTRAP_RUN=r required_roles_for_batch B1 )"
+  _chk "$(printf '%s' "$got" | grep -cw code-reviewer)" "1" \
+    "AC-5 unterminated last line: a code batch still requires code-reviewer (floor INVARIANT)"
+  ( . "$here/bin/delivery-lib.sh"; TEAM_BOOTSTRAP_RUN=r record_required_roles B1 )
+  _chk "$(grep -c '"id":"B1"' .runs/r/batches.jsonl)" "1" \
+    "AC-8 …and rewriting the ledger does NOT delete that entry"
+  _chk "$(grep -c '"id":"A0"' .runs/r/batches.jsonl)" "1" "AC-8 …other entries survive too"
+) ; rm -rf "$T"
+
+# HIGH: an unresolvable batch must not fail OPEN. Empty is the doc-batch answer; a code batch whose
+# line cannot be found must fall back to the SAFE direction (the floor), per the precedent
+# select-pipeline set one workstream earlier (declared-but-unresolvable fails loud, never silent).
+T="$(mktemp -d)"; ( _mkrun "$T" src/tiny.ts feature code
+  got="$( . "$here/bin/delivery-lib.sh"; TEAM_BOOTSTRAP_RUN=r required_roles_for_batch NOPE9 )"
+  _chk "$(printf '%s' "$got" | grep -cw code-reviewer)" "1" \
+    "AC-5 an unresolvable batch id fails SAFE (still requires a reviewer), never open"
+) ; rm -rf "$T"
+
+# MEDIUM: the repo deliberately tolerates spaced ledger JSON. Writing over a spaced required_roles must
+# REPLACE it (not append a duplicate key), and reading it must return roles (not the line prefix).
+T="$(mktemp -d)"; ( cd "$T"; mkdir -p .runs/r
+  printf '{"run":"r","intends_code":true,"baseline_sha":"x"}\n' > .runs/r/RUN
+  printf '{"id": "B1", "kind": "code", "required_roles": ["code-reviewer"], "status": "announced"}\n' > .runs/r/batches.jsonl
+  got="$( . "$here/bin/delivery-lib.sh"; TEAM_BOOTSTRAP_RUN=r required_roles_recorded B1 )"
+  _chk "$(printf '%s' "$got" | grep -cw code-reviewer)" "1" "AC-8 spaced-JSON required_roles reads back as roles"
+  _chk "$(printf '%s' "$got" | grep -c '{')" "0" "AC-8 …not the line prefix"
+  ( . "$here/bin/delivery-lib.sh"; TEAM_BOOTSTRAP_RUN=r record_required_roles B1 )
+  _chk "$(grep -o 'required_roles' .runs/r/batches.jsonl | grep -c .)" "1" "AC-8 …and a rewrite REPLACES it (no duplicate key)"
+) ; rm -rf "$T"
+
 fail="$(cat "$FAILF")"; rm -f "$FAILF"
 [ "$fail" -eq 0 ] && { echo "pipeline-sizing.test.sh: OK"; exit 0; }
 echo "pipeline-sizing.test.sh: $fail failure(s)"; exit 1

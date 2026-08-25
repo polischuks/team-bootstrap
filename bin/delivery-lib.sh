@@ -114,14 +114,20 @@ shas_of_line() {
 # anti-collapse guarantee (exec-role-integrity) and is never sized away, whatever the tier says.
 # Sizing governs roles 2–4 only. A kind:doc batch is the one case with no review role at all.
 required_roles_for_batch() {
-  local bid="$1" ledger line kind tier here_
+  local bid="$1" ledger line l kind tier here_
   ledger="$(resolve_ledger)"; [ -n "$ledger" ] && [ -f "$ledger" ] || return 0
   line=""
-  while IFS= read -r l; do
+  # `|| [ -n "$l" ]` is load-bearing: a final line with NO trailing newline is otherwise dropped, and a
+  # freshly-announced entry (authored by the orchestrator) is exactly that. Dropping it made a kind:code
+  # batch resolve to an EMPTY set — the >=1 anti-collapse floor evaporating in silence (review CRITICAL).
+  while IFS= read -r l || [ -n "$l" ]; do
     [ -n "$l" ] || continue
     [ "$(field_str "$l" id)" = "$bid" ] && line="$l"
   done < "$ledger"
-  [ -n "$line" ] || return 0
+  # Unresolvable ⇒ fail SAFE, not open. Empty is the doc-batch answer, so returning it for a line we
+  # simply could not find would tell a close gate that a real code batch needs NO reviewer. Mirrors the
+  # declared-but-unresolvable precedent select-pipeline set (review HIGH).
+  [ -n "$line" ] || { printf 'code-reviewer'; return 0; }
   kind="$(field_str "$line" kind)"
   [ "$kind" = "doc" ] && return 0                     # docs earn no review fan-out
   here_="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -138,13 +144,14 @@ required_roles_for_batch() {
 # recomputing against a window that has since moved. Rewrite is temp-file + mv (atomic, #25) and the
 # line is validated as JSON-shaped before it lands, so a bad splice can never corrupt the ledger.
 record_required_roles() {
-  local bid="$1" ledger roles arr tmp line out
+  local bid="$1" ledger roles arr tmp line out r
   ledger="$(resolve_ledger)"; [ -n "$ledger" ] && [ -f "$ledger" ] || return 0
   roles="$(required_roles_for_batch "$bid")"
   arr="["; for r in $roles; do arr="$arr\"$r\","; done; arr="${arr%,}]"
   tmp="$ledger.tmp.$$"; : > "$tmp"
-  while IFS= read -r line; do
+  while IFS= read -r line || [ -n "$line" ]; do
     if [ -n "$line" ] && [ "$(field_str "$line" id)" = "$bid" ]; then
+      line="$(printf '%s' "$line" | sed 's/"required_roles"[[:space:]]*:[[:space:]]*\[/"required_roles":[/')"
       out="$(_marker_strip_flat_key "$line" required_roles)"
       out="${out%\}},\"required_roles\":$arr}"
       case "$out" in \{*\}) line="$out" ;; *) : ;; esac   # bad splice ⇒ keep the original line
@@ -159,14 +166,18 @@ record_required_roles() {
 # Empty means "no recorded set" — callers fall back to the legacy fixed floor rather than guessing, so
 # old runs and hand-written ledgers behave exactly as before.
 required_roles_recorded() {
-  local bid="$1" ledger line body
+  local bid="$1" ledger line l body
   ledger="$(resolve_ledger)"; [ -n "$ledger" ] && [ -f "$ledger" ] || return 0
-  while IFS= read -r l; do
+  while IFS= read -r l || [ -n "$l" ]; do
     [ -n "$l" ] || continue
     [ "$(field_str "$l" id)" = "$bid" ] && line="$l"
   done < "$ledger"
   [ -n "${line:-}" ] || return 0
-  case "$line" in *'"required_roles":'*) : ;; *) return 0 ;; esac
+  # Space-tolerant, like every other reader here: a spaced `"required_roles": [` used to miss the
+  # pattern, after which `%%]*` truncated at the first `]` anywhere and returned the LINE PREFIX as a
+  # role list (review MEDIUM). Normalise the one separator before slicing.
+  line="$(printf '%s' "$line" | sed 's/"required_roles"[[:space:]]*:[[:space:]]*\[/"required_roles":[/')"
+  case "$line" in *'"required_roles":['*) : ;; *) return 0 ;; esac
   body="${line#*\"required_roles\":[}"; body="${body%%]*}"
   printf '%s' "$body" | tr -d '"' | tr ',' ' '
 }
