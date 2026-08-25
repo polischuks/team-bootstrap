@@ -1,15 +1,30 @@
 ---
 description: One command — run the full pre-implementation flow (speckit constitution→specify→clarify→plan→tasks→analyze), then drive implementation batches step-by-step through a team-bootstrap pipeline (mvp or full).
-argument-hint: <full|mvp> "<feature description>"  (default: full)
+argument-hint: [full|mvp] "<feature description>" | [full|mvp] specs/<slug>[/spec.md]  (default: the harness sizes it)
 ---
 
 You are the delivery orchestrator. Input: `$ARGUMENTS`.
 
 **Parse the arguments:**
-- First whitespace-delimited token = `PIPELINE` — must be `mvp` or `full`. If the first token
-  is not one of those, treat `PIPELINE = full` (the safer default — full role coverage + audit
-  trail) and the whole of `$ARGUMENTS` as the feature. Pass `mvp` explicitly for the lighter pipeline.
-- The remainder (the quoted string) = `FEATURE` — the thing being built.
+- First whitespace-delimited token = `PIPELINE` — `mvp` or `full` **pins** the tier, and the harness
+  records `tier_source: operator`. Anything else is not a tier: `PIPELINE = auto`, and **the harness
+  sizes the run itself** (`tier_source: harness`).
+- The remainder = `FEATURE`. It may be a **description** of the thing to build, **or a path to a
+  milestone that already exists** (`specs/<slug>` or `specs/<slug>/spec.md`). These are different
+  runs — see Phase A.
+
+**Do not choose the tier yourself, and do not treat `auto` as "pick `full` to be safe".** The harness
+has already decided by the time you read this: `bin/delivery-marker-init.sh` resolved the argument,
+and — when the milestone is on disk — ran `bin/size-from-spec.sh` over its `tasks.md`/`plan.md` before
+your first tool call. Read the verdict out of the run marker (`pipeline`, `tier_source`, `sizing`,
+`role_plan`); do not recompute it and do not override it. `auto` surviving in the marker means the
+tier is not yet knowable (a description with no spec on disk); every gate treats it as fail-**closed**,
+so nothing is skipped while it stands.
+
+`full` used to be the fallback for an unrecognized token, which meant a spec **path** — never the
+literal word `mvp` or `full` — silently selected the 20-role pipeline every time. That contradicted
+this plugin's own architecture doc, which calls `single-thread` *"the recommended default"*
+(`references/pipelines/single-thread.md`), and it was the largest single cost lever in the system.
 
 Use `${CLAUDE_PLUGIN_ROOT}/references/speckit-preimpl-flow.md` as the doctrine and quality bar
 for every step below (constitution invariants, drift-catch discipline, AC→task coverage, "never
@@ -58,7 +73,38 @@ record different marker keys: `preflight` vs `precond`).
 
 ---
 
-## Phase A — Pre-implementation (autonomous, in order, no skipping)
+## Phase A — Pre-implementation (autonomous, in order)
+
+**First: read `spec_present` out of the run marker. It selects which of the two Phase A modes you are in.**
+
+### Mode 1 — `spec_present: false` (a description). Produce the milestone.
+
+Run every step 1–8 below, in order, no skipping. This is the unchanged path.
+
+### Mode 2 — `spec_present: true` (the milestone is already on disk). **Check it; do not re-draft it.**
+
+`spec.md`/`plan.md`/`tasks.md` exist at `spec_path`. Run **only the checking steps**:
+
+- **step 6 `speckit-analyze`** — cross-artifact consistency (spec ↔ plan ↔ tasks; every AC maps to ≥1 task)
+- **step 7 `architecture-reviewer`** — is the planned architecture sound
+
+Then go to the Phase B gate. **Skip steps 2–5** (`specify`, `clarify`, `plan`, `tasks`) — they are the
+*producing* steps, and what they produce already exists. Skip step 1 unless `constitution.md` is
+missing. Run step 8's briefs per the pull rule as usual.
+
+**If a check reports a gap, re-open ONLY the step that fills it** — `tasks.md` absent or an AC with no
+task ⇒ `speckit-tasks`, and nothing else. Do not run the whole producing chain to fix one artifact.
+
+The line is *producing* vs *checking*: re-checking finished work is cheap and load-bearing, while
+re-producing it is pure cost. Two measured runs against an already-written spec spent **2h21m** in
+Phase A — six `architecture-reviewer` passes and spec revisions to v5/v6 — before the first line of
+code, and neither run finished the milestone.
+
+**This is observed, not trusted.** The harness hashed each artifact at run start (`spec_artifacts` in
+the marker). If an artifact's content changes during Phase A, `check-preflight` reports it. Editing a
+spec mid-flight is legitimate — but it must follow a recorded finding, not a silent re-draft.
+
+---
 
 Run each step by invoking the matching skill via the Skill tool. Do not stop between steps
 unless a step reports a hard blocker.
@@ -95,7 +141,10 @@ unless a step reports a hard blocker.
    with it. Here in Phase A, do only the briefs the earliest batches need.
 
 **Gate before Phase B:** print a short summary — spec/plan/tasks paths, task count, version-bump
-verdict, drift catches, and any unresolved blocker. **STOP here** if `speckit-analyze` surfaced a
+verdict, drift catches, any unresolved blocker, and **the harness's sizing verdict**: `pipeline`,
+`tier_source`, `sizing` (the reasons), and the per-work-stream `role_plan`, read from the run marker.
+State it even when it is `full` — a sizing decision nobody sees is a sizing decision nobody can
+challenge. If `tier_source: harness`, name the reasons that drove it. **STOP here** if `speckit-analyze` surfaced a
 CRITICAL inconsistency, any question is still open, or `architecture-reviewer` returned
 `architecture_sound: false` — fix the plan before any batch fires. Do not enter Phase B with
 unresolved blockers.

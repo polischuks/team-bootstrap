@@ -206,6 +206,63 @@ review_loop_signals() {
 # INVARIANT: every code batch keeps at least `code-reviewer`. The ≥1 independent-reviewer floor is the
 # anti-collapse guarantee (exec-role-integrity) and is never sized away, whatever the tier says.
 # Sizing governs roles 2–4 only. A kind:doc batch is the one case with no review role at all.
+# _tier_rank TIER → 1 single-thread · 2 mvp · 3 full · empty otherwise.
+_tier_rank() { case "$1" in single-thread) printf 1 ;; mvp) printf 2 ;; full) printf 3 ;; *) : ;; esac; }
+
+# spec_plan_tier_for_batch BATCH_ID → the tier the SPEC planned for the work-stream this batch belongs
+# to (empty when there is no plan, no match, or nothing to match on).
+#
+# ADR-0018. The plan is a template keyed by work-stream, not by batch id, because the orchestrator may
+# batch across phase boundaries and the harness cannot force its control flow (ADR-0006/0008) — only
+# observe it. So a batch is attributed at read time by PATH OVERLAP with each planned work-stream, and
+# the best-overlapping entry supplies the floor. No overlap ⇒ no floor, and the diff decides alone;
+# that is the fail-SAFE direction, since the floor can only ever raise the role set.
+spec_plan_tier_for_batch() {
+  local bid="$1" list rest idx body ws tier wp bpaths best_t="" best_n=0 n f
+  list="$(marker_list role_plan)"
+  [ -n "$list" ] || return 0
+  bpaths="$(_batch_paths "$bid")"
+  [ -n "$bpaths" ] || return 0
+  rest="${list#[}"
+  while [ -n "$rest" ]; do
+    case "$rest" in \{*) : ;; *) break ;; esac
+    rest="${rest#\{}"
+    idx="$(_obj_span "$rest")"
+    [ -n "$idx" ] || break
+    body="{${rest:0:idx}}"
+    rest="${rest:idx+1}"; rest="${rest#,}"
+    ws="$(field_str "$body" ws)"; tier="$(field_str "$body" tier)"; wp="$(field_str "$body" paths)"
+    [ -n "$tier" ] && [ -n "$wp" ] || continue
+    n=0
+    for f in $bpaths; do
+      case " $wp " in *" $f "*) n=$((n + 1)) ;; esac
+    done
+    if [ "$n" -gt "$best_n" ]; then best_n="$n"; best_t="$tier"; fi
+  done
+  [ "$best_n" -gt 0 ] && printf '%s' "$best_t"
+  return 0
+}
+
+# _batch_paths BATCH_ID → the paths this batch's own window touches. Same window definition
+# select-pipeline's _batch_numstat uses: recorded commit_shas when present, else current_batch_base.
+_batch_paths() {
+  local bid="$1" ledger line shas base c
+  ledger="$(resolve_ledger)"; [ -n "$ledger" ] && [ -f "$ledger" ] || return 0
+  line=""
+  while IFS= read -r c || [ -n "$c" ]; do
+    [ -n "$c" ] || continue
+    [ "$(field_str "$c" id)" = "$bid" ] && line="$c"
+  done < "$ledger"
+  [ -n "$line" ] || return 0
+  shas="$(shas_of_line "$line")"
+  if [ -n "$shas" ]; then
+    for c in $shas; do git diff --name-only "$c^" "$c" 2>/dev/null; done | sort -u
+  else
+    base="$(current_batch_base)"
+    [ -n "$base" ] && git diff --name-only "$base" HEAD 2>/dev/null | sort -u
+  fi
+}
+
 required_roles_for_batch() {
   local bid="$1" ledger line l kind tier here_
   ledger="$(resolve_ledger)"; [ -n "$ledger" ] && [ -f "$ledger" ] || return 0
@@ -225,6 +282,15 @@ required_roles_for_batch() {
   [ "$kind" = "doc" ] && return 0                     # docs earn no review fan-out
   here_="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   tier="$("$here_/select-pipeline.sh" --batch "$bid" 2>/dev/null | sed -nE 's/.*RECOMMENDED pipeline: ([a-z-]+).*/\1/p' | tail -1)"
+  # ADR-0018 — the spec-planned tier is a FLOOR the diff may LIFT but never lower. One-directional on
+  # purpose: text-sourced sizing can under-state a risk the spec never names as a path (R2), so the
+  # diff stays the backstop; and a plan that over-states can only cost review, never skip it.
+  local ptier prank drank
+  ptier="$(spec_plan_tier_for_batch "$bid" 2>/dev/null || true)"
+  if [ -n "$ptier" ]; then
+    prank="$(_tier_rank "$ptier")"; drank="$(_tier_rank "$tier")"
+    [ -n "$prank" ] && [ "$prank" -gt "${drank:-0}" ] && tier="$ptier"
+  fi
   case "$tier" in
     full) printf 'integration-verifier architecture-reviewer regression-guardian code-reviewer' ;;
     mvp)  printf 'integration-verifier code-reviewer' ;;

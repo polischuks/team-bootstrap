@@ -53,12 +53,18 @@ _untracked_numstat() {
 # recommend — read numstat ("<add>\t<del>\t<path>") on stdin, emit one line:
 #   <rec_rank>\t<files>\t<nondoc_lines>\t<layers>\t<reasons>
 recommend() {
-  local add del path files=0 nondoc=0 layers="" lc
+  local add del path files=0 nondoc=0 layers="" lc docpaths=""
   local sec=0 data=0 infra=0 api=0 deps=0
+  # NOTE (ADR-0018): every directory pattern must carry BOTH the root form and the nested form.
+  # `*/api/*` does not match `api/routes.ts` at the repo root — there is no parent segment to match
+  # `*/`. That silently under-escalated root-level api/, models/ and .github/workflows/ changes, in
+  # DIFF-sourced sizing too (git diff --numstat emits the root form). The deps line already had the
+  # both-forms idiom (`*/package.json|package.json`); the other three did not.
   while IFS="$(printf '\t')" read -r add del path || [ -n "${path:-}" ]; do
     [ -n "${path:-}" ] || continue
     files=$((files + 1))
     case "$path" in */*) layers="$layers ${path%%/*}" ;; *) layers="$layers ." ;; esac
+    if _is_doc "$path"; then docpaths="$docpaths $path"; fi
     if ! _is_doc "$path"; then
       case "$add" in ''|*[!0-9]*) add=0 ;; esac
       case "$del" in ''|*[!0-9]*) del=0 ;; esac
@@ -66,14 +72,27 @@ recommend() {
     fi
     lc="$(printf '%s' "$path" | tr '[:upper:]' '[:lower:]')"
     case "$lc" in *auth*|*login*|*password*|*passwd*|*secret*|*token*|*credential*|*crypto*|*oauth*|*jwt*|*session*|*payment*|*billing*|*checkout*) sec=1 ;; esac
-    case "$lc" in *migrat*|*schema*|*.sql|*/models/*|*/model/*|*/entities/*|*prisma*|*alembic*) data=1 ;; esac
-    case "$lc" in *dockerfile*|*.tf|*.tfvars|*k8s*|*kubernetes*|*helm*|*/.github/workflows/*|*railway*|*render.yaml|*fly.toml|*vercel.json|*netlify.toml|*procfile|*deploy*) infra=1 ;; esac
-    case "$lc" in *openapi*|*swagger*|*.proto|*/api/*|*/routes/*|*/route/*|*graphql*|*.graphql|*contract*) api=1 ;; esac
+    case "$lc" in *migrat*|*schema*|*.sql|models/*|model/*|entities/*|*/models/*|*/model/*|*/entities/*|*prisma*|*alembic*) data=1 ;; esac
+    case "$lc" in *dockerfile*|*.tf|*.tfvars|*k8s*|*kubernetes*|*helm*|.github/workflows/*|*/.github/workflows/*|*railway*|*render.yaml|*fly.toml|*vercel.json|*netlify.toml|*procfile|*deploy*) infra=1 ;; esac
+    case "$lc" in *openapi*|*swagger*|*.proto|api/*|routes/*|route/*|*/api/*|*/routes/*|*/route/*|*graphql*|*.graphql|*contract*) api=1 ;; esac
     case "$lc" in */package.json|package.json|*package-lock*|*pnpm-lock*|*yarn.lock|*go.mod|*go.sum|*requirements*.txt|*pipfile*|*pyproject.toml|*cargo.toml|*gemfile|*composer.json) deps=1 ;; esac
   done
   local nlayers
   nlayers="$(printf '%s' "$layers" | tr ' ' '\n' | grep -ve '^$' | sort -u | grep -c . || true)"
   case "$nlayers" in ''|*[!0-9]*) nlayers=0 ;; esac
+
+  # ADR-0018 — an ALL-DOC change earns no review fan-out, whatever its shape. `_is_doc` used to govern
+  # only the line count, so two documentation files in two directories tripped `layers>=2` and bought
+  # mvp, and three tripped `layers>=3` and bought full — pure over-provisioning, the exact cost this
+  # milestone exists to remove. Deliberately a short-circuit on the all-doc case only: a MIXED change
+  # keeps every one of its code signals, so nothing that touches code is sized down by adding a README.
+  local ndoc=0
+  ndoc="$(printf '%s' "$docpaths" | tr ' ' '\n' | grep -c . || true)"
+  case "$ndoc" in ''|*[!0-9]*) ndoc=0 ;; esac
+  if [ "$files" -gt 0 ] && [ "$ndoc" -eq "$files" ]; then
+    printf '%s\t%s\t%s\t%s\t%s\n' 1 "$files" "$nondoc" "$nlayers" "docs-only"
+    return 0
+  fi
 
   local rec=1 reasons=""
   if [ "$files" -ge 3 ] || [ "$nondoc" -ge 150 ] || [ "$nlayers" -ge 2 ] || [ "$deps" -eq 1 ]; then
