@@ -80,9 +80,56 @@ _evaluate() {
   # --- per-role floor (all-four-role-dispatch): every MANDATED role must be dispatched, not just >=1 ---
   local mode mandated covered missing
   mode="$(role_floor_mode)"
-  mandated="$(mandated_roles "$pipeline")"
   covered="$(roles_covered "$bid")"
-  missing="$(missing_roles "$pipeline" "$bid")"
+  # issue #27 — the harness sizes each batch: prefer the set RECORDED on this batch's ledger entry over
+  # the blanket per-pipeline mandate. Absent ⇒ the legacy fixed set, so old runs and hand-written
+  # ledgers behave exactly as before. The >=1 reviewer floor above is unaffected either way — it is the
+  # anti-collapse invariant and is never sized away.
+  local recorded surplus r
+  recorded="$(required_roles_recorded "$bid" 2>/dev/null || true)"
+  if [ -n "$recorded" ]; then
+    # A RECORDED set is right-sized for this batch, so its floor is hard REGARDLESS of role_floor_mode.
+    # Hardness follows from the set having been computed — not from a global flag. That is what makes
+    # it safe: the blanket per-pipeline mandate was deliberately never armed, because demanding four
+    # roles for a one-line change leaves under-declaring risk as the only escape (worse than overspend).
+    mandated="$recorded"
+    missing=""
+    for r in $mandated; do
+      case " $covered " in *" $r "*) : ;; *) missing="${missing:+$missing }$r" ;; esac
+    done
+    mode="enforce"
+  else
+    # No recorded set ⇒ exactly today's behaviour, untouched: warn unless the operator/marker says
+    # enforce. This milestone changes nothing for legacy runs and hand-written ledgers.
+    #
+    # …but the harness still SIZES the batch and says so, so the feature is not inert on a run whose
+    # orchestrator never recorded the set (review HIGH: nothing wired record_required_roles, which made
+    # the whole recorded-set branch unreachable in production). Computing here is also more accurate
+    # than at announce, where the batch window is still empty. Advisory only — upgrading a
+    # non-adopter's run to hard per-role enforcement is exactly the blanket demand this design rejects.
+    mandated="$(mandated_roles "$pipeline")"
+    missing="$(missing_roles "$pipeline" "$bid")"
+    local sized sized_missing
+    sized="$(required_roles_for_batch "$bid" 2>/dev/null || true)"
+    if [ -n "$sized" ]; then
+      sized_missing=""
+      for r in $sized; do
+        case " $covered " in *" $r "*) : ;; *) sized_missing="${sized_missing:+$sized_missing }$r" ;; esac
+      done
+      if [ "$sized" != "$mandated" ]; then
+        echo "check-role-dispatch: SIZED — the harness sizes batch '$bid' at [$sized] (not the blanket [$mandated]); dispatched [${covered:-none}]${sized_missing:+, short of the sized set: [$sized_missing]}. Record required_roles on the ledger entry to make this floor hard (#27)."
+      fi
+    fi
+  fi
+  # Surplus is REPORTED, never blocked (#27 boundary): blocking a supernumerary dispatch would push the
+  # orchestrator to review INLINE — the spec-169 collapse. Cost is visible where gate results are read.
+  surplus=""
+  for r in $covered; do
+    case " $mandated " in *" $r "*) : ;; *) surplus="${surplus:+$surplus }$r" ;; esac
+  done
+  if [ -n "$surplus" ]; then
+    echo "check-role-dispatch: SURPLUS — batch '$bid' dispatched [$surplus] beyond the required set [$mandated]. Each is a separate subagent (~3.6-11.8 min). Not a failure; sizing is advice (#27)."
+  fi
   if [ -n "$missing" ]; then
     if [ "$mode" = "enforce" ]; then
       echo "check-role-dispatch: MISSING ROLES — $pipeline/code batch '$bid' dispatched roles [${covered:-none}] but the mandate requires [$mandated]; MISSING: [$missing]. Dispatch each missing role under its dedicated review type (references/review-types.txt) before closing."

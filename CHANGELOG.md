@@ -2,6 +2,38 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.31.0] - 2026-08-21
+
+> **harness-owned-pipeline-sizing** (ADR-0017, issue #27) — `full` stops meaning "four roles on every
+> batch" and starts meaning **the harness sizes each batch**. The largest cost lever was set once, by
+> hand, before any batch existed. Under-provisioning blocks; over-provisioning is reported, never
+> blocked (blocking it pushes review inline — the spec-169 collapse).
+
+### Added
+- **`select-pipeline --batch <id>`** — sizes ONE batch from its own diff window (its `commit_shas`,
+  else the in-flight window via `current_batch_base`) lifted by its declared `risk_rank`.
+- **`required_roles_for_batch` / `record_required_roles` / `required_roles_recorded`** — the harness
+  computes the review role set per batch, records it on the ledger entry, and reads it back.
+
+### Changed
+- **`select-pipeline` is two-directional**: it now reports **over**-provisioning, which used to print
+  "right-sized" and say nothing.
+- **`check-role-dispatch` enforces the sized set** when one is recorded (hard, regardless of
+  `role_floor_mode`) and **announces** the sized set when none is — so the feature is live on every run
+  without upgrading a non-adopter to hard per-role enforcement. Surplus dispatches are reported.
+- **`check-review-ack` reads the same set** (N3 — the two gates must not drift).
+- **Doctrine** (`commands/deliver.md`): `full` delegates sizing to the harness; reviewers flag only gaps
+  affecting correctness or the stated requirements — the missing exit condition behind multi-round
+  review loops.
+
+### Invariants (unchanged)
+- ≥1 independent reviewer per code batch — never sized away.
+- A required role that was not dispatched fails closed.
+- Legacy runs with no recorded set behave byte-for-byte as before.
+
+### Notes
+- Reaches live hooks only after a **plugin reinstall at 2.31.0**.
+
 ## [2.30.1] - 2026-08-21
 
 ### Fixed

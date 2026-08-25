@@ -28,6 +28,10 @@
 #       64 bad usage
 set -uo pipefail
 
+here="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=bin/delivery-lib.sh
+. "$here/delivery-lib.sh"
+
 # rank: single-thread < mvp < full
 _rank() { case "$1" in single-thread) printf 1 ;; mvp) printf 2 ;; full) printf 3 ;; *) printf '' ;; esac; }
 _name() { case "$1" in 1) printf single-thread ;; 2) printf mvp ;; 3) printf full ;; esac; }
@@ -110,16 +114,80 @@ report() {
       echo "select-pipeline: ADVISORY — chosen '${chosen}' is LIGHTER than recommended '$(_name "$rec")'. Consider '/team-bootstrap:deliver $(_name "$rec") …'. Operator decides (P1); this is a visible recommendation, not a block." >&2
       return 2
     fi
+    if [ "$cr" -gt "$rec" ]; then
+      # The missing direction (#27). The tool already computed everything needed to say this; staying
+      # silent made the advisory one-directional — it could only ever push cost UP. Each extra review
+      # role is an independent subagent (measured 3.6-11.8 min), and Anthropic measures multi-agent at
+      # ~15x the tokens of a chat, so this is the single largest cost lever in the pipeline.
+      # NOT a failure: exit stays 0. Blocking over-provisioning would push the orchestrator to review
+      # INLINE — the spec-169 collapse (see the milestone spec's enforceability boundary).
+      echo >&2 "select-pipeline: OVER-PROVISIONED — chosen '${chosen}' is HEAVIER than recommended '$(_name "$rec")'. Each extra review role is a separate subagent (~3.6-11.8 min each). Consider '$(_name "$rec")' for this scope. Operator decides (P1); advice, not a block."
+      return 0
+    fi
     echo "select-pipeline: chosen '${chosen}' >= recommended '$(_name "$rec")' — right-sized."
   fi
   return 0
 }
 
+# _batch_line BATCH_ID LEDGER → that batch's ledger line, or empty. The id is validated to a plain
+# charset before it reaches grep: an unvalidated id is a regex, and `--batch 'B.'` silently sized `B1`
+# and reported the verdict under the wrong name (review MEDIUM).
+_batch_line() {
+  local bid="$1" ledger="$2" line
+  # The id must never reach a regex. Round-1 escaped the charset but left `.` legal — and `.` is a BRE
+  # metacharacter, so `--batch 'B.'` still matched B1 and silently sized ANOTHER batch's window and
+  # risk_rank (round-2 review). Match the id EXACTLY, through the plugin's own space-tolerant reader,
+  # so no character is special and a spaced-JSON ledger line still resolves.
+  case "$bid" in ''|*[!A-Za-z0-9._-]*) return 0 ;; esac
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    [ "$(field_str "$line" id)" = "$bid" ] && printf '%s' "$line"
+  done < "$ledger" | tail -1
+}
+
+# _batch_numstat BATCH_ID → emit numstat for THAT batch's own window (#27: cost accrues per batch,
+# not per run). Uses the batch's commit_shas when it has them; an announced batch with none yet is
+# still in flight, so its window is baseline..HEAD. Empty output ⇒ caller falls back to the run range.
+_batch_numstat() {
+  local bid="$1" ledger line shas base c
+  ledger="$(resolve_ledger)"; [ -n "$ledger" ] && [ -f "$ledger" ] || return 0
+  line="$(_batch_line "$bid" "$ledger")"
+  [ -n "$line" ] || return 0
+  shas="$(shas_of_line "$line")"
+  if [ -n "$shas" ]; then
+    # files/layers are SET cardinalities, so a path touched by BOTH the red and the green commit must
+    # count once — otherwise every batch inflates upward and suppresses the OVER-PROVISIONED verdict
+    # this milestone adds. Sum the line counts per path, keep one row per path.
+    for c in $shas; do git diff --numstat "$c^" "$c" 2>/dev/null; done \
+      | awk 'BEGIN{FS=OFS="\t"} {a[$3]+=$1; d[$3]+=$2} END{for(p in a) print a[p], d[p], p}'
+  else
+    # In-flight batch (no commit_shas yet): the window is the ONE definition the stamp and F2 already
+    # use — current_batch_base() (last closed batch's newest commit → baseline → base ref → HEAD~1).
+    # The run's baseline_sha is WRONG here: it drags every previously CLOSED batch's commits into this
+    # batch's window (review CRITICAL), which is exactly the per-run-vs-per-batch defect #27 is about.
+    base="$(current_batch_base)"
+    [ -n "$base" ] && git diff --numstat "$base" HEAD 2>/dev/null
+  fi
+}
+
+# _batch_risk_floor BATCH_ID → the minimum tier this batch's DECLARED risk_rank demands (empty = none).
+# risk_rank is self-declared and forgeable (ADR-0006), so it only ever LIFTS the recommendation — it can
+# never lower one the diff earned. A doc batch floors at the lightest tier.
+_batch_risk_floor() {
+  local bid="$1" ledger line rr
+  ledger="$(resolve_ledger)"; [ -n "$ledger" ] && [ -f "$ledger" ] || return 0
+  line="$(_batch_line "$bid" "$ledger")"
+  [ -n "$line" ] || return 0
+  rr="$(field_str "$line" risk_rank)"
+  case "$rr" in irreversible|run-rate) printf '3' ;; *) : ;; esac
+}
+
 # --- arg parse ---------------------------------------------------------------
-chosen=""; from_stdin=0; range=""
+chosen=""; from_stdin=0; range=""; batch=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --chosen) chosen="${2:-}"; shift 2 ;;
+    --batch)  batch="${2:-}";  shift 2 ;;
     --from-stdin) from_stdin=1; shift ;;
     --self-test) selftest=1; shift ;;
     -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
@@ -160,7 +228,17 @@ if [ "$from_stdin" -eq 1 ]; then
 else
   git rev-parse --git-dir >/dev/null 2>&1 || { echo "select-pipeline: not a git repository." >&2; exit 64; }
   numstat=""
-  if [ -n "$range" ]; then
+  if [ -n "$batch" ]; then
+    # Declared-but-unresolvable fails LOUD (review HIGH): a typo'd or mis-plumbed id used to read as
+    # "no changes detected" with exit 0, silently voiding the --chosen contract — the same
+    # declared-but-unresolvable class check-completeness already fixed once.
+    _bl="$(resolve_ledger)"
+    if [ -z "$_bl" ] || [ ! -f "$_bl" ] || [ -z "$(_batch_line "$batch" "$_bl")" ]; then
+      echo "select-pipeline: --batch '$batch' does not resolve to a ledger entry (no active ledger, or no such batch id). Refusing to size the wrong window." >&2
+      exit 64
+    fi
+    numstat="$(_batch_numstat "$batch")"
+  elif [ -n "$range" ]; then
     numstat="$(git diff --numstat "$range" 2>/dev/null || true)"
   else
     # one stream, captured once (accumulating per-line via $() would strip newlines):
@@ -175,10 +253,28 @@ else
     fi
   fi
   if [ -z "$numstat" ]; then
-    echo "select-pipeline: no changes detected — nothing to size."
-    exit 0
+    if [ -n "$batch" ] && [ -n "$(_batch_risk_floor "$batch")" ]; then
+      line="$(printf '1\t0\t0\t0\t')"   # empty window, but a declared risk floor still applies
+    else
+      echo "select-pipeline: no changes detected — nothing to size."
+      exit 0
+    fi
+  else
+    line="$(printf '%s\n' "$numstat" | recommend)"
   fi
-  line="$(printf '%s\n' "$numstat" | recommend)"
+fi
+
+# --batch (#27): the recommendation is for THAT batch, lifted by its declared risk_rank. The lift is
+# one-directional on purpose — risk_rank is self-declared and forgeable (ADR-0006), so it may raise a
+# recommendation the diff did not earn, never lower one it did.
+if [ -n "$batch" ]; then
+  _floor="$(_batch_risk_floor "$batch")"
+  if [ -n "$_floor" ]; then
+    _rec_now="$(printf '%s' "$line" | cut -f1)"
+    if [ "$_floor" -gt "${_rec_now:-1}" ]; then
+      line="$(printf '%s' "$line" | awk -v f="$_floor" 'BEGIN{FS=OFS="\t"} {$1=f; $5=($5=="" ? "declared risk_rank" : $5 " + declared risk_rank")} 1')"
+    fi
+  fi
 fi
 
 report "$line" "$chosen"
