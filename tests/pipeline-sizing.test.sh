@@ -95,6 +95,69 @@ T="$(mktemp -d)"; ( cd "$T"
     "AC-4 a kind:doc batch sizes to the lightest tier"
 ) ; rm -rf "$T"
 
+# ---- REVIEW FINDINGS (HS-1 round 1) ----------------------------------------
+# CRITICAL: an in-flight batch (no commit_shas) must NOT be sized over the whole run. Using the run's
+# baseline_sha attributes every previously CLOSED batch's commits to the in-flight one — reproducing
+# both defects of #27 inside the fix. The repo already owns the one true window: current_batch_base().
+T="$(mktemp -d)"; ( cd "$T"
+  git init -q; git config user.email a@b.c; git config user.name t
+  printf 'x\n' > seed.txt; git add -A; git commit -q -m base
+  BASE="$(git rev-parse --short HEAD)"; mkdir -p db/migrations src .runs/r
+  printf 'a\n' > db/migrations/001.sql; git add -A; git commit -q -m b1     # B1's risky work
+  B1="$(git rev-parse --short HEAD)"
+  printf 'b\n' > src/tiny.ts; git add -A; git commit -q -m b2               # B2's tiny work
+  printf '{"run":"r","pipeline":"full","intends_code":true,"baseline_sha":"%s"}\n' "$BASE" > .runs/r/RUN
+  { printf '{"id":"B1","kind":"code","status":"closed","commit_shas":["%s"],"code_delta":1}\n' "$B1"
+    printf '{"id":"B2","kind":"code","risk_rank":"feature","status":"announced"}\n'; } > .runs/r/batches.jsonl
+  out="$(TEAM_BOOTSTRAP_RUN=r "$SP" --batch B2 2>&1)"
+  _chk "$(printf '%s' "$out" | grep -ciE 'RECOMMENDED pipeline: single-thread')" "1" \
+    "AC-2 in-flight batch is sized from ITS window, not the run's (no closed-batch bleed)"
+  _chk "$(printf '%s' "$out" | grep -ci 'data/schema')" "0" \
+    "AC-2 …and does not inherit a CLOSED batch's risk signals"
+) ; rm -rf "$T"
+
+# HIGH: the declared-risk lift must survive an EMPTY window — sizing a batch BEFORE its code exists is
+# the primary use of the flag (pick the tier when you announce, not after you have coded).
+T="$(mktemp -d)"; ( cd "$T"
+  git init -q; git config user.email a@b.c; git config user.name t
+  printf 'x\n' > seed.txt; git add -A; git commit -q -m base
+  BASE="$(git rev-parse --short HEAD)"; mkdir -p .runs/r
+  printf '{"run":"r","pipeline":"full","intends_code":true,"baseline_sha":"%s"}\n' "$BASE" > .runs/r/RUN
+  printf '{"id":"B1","kind":"code","risk_rank":"irreversible","status":"announced"}\n' > .runs/r/batches.jsonl
+  out="$(TEAM_BOOTSTRAP_RUN=r "$SP" --batch B1 --chosen single-thread 2>&1)"; rc=$?
+  _chk "$rc" "2" "AC-3 irreversible batch with no code yet + single-thread → still under-sized (exit 2)"
+  _chk "$(printf '%s' "$out" | grep -ciE 'RECOMMENDED pipeline: full')" "1" "AC-3 …and the lift still recommends full"
+) ; rm -rf "$T"
+
+# HIGH: an unresolvable --batch must fail LOUD, not read as "no changes" with exit 0 — that silently
+# voids the exit-2 contract (the check-completeness declared-but-unresolvable class, already fixed once).
+T="$(mktemp -d)"; ( cd "$T"
+  git init -q; git config user.email a@b.c; git config user.name t
+  printf 'x\n' > seed.txt; git add -A; git commit -q -m base
+  BASE="$(git rev-parse --short HEAD)"; mkdir -p src/auth .runs/r
+  printf 'b\n' > src/auth/login.ts; git add -A; git commit -q -m auth
+  printf '{"run":"r","pipeline":"full","intends_code":true,"baseline_sha":"%s"}\n' "$BASE" > .runs/r/RUN
+  printf '{"id":"B1","kind":"code","status":"announced"}\n' > .runs/r/batches.jsonl
+  ( TEAM_BOOTSTRAP_RUN=r "$SP" --batch TYPO9 --chosen single-thread >/dev/null 2>&1 ); rc=$?
+  _chk "$([ "$rc" -ne 0 ] && echo loud || echo silent)" "loud" \
+    "AC-2 an unresolvable --batch id fails loud (never a silent exit-0 no-op)"
+) ; rm -rf "$T"
+
+# MEDIUM: files/layers are SET cardinalities — a path touched by both the red and the green commit must
+# count once. Otherwise every batch inflates upward and suppresses the OVER-PROVISIONED verdict.
+T="$(mktemp -d)"; ( cd "$T"
+  git init -q; git config user.email a@b.c; git config user.name t
+  printf 'x\n' > seed.txt; git add -A; git commit -q -m base
+  BASE="$(git rev-parse --short HEAD)"; mkdir -p src .runs/r
+  printf 'a\n' > src/a.ts; git add -A; git commit -q -m red;   R="$(git rev-parse --short HEAD)"
+  printf 'aa\n' > src/a.ts; git add -A; git commit -q -m green; G="$(git rev-parse --short HEAD)"
+  printf '{"run":"r","pipeline":"full","intends_code":true,"baseline_sha":"%s"}\n' "$BASE" > .runs/r/RUN
+  printf '{"id":"B1","kind":"code","risk_rank":"feature","status":"announced","commit_shas":["%s","%s"]}\n' "$G" "$R" > .runs/r/batches.jsonl
+  out="$(TEAM_BOOTSTRAP_RUN=r "$SP" --batch B1 2>&1)"
+  _chk "$(printf '%s' "$out" | grep -oE '[0-9]+ file\(s\)' | grep -oE '^[0-9]+')" "1" \
+    "AC-2 a path touched by both red and green counts ONCE (files is a set)"
+) ; rm -rf "$T"
+
 fail="$(cat "$FAILF")"; rm -f "$FAILF"
 [ "$fail" -eq 0 ] && { echo "pipeline-sizing.test.sh: OK"; exit 0; }
 echo "pipeline-sizing.test.sh: $fail failure(s)"; exit 1
