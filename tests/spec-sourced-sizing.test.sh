@@ -149,6 +149,38 @@ T="$(mktemp -d)"; ( cd "$T"
   _chk "$rc" "0" "AC-3 missing spec dir → exit 0 (degrade)" )
 rm -rf "$T"
 
+echo
+echo "WS-2 — root-anchored risk paths escalate (regression, found while wiring AC-3):"
+
+# `*/api/*` cannot match `api/routes.ts` at the repo root — there is no parent segment. Three of the
+# five categories carried only the nested form, so a root-level api/, models/ or .github/workflows/
+# change silently declined to escalate. This is DIFF-sourced sizing too: git diff --numstat emits the
+# root form. Pinned here because sizing correctness is this milestone's subject.
+for f in ".github/workflows/ci.yml:full:infra" "api/routes.ts:full:api" "models/user.py:full:data" \
+         "src/api/routes.ts:full:api-nested" "package.json:mvp:deps-root"; do
+  path="${f%%:*}"; rest="${f#*:}"; want="${rest%%:*}"; label="${rest#*:}"
+  got="$(printf '3\t0\t%s\n' "$path" | "$here/bin/select-pipeline.sh" --from-stdin 2>/dev/null \
+         | sed -n 's/.*RECOMMENDED pipeline: \([a-z-]*\).*/\1/p' | head -1)"
+  _chk "${got:-<none>}" "$want" "AC-3 root-anchored '${label}' (${path}) → ${want}"
+done
+
+echo
+echo "WS-1 — an unresolved tier must ENFORCE, not exempt (R4):"
+
+# `auto` is a new token downstream. The whole design rests on every reader exempting ONLY
+# single-thread and failing closed on anything else (check-review-ack:131, check-role-dispatch:47,
+# delivery-stop-hook:105). If any reader ever exempts an unknown token instead, `auto` becomes a
+# silent bypass of the reviewer floor — the worst possible regression from this milestone.
+T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git config user.name t
+  git commit -q --allow-empty -m base; printf 'x\n' > c.js; git add -A; git commit -q -m work
+  mkdir -p .runs/r
+  printf '{"run":"r","pipeline":"auto","source":"harness","intends_code":true,"baseline_sha":"%s"}\n' \
+    "$(git rev-parse HEAD~1)" > .runs/r/RUN
+  printf '{"id":"B1","kind":"code","status":"announced"}\n' > .runs/r/batches.jsonl
+  rc=0; TEAM_BOOTSTRAP_RUN=r "$here/bin/delivery-stop-hook.sh" <<<'{}' >/dev/null 2>&1 || rc=$?
+  _chk "$rc" "2" "R4 pipeline=auto still blocks an undelivered code batch (fails closed, not open)" )
+rm -rf "$T"
+
 fail="$(cat "$FAILF")"; rm -f "$FAILF"
 [ "$fail" -eq 0 ] && { echo "spec-sourced-sizing.test.sh: OK"; exit 0; }
 echo "spec-sourced-sizing.test.sh: $fail failure(s)"; exit 1

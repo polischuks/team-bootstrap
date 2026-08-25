@@ -55,6 +55,11 @@ _untracked_numstat() {
 recommend() {
   local add del path files=0 nondoc=0 layers="" lc
   local sec=0 data=0 infra=0 api=0 deps=0
+  # NOTE (ADR-0018): every directory pattern must carry BOTH the root form and the nested form.
+  # `*/api/*` does not match `api/routes.ts` at the repo root — there is no parent segment to match
+  # `*/`. That silently under-escalated root-level api/, models/ and .github/workflows/ changes, in
+  # DIFF-sourced sizing too (git diff --numstat emits the root form). The deps line already had the
+  # both-forms idiom (`*/package.json|package.json`); the other three did not.
   while IFS="$(printf '\t')" read -r add del path || [ -n "${path:-}" ]; do
     [ -n "${path:-}" ] || continue
     files=$((files + 1))
@@ -66,9 +71,9 @@ recommend() {
     fi
     lc="$(printf '%s' "$path" | tr '[:upper:]' '[:lower:]')"
     case "$lc" in *auth*|*login*|*password*|*passwd*|*secret*|*token*|*credential*|*crypto*|*oauth*|*jwt*|*session*|*payment*|*billing*|*checkout*) sec=1 ;; esac
-    case "$lc" in *migrat*|*schema*|*.sql|*/models/*|*/model/*|*/entities/*|*prisma*|*alembic*) data=1 ;; esac
-    case "$lc" in *dockerfile*|*.tf|*.tfvars|*k8s*|*kubernetes*|*helm*|*/.github/workflows/*|*railway*|*render.yaml|*fly.toml|*vercel.json|*netlify.toml|*procfile|*deploy*) infra=1 ;; esac
-    case "$lc" in *openapi*|*swagger*|*.proto|*/api/*|*/routes/*|*/route/*|*graphql*|*.graphql|*contract*) api=1 ;; esac
+    case "$lc" in *migrat*|*schema*|*.sql|models/*|model/*|entities/*|*/models/*|*/model/*|*/entities/*|*prisma*|*alembic*) data=1 ;; esac
+    case "$lc" in *dockerfile*|*.tf|*.tfvars|*k8s*|*kubernetes*|*helm*|.github/workflows/*|*/.github/workflows/*|*railway*|*render.yaml|*fly.toml|*vercel.json|*netlify.toml|*procfile|*deploy*) infra=1 ;; esac
+    case "$lc" in *openapi*|*swagger*|*.proto|api/*|routes/*|route/*|*/api/*|*/routes/*|*/route/*|*graphql*|*.graphql|*contract*) api=1 ;; esac
     case "$lc" in */package.json|package.json|*package-lock*|*pnpm-lock*|*yarn.lock|*go.mod|*go.sum|*requirements*.txt|*pipfile*|*pyproject.toml|*cargo.toml|*gemfile|*composer.json) deps=1 ;; esac
   done
   local nlayers
