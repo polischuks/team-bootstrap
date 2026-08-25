@@ -158,6 +158,25 @@ T="$(mktemp -d)"; ( cd "$T"
     "AC-2 a path touched by both red and green counts ONCE (files is a set)"
 ) ; rm -rf "$T"
 
+# Round-2 review finding: the id was still interpolated into a BRE, and `.` was inside the allowed
+# charset — so `--batch 'B.'` matched B1 and silently sized ANOTHER batch's window and risk_rank.
+# It also defeated the exit-64 guard: an unresolvable-but-regex-matching id reached sizing.
+T="$(mktemp -d)"; ( cd "$T"
+  git init -q; git config user.email a@b.c; git config user.name t
+  printf 'x\n' > seed.txt; git add -A; git commit -q -m base
+  BASE="$(git rev-parse --short HEAD)"; mkdir -p src/auth src .runs/r
+  printf 'b\n' > src/auth/login.ts; git add -A; git commit -q -m b1; B1="$(git rev-parse --short HEAD)"
+  printf 'c\n' > src/tiny.ts;       git add -A; git commit -q -m b2; B2="$(git rev-parse --short HEAD)"
+  printf '{"run":"r","pipeline":"full","intends_code":true,"baseline_sha":"%s"}\n' "$BASE" > .runs/r/RUN
+  { printf '{"id":"B1","kind":"code","risk_rank":"irreversible","status":"announced","commit_shas":["%s"]}\n' "$B1"
+    printf '{"id":"B2","kind":"code","risk_rank":"feature","status":"announced","commit_shas":["%s"]}\n' "$B2"; } > .runs/r/batches.jsonl
+  ( TEAM_BOOTSTRAP_RUN=r "$SP" --batch 'B.' --chosen single-thread >/dev/null 2>&1 ); rc=$?
+  _chk "$rc" "64" "AC-2 a metacharacter batch id is REJECTED (never silently sizes another batch)"
+  out="$(TEAM_BOOTSTRAP_RUN=r "$SP" --batch B2 2>&1)"
+  _chk "$(printf '%s' "$out" | grep -ciE 'RECOMMENDED pipeline: single-thread')" "1" \
+    "AC-2 …and an exact id still sizes its own window"
+) ; rm -rf "$T"
+
 fail="$(cat "$FAILF")"; rm -f "$FAILF"
 [ "$fail" -eq 0 ] && { echo "pipeline-sizing.test.sh: OK"; exit 0; }
 echo "pipeline-sizing.test.sh: $fail failure(s)"; exit 1

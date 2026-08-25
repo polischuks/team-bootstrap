@@ -133,9 +133,16 @@ report() {
 # charset before it reaches grep: an unvalidated id is a regex, and `--batch 'B.'` silently sized `B1`
 # and reported the verdict under the wrong name (review MEDIUM).
 _batch_line() {
-  local bid="$1" ledger="$2"
+  local bid="$1" ledger="$2" line
+  # The id must never reach a regex. Round-1 escaped the charset but left `.` legal — and `.` is a BRE
+  # metacharacter, so `--batch 'B.'` still matched B1 and silently sized ANOTHER batch's window and
+  # risk_rank (round-2 review). Match the id EXACTLY, through the plugin's own space-tolerant reader,
+  # so no character is special and a spaced-JSON ledger line still resolves.
   case "$bid" in ''|*[!A-Za-z0-9._-]*) return 0 ;; esac
-  grep "\"id\":[[:space:]]*\"$bid\"" "$ledger" 2>/dev/null | tail -1
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    [ "$(field_str "$line" id)" = "$bid" ] && printf '%s' "$line"
+  done < "$ledger" | tail -1
 }
 
 # _batch_numstat BATCH_ID → emit numstat for THAT batch's own window (#27: cost accrues per batch,
