@@ -145,7 +145,7 @@ fi
 # single-thread and fails CLOSED on anything else. So an unresolved tier enforces the strictest
 # posture rather than opening a bypass — enforce until we know, which is the correct default. It
 # persists only on the description form, where Phase A resolves it at the A->B boundary.
-role_plan=""; ctx_ws=""
+role_plan=""; ctx_ws=""; sizing_degraded=""
 if [ "$spec_present" = "true" ]; then
   # Per-work-stream floors (OQ-2). `paths` is a SPACE-SEPARATED STRING, not a nested array: the shipped
   # marker_list reader slices its body at the first ']', so an entry containing an array would truncate
@@ -156,6 +156,7 @@ if [ "$spec_present" = "true" ]; then
     _t="$(printf '%s' "$_l" | sed -n 's/.*	tier=\([a-z-]*\).*/\1/p')"
     _pp="$(printf '%s' "$_l" | sed -n 's/.*	paths=\(.*\)$/\1/p')"
     _rr="$(printf '%s' "$_l" | sed -n 's/.*	roles=\([^	]*\).*/\1/p')"
+    case "$_l" in degraded=1*) sizing_degraded="unknown" ;; reason=*) [ -n "$sizing_degraded" ] && sizing_degraded="${_l#reason=}" ;; esac
     [ -n "$_w" ] && [ -n "$_t" ] || continue
     role_plan="${role_plan:+$role_plan,}{\"ws\":\"$_w\",\"tier\":\"$_t\",\"roles\":\"$_rr\",\"paths\":\"$_pp\"}"
     ctx_ws="${ctx_ws:+$ctx_ws; }$_w tier=$_t roles=${_rr:-unsized}"
@@ -185,6 +186,7 @@ _spec_f="\"spec_present\":$spec_present,\"tier_source\":\"$tier_source\","
 [ -n "$artifacts" ] && _spec_f="$_spec_f\"spec_artifacts\":[$artifacts],"
 [ -n "$sizing" ]    && _spec_f="$_spec_f\"sizing\":\"$sizing\","
 [ -n "$role_plan" ] && _spec_f="$_spec_f\"role_plan\":[$role_plan],"
+[ -n "$sizing_degraded" ] && _spec_f="$_spec_f\"sizing_degraded\":\"$sizing_degraded\","
 
 # The verdict, as FACT STATEMENTS. The hooks reference is explicit that additionalContext phrased as
 # out-of-band imperatives trips the prompt-injection defence — Claude then shows the text to the user
@@ -192,6 +194,10 @@ _spec_f="\"spec_present\":$spec_present,\"tier_source\":\"$tier_source\","
 _ctx="team-bootstrap harness sizing for run $run: pipeline=$pipeline, tier_source=$tier_source, spec_present=$spec_present, marker=$marker."
 [ -n "$sizing" ]  && _ctx="$_ctx Sizing reasons: $sizing."
 [ -n "$ctx_ws" ]  && _ctx="$_ctx Per-work-stream plan: $ctx_ws."
+# Degradation is stated, never inferred from an absent plan. An empty per-work-stream result used to be
+# indistinguishable from "sized it, no floors apply"; size-from-spec now says degraded=1 + a reason, and
+# the marker and the model both carry it. The batch diff remains the backstop either way.
+[ -n "$sizing_degraded" ] && _ctx="$_ctx Per-work-stream sizing DEGRADED (reason: $sizing_degraded) — no work-stream floors were derived; the batch diff sizes each batch alone."
 [ "$tier_source" = "harness" ] && [ "$pipeline" = "auto" ] && \
   _ctx="$_ctx The tier is unresolved on disk, so every tier-reading gate fails closed until Phase A resolves it."
 _ctx_esc="$(_json_esc "$_ctx")"

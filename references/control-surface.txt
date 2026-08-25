@@ -51,6 +51,12 @@ AGENTS.md
 commands
 agents
 
+# review/role routing: review-types.txt decides which subagent_type COUNTS as an independent review, and
+# profiles/ decides which reviewers a risk category makes mandatory (roles-alive phase 2). Shrinking
+# either one disables a floor as effectively as gutting a gate body, and neither was covered before.
+references/review-types.txt
+profiles
+
 # this list file is itself control surface: shrinking it is a control-surface edit (caught, modulo
 # the self-reference circularity for the list's own reader).
 references/control-surface.txt

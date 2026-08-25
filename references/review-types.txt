@@ -61,3 +61,15 @@ team-bootstrap:regression-guardian	regression-guardian
 regression-guardian	regression-guardian
 team-bootstrap:tb-code-reviewer	code-reviewer
 tb-code-reviewer	code-reviewer
+
+# --- risk-category roles (roles-alive phase 1): assigned by profiles/default.map from the classifier's
+# own risk categories, NOT by the operator. Each carries a role column (attributes per-role), ships an
+# agents/<slug>.md (dispatchable) and declares a required verdict field in role-output.schema.json
+# (confirmable at closure). Both slug forms are listed because the team-bootstrap: prefix is not
+# reliably delivered in subagent_type. Anti-builder invariant holds: every role below denies Write/Edit.
+team-bootstrap:security-reviewer	security-reviewer
+security-reviewer	security-reviewer
+team-bootstrap:data-schema-reviewer	data-schema-reviewer
+data-schema-reviewer	data-schema-reviewer
+team-bootstrap:overengineering-reviewer	overengineering-reviewer
+overengineering-reviewer	overengineering-reviewer

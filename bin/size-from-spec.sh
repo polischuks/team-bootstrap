@@ -150,7 +150,7 @@ _paths_in() {
 # cannot force its control flow (ADR-0006/0008) — only observe it. A batch is matched to an entry at
 # announce time by path overlap; no overlap means no floor, and the diff decides alone.
 if [ "$per_batch" -eq 1 ]; then
-  _ws=""; _body=""; _prose="$(_prose_reasons "$dir")"
+  _ws=""; _body=""; _prose="$(_prose_reasons "$dir")"; _emitted=0
   _emit_ws() {
     [ -n "$_ws" ] || return 0
     local wp wt dr
@@ -168,6 +168,7 @@ if [ "$per_batch" -eq 1 ]; then
     dr="$(_declared_roles "$_body")"
     printf 'ws=%s\ttier=%s\troles=%s\tpaths=%s\n' "$_ws" "$wt" "$(_roles_for "$wt" "$dr")" \
       "$(printf '%s' "$wp" | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+    _emitted=$((_emitted + 1))
   }
   # Read in the CURRENT shell (redirect on `done`), not a pipeline — a subshell would discard the
   # accumulated section on every iteration and emit nothing.
@@ -185,6 +186,11 @@ if [ "$per_batch" -eq 1 ]; then
     esac
   done < "$tasks"
   _emit_ws
+  # Degradation NEVER returns empty-and-green. A tasks.md with no `## ` sections (or whose sections name
+  # no path) produced ZERO lines and rc=0 — indistinguishable, to every caller, from "sized it, no floors
+  # apply". That is the silent-degradation class the audit calls out on its own: a log is not a control,
+  # and neither is silence. Say so in the same machine-readable shape the other degrade paths use.
+  [ "$_emitted" -gt 0 ] || _degrade "no-sized-work-streams"
   exit 0
 fi
 
