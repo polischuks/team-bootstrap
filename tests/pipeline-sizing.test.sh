@@ -199,12 +199,27 @@ T="$(mktemp -d)"; ( _mkrun "$T" src/auth/login.ts feature code
     _chk "$(printf '%s' "$got" | grep -cw "$r")" "1" "AC-3 risky batch requires $r"
   done ) ; rm -rf "$T"
 
+# single-thread-sized batch → the INVARIANT floor only (one mind, no fan-out — the pipeline's own
+# contract). This is the cheapest legal outcome and it still carries an independent reviewer.
 T="$(mktemp -d)"; ( _mkrun "$T" src/tiny.ts feature code
   got="$(_rr B1)"
-  _chk "$(printf '%s' "$got" | grep -cw code-reviewer)" "1" "AC-5 ordinary batch still requires code-reviewer (>=1 floor INVARIANT)"
-  _chk "$(printf '%s' "$got" | grep -cw integration-verifier)" "1" "AC-2 ordinary batch requires integration-verifier (OQ-2 reduced set)"
+  _chk "$(printf '%s' "$got" | grep -cw code-reviewer)" "1" "AC-5 single-thread-sized batch still requires code-reviewer (>=1 floor INVARIANT)"
   _chk "$(printf '%s' "$got" | grep -cw architecture-reviewer)" "0" "AC-2 …and NOT architecture-reviewer (sized down)"
   _chk "$(printf '%s' "$got" | grep -cw regression-guardian)" "0" "AC-2 …and NOT regression-guardian (sized down)" ) ; rm -rf "$T"
+
+# mvp-sized batch (several files across layers, no risk touch) → the OQ-2 reduced set:
+# code-reviewer (the semantic class no fitness function sees) + integration-verifier (wiring/orphans).
+T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git config user.name t
+  printf 'x\n' > seed.txt; git add -A; git commit -q -m base
+  BASE="$(git rev-parse --short HEAD)"; mkdir -p src lib .runs/r
+  printf 'a\n' > src/x.ts; printf 'b\n' > src/y.ts; printf 'c\n' > lib/z.ts; printf 'd\n' > lib/w.ts
+  git add -A; git commit -q -m work; S="$(git rev-parse --short HEAD)"
+  printf '{"run":"r","pipeline":"full","intends_code":true,"baseline_sha":"%s"}\n' "$BASE" > .runs/r/RUN
+  printf '{"id":"B1","kind":"code","risk_rank":"feature","status":"announced","commit_shas":["%s"]}\n' "$S" > .runs/r/batches.jsonl
+  got="$( . "$here/bin/delivery-lib.sh"; TEAM_BOOTSTRAP_RUN=r required_roles_for_batch B1 )"
+  _chk "$(printf '%s' "$got" | grep -cw integration-verifier)" "1" "AC-2 mvp-sized batch adds integration-verifier (OQ-2 reduced set)"
+  _chk "$(printf '%s' "$got" | grep -cw code-reviewer)" "1" "AC-2 …plus code-reviewer"
+  _chk "$(printf '%s' "$got" | grep -cw regression-guardian)" "0" "AC-2 …but not the full four" ) ; rm -rf "$T"
 
 T="$(mktemp -d)"; ( _mkrun "$T" src/tiny.ts irreversible code
   got="$(_rr B1)"
@@ -212,6 +227,24 @@ T="$(mktemp -d)"; ( _mkrun "$T" src/tiny.ts irreversible code
 
 T="$(mktemp -d)"; ( _mkrun "$T" docs/note.md doc doc
   _chk "$(printf '%s' "$(_rr B1)" | grep -c .)" "0" "AC-4 a kind:doc batch requires NO review roles" ) ; rm -rf "$T"
+
+# T021 — the computed set is RECORDED on the batch's ledger entry (so the close gate reads a fact, not
+# a recomputation), and an entry WITHOUT the field falls back to today's fixed floor (back-compat: old
+# runs and hand-written ledgers keep working).
+T="$(mktemp -d)"; ( _mkrun "$T" src/auth/login.ts feature code
+  ( . "$here/bin/delivery-lib.sh"; TEAM_BOOTSTRAP_RUN=r record_required_roles B1 )
+  line="$(grep '"id"' .runs/r/batches.jsonl | tail -1)"
+  _chk "$(printf '%s' "$line" | grep -c '"required_roles"')" "1" "AC-8 required_roles is recorded on the ledger entry"
+  _chk "$(printf '%s' "$line" | grep -c 'architecture-reviewer')" "1" "AC-8 …with the computed set for a risky batch"
+  _chk "$(python3 -c "import json,sys;json.loads(sys.stdin.read());print('ok')" <<< "$line")" "ok" "AC-8 …and the ledger line stays valid JSON"
+  got="$( . "$here/bin/delivery-lib.sh"; TEAM_BOOTSTRAP_RUN=r required_roles_recorded B1 )"
+  _chk "$(printf '%s' "$got" | grep -cw regression-guardian)" "1" "AC-8 …and reads back through required_roles_recorded"
+) ; rm -rf "$T"
+
+T="$(mktemp -d)"; ( _mkrun "$T" src/tiny.ts feature code
+  got="$( . "$here/bin/delivery-lib.sh"; TEAM_BOOTSTRAP_RUN=r required_roles_recorded B1 )"
+  _chk "$(printf '%s' "$got" | grep -c .)" "0" "AC-8 an entry with no required_roles reads empty (legacy fallback, not a guess)"
+) ; rm -rf "$T"
 
 fail="$(cat "$FAILF")"; rm -f "$FAILF"
 [ "$fail" -eq 0 ] && { echo "pipeline-sizing.test.sh: OK"; exit 0; }

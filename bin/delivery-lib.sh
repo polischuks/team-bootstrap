@@ -100,6 +100,77 @@ shas_of_line() {
     | grep -oE '"[0-9a-fA-F]+"' | tr -d '"' | tr '\n' ' '
 }
 
+# --- harness-owned role sizing (issue #27) -------------------------------------
+# required_roles_for_batch BATCH_ID → the review roles THIS batch needs, space-separated (empty for a
+# doc batch). The harness decides; the operator no longer picks one tier for the whole run before any
+# batch exists. The tier comes from select-pipeline --batch, so the size/risk classifier has ONE
+# definition and cannot drift (the same discipline current_batch_base enforces for the diff window).
+#
+# Mapping (OQ-2): full ⇒ all four roles · mvp ⇒ code-reviewer + integration-verifier · single-thread ⇒
+# code-reviewer alone. Role names are the ATTRIBUTED roles (review-types.txt column 2), the vocabulary
+# roles_covered already speaks.
+#
+# INVARIANT: every code batch keeps at least `code-reviewer`. The ≥1 independent-reviewer floor is the
+# anti-collapse guarantee (exec-role-integrity) and is never sized away, whatever the tier says.
+# Sizing governs roles 2–4 only. A kind:doc batch is the one case with no review role at all.
+required_roles_for_batch() {
+  local bid="$1" ledger line kind tier here_
+  ledger="$(resolve_ledger)"; [ -n "$ledger" ] && [ -f "$ledger" ] || return 0
+  line=""
+  while IFS= read -r l; do
+    [ -n "$l" ] || continue
+    [ "$(field_str "$l" id)" = "$bid" ] && line="$l"
+  done < "$ledger"
+  [ -n "$line" ] || return 0
+  kind="$(field_str "$line" kind)"
+  [ "$kind" = "doc" ] && return 0                     # docs earn no review fan-out
+  here_="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  tier="$("$here_/select-pipeline.sh" --batch "$bid" 2>/dev/null | sed -nE 's/.*RECOMMENDED pipeline: ([a-z-]+).*/\1/p' | tail -1)"
+  case "$tier" in
+    full) printf 'integration-verifier architecture-reviewer regression-guardian code-reviewer' ;;
+    mvp)  printf 'integration-verifier code-reviewer' ;;
+    *)    printf 'code-reviewer' ;;                   # unknown/lightest ⇒ the invariant floor only
+  esac
+}
+
+# record_required_roles BATCH_ID → compute the batch's role set and splice it into ITS ledger line as
+# a flat "required_roles":[…] array. Recorded at announce so the close gate reads a FACT rather than
+# recomputing against a window that has since moved. Rewrite is temp-file + mv (atomic, #25) and the
+# line is validated as JSON-shaped before it lands, so a bad splice can never corrupt the ledger.
+record_required_roles() {
+  local bid="$1" ledger roles arr tmp line out
+  ledger="$(resolve_ledger)"; [ -n "$ledger" ] && [ -f "$ledger" ] || return 0
+  roles="$(required_roles_for_batch "$bid")"
+  arr="["; for r in $roles; do arr="$arr\"$r\","; done; arr="${arr%,}]"
+  tmp="$ledger.tmp.$$"; : > "$tmp"
+  while IFS= read -r line; do
+    if [ -n "$line" ] && [ "$(field_str "$line" id)" = "$bid" ]; then
+      out="$(_marker_strip_flat_key "$line" required_roles)"
+      out="${out%\}},\"required_roles\":$arr}"
+      case "$out" in \{*\}) line="$out" ;; *) : ;; esac   # bad splice ⇒ keep the original line
+    fi
+    printf '%s\n' "$line" >> "$tmp"
+  done < "$ledger"
+  mv "$tmp" "$ledger" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 1; }
+  return 0
+}
+
+# required_roles_recorded BATCH_ID → the roles RECORDED on the entry, or empty when the field is absent.
+# Empty means "no recorded set" — callers fall back to the legacy fixed floor rather than guessing, so
+# old runs and hand-written ledgers behave exactly as before.
+required_roles_recorded() {
+  local bid="$1" ledger line body
+  ledger="$(resolve_ledger)"; [ -n "$ledger" ] && [ -f "$ledger" ] || return 0
+  while IFS= read -r l; do
+    [ -n "$l" ] || continue
+    [ "$(field_str "$l" id)" = "$bid" ] && line="$l"
+  done < "$ledger"
+  [ -n "${line:-}" ] || return 0
+  case "$line" in *'"required_roles":'*) : ;; *) return 0 ;; esac
+  body="${line#*\"required_roles\":[}"; body="${body%%]*}"
+  printf '%s' "$body" | tr -d '"' | tr ',' ' '
+}
+
 # --- expensive-gate result cache (issue #23 item 1) ----------------------------
 # verify-batch re-runs EVERY gate on EVERY attempt, and the first attempt usually fails on some other
 # gate — so a project that honestly declares `Coverage:`/`Mutation: enforce` pays a full Stryker (and a
