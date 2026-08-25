@@ -101,6 +101,40 @@ _scan() {
     [ "$(field_bool "$mk" intends_code)" = "true" ] || echo "HARD run marker missing intends_code:true — gates would fail-open (silently skip)"
     bs="$(field_str "$mk" baseline_sha)"
     [ -n "$bs" ] || echo "HARD run marker missing baseline_sha — the batch-window diff has no anchor"
+
+    # ADR-0018 (AC-7) — spec-artifact drift. When the milestone was already on disk, Phase A is
+    # supposed to CHECK it, not re-draft it (deliver.md Mode 2). That skip cannot be observed
+    # directly: record-dispatch matches Agent|Task, and speckit-specify is a *Skill*, so its
+    # invocation is invisible to the harness. So the ARTIFACT is watched instead — hashed at run
+    # start by delivery-marker-init, compared here.
+    #
+    # WARN, not HARD, for one release (OQ-3). Revising a spec mid-flight is legitimate and common;
+    # blocking on an unvalidated heuristic would reproduce the false-block class ADR-0015 spent a
+    # milestone removing. Arm it once there is real drift data.
+    if [ "$(field_bool "$mk" spec_present)" = "true" ]; then
+      _sp="$(field_str "$mk" spec_path)"
+      _sdir="$(dirname "$_sp")"
+      # Slice the list out of $mk directly. marker_list resolves the marker RELATIVE TO CWD, but this
+      # gate is handed an explicit $dir and is routinely run from elsewhere — using it here read the
+      # caller's own .runs/, not the scanned tree's, and silently found nothing.
+      _al=""
+      case "$mk" in *'"spec_artifacts":['*) _al="${mk#*\"spec_artifacts\":[}"; _al="[${_al%%]*}]" ;; esac
+      if [ -n "$_al" ] && [ -n "$_sp" ]; then
+        _rest="${_al#[}"
+        while [ -n "$_rest" ]; do
+          case "$_rest" in \{*) : ;; *) break ;; esac
+          _rest="${_rest#\{}"
+          _idx="$(_obj_span "$_rest")"; [ -n "$_idx" ] || break
+          _body="{${_rest:0:_idx}}"; _rest="${_rest:_idx+1}"; _rest="${_rest#,}"
+          _f="$(field_str "$_body" file)"; _want="$(field_str "$_body" sha256)"
+          [ -n "$_f" ] && [ -n "$_want" ] || continue
+          [ -f "$dir/$_sdir/$_f" ] || { echo "WARN spec artifact '$_f' recorded at run start is now MISSING from $_sdir — a producing step removed finished work"; continue; }
+          _got="$( { shasum -a 256 "$dir/$_sdir/$_f" 2>/dev/null || sha256sum "$dir/$_sdir/$_f" 2>/dev/null; } | cut -d' ' -f1 )"
+          [ -n "$_got" ] || continue
+          [ "$_got" = "$_want" ] || echo "WARN spec artifact '$_f' CHANGED since run start — Phase A Mode 2 checks the milestone, it does not re-draft it. Legitimate only if a recorded analyze/architecture-reviewer finding called for the edit; otherwise a producing step re-ran over finished work (the 2h21m Phase A this gate exists to surface)."
+        done
+      fi
+    fi
     # WS-B AC-B3a — baseline-unreachable is now HARD (ackable), not WARN: a run whose batch-window base
     # does not resolve cannot be diff-gated at all (an unenforceable window, not a cosmetic warning).
     if [ -n "$bs" ] && ! git -C "$dir" rev-parse --verify -q "${bs}^{commit}" >/dev/null 2>&1; then

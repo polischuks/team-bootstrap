@@ -286,6 +286,60 @@ T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git confi
   _chk "$(printf '%s' "$d" | tr -d ' \n')" ""            "AC-5 …and a doc batch still earns none" )
 rm -rf "$T"
 
+echo
+echo "WS-5 — the Phase A skip is OBSERVED, not asserted (AC-7):"
+
+# Mode 2 tells the orchestrator to CHECK the artifacts rather than re-draft them — but deliver.md is
+# prose, and prose lands ~70% of the time (references/enforcement.md). There is no way to watch the
+# skip directly: record-dispatch matches Agent|Task, and speckit-specify is a Skill, so its invocation
+# is invisible to the harness. So the ARTIFACT is watched instead: hashed at run start, compared here.
+# WARN, not HARD, for one release (OQ-3) — mid-flight spec revision is legitimate and common, and
+# shipping a block on an unvalidated heuristic reproduces the false-block class ADR-0015 removed.
+_pf() { TEAM_BOOTSTRAP_RUN=r "$here/bin/check-preflight.sh" "$1" 2>&1 || true; }
+
+_setup_drift() {   # $1 = dir
+  ( cd "$1"; git init -q; git config user.email a@b.c; git config user.name t
+    printf 'x\n' > f.txt; git add -A; git commit -q -m base
+    mkdir -p specs/m docs .runs/r
+    printf '# Spec\n' > specs/m/spec.md; printf '# Plan\n' > specs/m/plan.md; printf '# Tasks\n' > specs/m/tasks.md
+    printf '{"active_spec":"specs/m","specs_dir":"specs","constitution":"constitution.md","adr_dir":"docs/adr"}\n' > feature.json
+    printf '# C\n' > constitution.md; mkdir -p docs/adr
+    printf 'Test: `bash t.sh`\n' > AGENTS.md
+    h="$( { shasum -a 256 specs/m/spec.md 2>/dev/null || sha256sum specs/m/spec.md; } | cut -d' ' -f1 )"
+    printf '{"run":"r","pipeline":"mvp","source":"harness","feature":"specs/m/spec.md","intends_code":true,"baseline_sha":"%s","spec_present":true,"spec_path":"specs/m/spec.md","spec_artifacts":[{"file":"spec.md","sha256":"%s"}]}\n' \
+      "$(git rev-parse HEAD)" "$h" > .runs/r/RUN
+    printf 'r\n' > .runs/current )
+}
+
+# AC-7a — untouched artifacts say nothing.
+T="$(mktemp -d)"; _setup_drift "$T"
+_chk "$(_pf "$T" | grep -c 'spec artifact')" "0" "AC-7a untouched artifacts → no drift report"
+rm -rf "$T"
+
+# AC-7b — a SILENT rewrite is reported.
+T="$(mktemp -d)"; _setup_drift "$T"
+printf '# Spec\n\nrewritten by a producing step\n' > "$T/specs/m/spec.md"
+_chk "$(_pf "$T" | grep -c 'spec artifact')" "1" "AC-7b a silent mid-flight rewrite is reported"
+rm -rf "$T"
+
+# AC-7c — …but it is advisory this release: a drift alone must not fail the gate.
+T="$(mktemp -d)"; _setup_drift "$T"
+printf '# Spec\n\nrewritten\n' > "$T/specs/m/spec.md"
+rc=0; TEAM_BOOTSTRAP_RUN=r "$here/bin/check-preflight.sh" "$T" >/dev/null 2>&1 || rc=$?
+_chk "$rc" "0" "AC-7c drift is WARN, not HARD, for one release (OQ-3)"
+rm -rf "$T"
+
+# AC-7d — a run with no spec on disk has nothing to drift, and must not gain a spurious report.
+T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git config user.name t
+  printf 'x\n' > f.txt; git add -A; git commit -q -m base
+  mkdir -p specs .runs/r docs/adr
+  printf '{"active_spec":null,"specs_dir":"specs","constitution":"constitution.md","adr_dir":"docs/adr"}\n' > feature.json
+  printf '# C\n' > constitution.md; printf 'Test: `bash t.sh`\n' > AGENTS.md
+  printf '{"run":"r","pipeline":"auto","source":"harness","intends_code":true,"baseline_sha":"%s","spec_present":false}\n' \
+    "$(git rev-parse HEAD)" > .runs/r/RUN; printf 'r\n' > .runs/current )
+_chk "$(_pf "$T" | grep -c 'spec artifact')" "0" "AC-7d description-form run → no drift report (AC-10 shape)"
+rm -rf "$T"
+
 fail="$(cat "$FAILF")"; rm -f "$FAILF"
 [ "$fail" -eq 0 ] && { echo "spec-sourced-sizing.test.sh: OK"; exit 0; }
 echo "spec-sourced-sizing.test.sh: $fail failure(s)"; exit 1
