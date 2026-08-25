@@ -297,6 +297,37 @@ T="$(mktemp -d)"; ( cd "$T"; mkdir -p .runs/r
   _chk "$(grep -o 'required_roles' .runs/r/batches.jsonl | grep -c .)" "1" "AC-8 …and exactly once"
 ) ; rm -rf "$T"
 
+# ---- WS-3: the close gate enforces the RECORDED set, and reports surplus ----
+_crd() { ( cd "$1" && TEAM_BOOTSTRAP_RUN=r "$here/bin/check-role-dispatch.sh" . 2>&1 ); }
+_mkclose() { # $1=dir  $2=required_roles JSON array  $3...=dispatched role slugs
+  local d="$1" req="$2"; shift 2
+  cd "$d"; git init -q; git config user.email a@b.c; git config user.name t
+  printf 'x\n' > seed.txt; git add -A; git commit -q -m base
+  BASE="$(git rev-parse --short HEAD)"; mkdir -p src .runs/r
+  printf 'b\n' > src/x.ts; git add -A; git commit -q -m work; S="$(git rev-parse --short HEAD)"
+  printf '{"run":"r","pipeline":"full","intends_code":true,"baseline_sha":"%s"}\n' "$BASE" > .runs/r/RUN
+  printf '{"id":"B1","kind":"code","risk_rank":"feature","status":"announced","commit_shas":["%s"],"required_roles":%s}\n' "$S" "$req" > .runs/r/batches.jsonl
+  : > .runs/r/dispatch.jsonl
+  for r in "$@"; do printf '{"batch":"B1","subagent_type":"team-bootstrap:%s"}\n' "$r" >> .runs/r/dispatch.jsonl; done
+}
+
+T="$(mktemp -d)"; ( _mkclose "$T" '["integration-verifier","code-reviewer"]' tb-code-reviewer
+  out="$(_crd "$T")"; rc=$?
+  _chk "$rc" "1" "AC-6 a RECORDED role that was not dispatched fails closed"
+  _chk "$(printf '%s' "$out" | grep -c 'integration-verifier')" "1" "AC-6 …naming the missing role" ) ; rm -rf "$T"
+
+T="$(mktemp -d)"; ( _mkclose "$T" '["integration-verifier","code-reviewer"]' tb-code-reviewer integration-verifier
+  ( _crd "$T" >/dev/null ); _chk "$?" "0" "AC-6 exactly the recorded set passes" ) ; rm -rf "$T"
+
+T="$(mktemp -d)"; ( _mkclose "$T" '["code-reviewer"]' tb-code-reviewer integration-verifier regression-guardian architecture-reviewer
+  out="$(_crd "$T")"; rc=$?
+  _chk "$rc" "0" "AC-7 dispatching MORE than required never blocks"
+  _chk "$(printf '%s' "$out" | grep -ciE 'surplus|over-provision')" "1" "AC-7 …but the surplus is reported" ) ; rm -rf "$T"
+
+# AC-5 INVARIANT: a reduced recorded set never sizes away the >=1 reviewer floor.
+T="$(mktemp -d)"; ( _mkclose "$T" '["code-reviewer"]'
+  ( _crd "$T" >/dev/null ); _chk "$?" "1" "AC-5 zero reviewer dispatches still fails, whatever the recorded set says" ) ; rm -rf "$T"
+
 fail="$(cat "$FAILF")"; rm -f "$FAILF"
 [ "$fail" -eq 0 ] && { echo "pipeline-sizing.test.sh: OK"; exit 0; }
 echo "pipeline-sizing.test.sh: $fail failure(s)"; exit 1
