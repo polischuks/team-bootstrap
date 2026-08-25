@@ -276,6 +276,10 @@ _marker_strip_flat_key() {
   local mk="$1" key="$2" before after
   case "$mk" in *"\"$key\":["*) : ;; *) printf '%s' "$mk"; return 0 ;; esac
   before="${mk%%\"$key\":[*}"     # up to (not incl) "key":[  — ends with '{' or ','
+  # Trim trailing whitespace: with a SPACED separator (`, "key": […]`) `before` ends in a space, so the
+  # comma checks below both miss and the caller's splice emits `, ,` — invalid JSON that the first/last
+  # character shape guard cannot see. Closes the class for every flat-key caller, not just one.
+  before="${before%"${before##*[![:space:]]}"}"
   after="${mk#*\"$key\":[}"       # after "key":[
   after="${after#*]}"             # drop through the first ']' (flat array): starts with ',' or '}'
   if [ "${before: -1}" = "," ]; then

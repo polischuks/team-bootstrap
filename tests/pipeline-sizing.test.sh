@@ -285,6 +285,18 @@ T="$(mktemp -d)"; ( cd "$T"; mkdir -p .runs/r
   _chk "$(grep -o 'required_roles' .runs/r/batches.jsonl | grep -c .)" "1" "AC-8 …and a rewrite REPLACES it (no duplicate key)"
 ) ; rm -rf "$T"
 
+# Round-2 finding: a SPACED required_roles that is the LAST key left `", "` before it, so neither
+# comma-drop branch in _marker_strip_flat_key fired and the splice produced `, ,` — INVALID JSON, a
+# regression versus the duplicate-key it replaced. The shape check (first/last char) cannot see it.
+T="$(mktemp -d)"; ( cd "$T"; mkdir -p .runs/r
+  printf '{"run":"r","intends_code":true,"baseline_sha":"x"}\n' > .runs/r/RUN
+  printf '{"id":"B1","kind":"code", "required_roles": [ "stale" ]}\n' > .runs/r/batches.jsonl
+  ( . "$here/bin/delivery-lib.sh"; TEAM_BOOTSTRAP_RUN=r record_required_roles B1 )
+  ok="$(python3 -c "import json,sys;json.loads(open('.runs/r/batches.jsonl').readline());print('ok')" 2>/dev/null)"
+  _chk "$ok" "ok" "AC-8 spaced required_roles as the LAST key still rewrites to VALID JSON"
+  _chk "$(grep -o 'required_roles' .runs/r/batches.jsonl | grep -c .)" "1" "AC-8 …and exactly once"
+) ; rm -rf "$T"
+
 fail="$(cat "$FAILF")"; rm -f "$FAILF"
 [ "$fail" -eq 0 ] && { echo "pipeline-sizing.test.sh: OK"; exit 0; }
 echo "pipeline-sizing.test.sh: $fail failure(s)"; exit 1
