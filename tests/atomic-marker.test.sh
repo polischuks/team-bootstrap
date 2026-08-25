@@ -19,7 +19,7 @@ echo "issue #25 — the run marker is never observable half-written:"
 # AC-A1 — the fail-open this protects against: an empty marker makes the Stop hook allow a run that
 # still has undelivered code. Pinned so the consequence stays visible even if the writer changes.
 T="$(mktemp -d)"
-( cd "$T"; git init -q; git config user.email a@b.c; git config user.name t
+( cd "$T" || exit 1; git init -q; git config user.email a@b.c; git config user.name t
   git commit -q --allow-empty -m base; printf 'x\n' > c.js; git add -A; git commit -q -m work
   mkdir -p .runs/r
   printf '{"run":"r","pipeline":"full","source":"harness","intends_code":true,"baseline_sha":"%s"}\n' "$(git rev-parse HEAD~1)" > .runs/r/RUN
@@ -34,7 +34,7 @@ rm -rf "$T"
 # AC-A2 — THE PROPERTY: hammer the writer while a reader polls. With a truncate-then-write the reader
 # eventually catches an empty/partial marker; with write-temp-then-rename it never can.
 T="$(mktemp -d)"
-( cd "$T"
+( cd "$T" || exit 1
   mkdir -p .runs/r
   printf '{"run":"r","intends_code":true,"baseline_sha":"abc"}\n' > .runs/r/RUN
   export TEAM_BOOTSTRAP_RUN=r
@@ -62,7 +62,7 @@ rm -rf "$T"
 # AC-A3 — a FAILED write must leave the PREVIOUS marker intact. Truncate-then-write can destroy a good
 # marker on failure; write-temp-then-rename cannot.
 T="$(mktemp -d)"
-( cd "$T"; mkdir -p .runs/r
+( cd "$T" || exit 1; mkdir -p .runs/r
   printf '{"run":"r","intends_code":true,"baseline_sha":"abc"}\n' > .runs/r/RUN
   before="$(cat .runs/r/RUN)"
   ( . "$here/bin/delivery-lib.sh"; export TEAM_BOOTSTRAP_RUN=r
@@ -72,7 +72,7 @@ rm -rf "$T"
 
 # AC-A4 — normal operation still works: the field lands and the marker stays valid single-line JSON.
 T="$(mktemp -d)"
-( cd "$T"; mkdir -p .runs/r
+( cd "$T" || exit 1; mkdir -p .runs/r
   printf '{"run":"r","intends_code":true}\n' > .runs/r/RUN
   ( . "$here/bin/delivery-lib.sh"; export TEAM_BOOTSTRAP_RUN=r
     record_marker_list seam_acks '[{"seam":"control-surface","commit":"abc123"}]' )

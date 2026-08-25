@@ -21,13 +21,19 @@ _chk() { # _chk ACTUAL EXPECTED MSG
 # ---------------------------------------------------------------------------
 ws1() {
   local T; T="$(mktemp -d)"
-  ( cd "$T"
+  ( cd "$T" || exit 1
     mkdir -p .runs/run-a .runs/run-b
     printf '{"run":"run-a","intends_code":true}\n' > .runs/run-a/RUN
     printf '{"id":"B1","kind":"code","status":"announced"}\n' > .runs/run-a/batches.jsonl
-    # run-b is NEWER (touched last) — recency must pick it.
     printf '{"run":"run-b","intends_code":true}\n' > .runs/run-b/RUN
     printf '{"id":"B9","kind":"code","status":"announced"}\n' > .runs/run-b/batches.jsonl
+    # run-b is NEWER — recency must pick it. Audit 2026-08: write order alone does NOT establish that.
+    # On a filesystem with coarse mtime granularity (overlayfs, some CI volumes) both files land on the
+    # same timestamp, `ls -t` ties, and the tie breaks lexicographically → run-a wins and AC-1e goes red
+    # for a reason that has nothing to do with the code. Stamp the two runs a full day apart instead:
+    # `touch -t` is POSIX (works on BSD and GNU touch alike) and is immune to timestamp granularity.
+    touch -t 202001010000 .runs/run-a/RUN .runs/run-a/batches.jsonl
+    touch -t 202001020000 .runs/run-b/RUN .runs/run-b/batches.jsonl
     . "$here/bin/delivery-lib.sh"
 
     # AC-1d/AC-1a — under set -f, env UNSET, resolve_marker must still resolve (NOT empty).
@@ -82,7 +88,7 @@ ws1_selftest_guard
 # ---------------------------------------------------------------------------
 ws2_dedup() {
   local T; T="$(mktemp -d)"
-  ( cd "$T"
+  ( cd "$T" || exit 1
     git init -q; git config user.email a@b.c; git config user.name t
     git commit -q --allow-empty -m base; local BASE; BASE="$(git rev-parse HEAD)"
     printf 'x\n' > code.js; git add -A; git commit -q -m work   # code since baseline
@@ -169,7 +175,7 @@ ws4_reader() {
   # AC-4b — the plugin's own writers emit COMPACT single-line (regression pin): record_marker_list output
   # has no interior newline.
   local T; T="$(mktemp -d)"
-  ( cd "$T"; mkdir -p .runs/r; printf '{"run":"r","intends_code":true}\n' > .runs/r/RUN
+  ( cd "$T" || exit 1; mkdir -p .runs/r; printf '{"run":"r","intends_code":true}\n' > .runs/r/RUN
     . "$here/bin/delivery-lib.sh"; export TEAM_BOOTSTRAP_RUN=r
     record_marker_list seam_acks '[{"seam":"x","commit":"y"}]'
     _chk "$(wc -l < .runs/r/RUN | tr -d ' ')" "1" "AC-4b marker writer stays single-line (compact)" )
@@ -193,14 +199,14 @@ _mk_scaffold() { # $1=dir ; sets up a minimal preflight-clean repo (caller adds 
 }
 ws5_tracked_runs() {
   local T; T="$(mktemp -d)"
-  ( cd "$T"; _mk_scaffold
+  ( cd "$T" || exit 1; _mk_scaffold
     git add -A; git commit -q -m base                       # .runs/ TRACKED
     local out; out="$(TEAM_BOOTSTRAP_RUN=r "$here/bin/check-preflight.sh" . 2>&1)"
     _chk "$(printf '%s' "$out" | grep -c '\.runs/ is TRACKED')" "1" "AC-5a tracked .runs → HARD with untrack remediation"
     _chk "$(printf '%s' "$out" | grep -c 'git rm -r --cached')" "1" "AC-5a HARD names the exact remediation"
   )
   local T2; T2="$(mktemp -d)"
-  ( cd "$T2"; _mk_scaffold
+  ( cd "$T2" || exit 1; _mk_scaffold
     printf '.runs/\n' > .gitignore
     git add -A; git commit -q -m base                       # .runs/ gitignored (untracked)
     local out; out="$(TEAM_BOOTSTRAP_RUN=r "$here/bin/check-preflight.sh" . 2>&1)"
@@ -246,7 +252,7 @@ ws6_version_skew
 # ---------------------------------------------------------------------------
 ws8_gate_integrity_waiver() {
   local T; T="$(mktemp -d)"
-  ( cd "$T"; git init -q >/dev/null 2>&1
+  ( cd "$T" || exit 1; git init -q >/dev/null 2>&1
     mkdir -p .runs/r
     printf '@pytest.mark.skip\n' > gate_test.py   # gate-integrity: sanctioned — fixture line (filename 'gate' + skip token triggers the gate; no def → no orphan FP)
     printf '{"run":"r","intends_code":true}\n' > .runs/r/RUN

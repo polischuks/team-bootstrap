@@ -29,7 +29,8 @@ CGD="$T/_cgroup_d"; printf '1:name=systemd:/docker/abc\n' > "$CGD"
 
 _reset() { printf '{"run":"r","pipeline":"full","intends_code":true,"source":"harness","baseline_sha":"x"}\n' > "$MK"; }
 # _run 'VAR=val ...'  → run check-preconditions in the repo under run 'r' with extra env; echo exit code
-_run() { ( cd "$T" && env $1 TEAM_BOOTSTRAP_RUN=r bash "$PRE" >/dev/null 2>&1 ); echo $?; }   # shellcheck disable=SC2086
+# shellcheck disable=SC2086
+_run() { ( cd "$T" && env $1 TEAM_BOOTSTRAP_RUN=r bash "$PRE" >/dev/null 2>&1 ); echo $?; }
 _repro() { grep -o '"repro_env":\[[^]]*\]' "$MK" 2>/dev/null; }
 _has() { _repro | grep -q "\"$1\"" && echo yes || echo no; }
 _has_re() { _repro | grep -Eq "$1" && echo yes || echo no; }
@@ -67,6 +68,10 @@ echo "AC-4 — off-delivery no-op + kill-switch:"
 rm -f "$T/.runs/absent/RUN" 2>/dev/null
 ecx="$( ( cd "$T" && env REPRO_DOCKERENV=/nope TEAM_BOOTSTRAP_RUN=absent bash "$PRE" >/dev/null 2>&1 ); echo $? )"
 _chk "$([ -f "$T/.runs/absent/RUN" ] && echo yes || echo no)" no "no active marker → nothing recorded"
+# Audit 2026-08: $ecx was captured but never asserted — a dead variable shellcheck could not see, because
+# a misplaced `# shellcheck disable` directive above stopped its parse at line 32. AC-4's claim is a NO-OP,
+# and a no-op is an exit code as much as an absent marker, so assert it.
+_chk "$ecx" 0 "no active marker → exit code unchanged (no-op, not a failure)"
 _reset; _run "REPRO_DOCKERENV=$DOCK REPRO_PROC1_CGROUP=/nope TEAM_BOOTSTRAP_REPRO_ENV=off" >/dev/null
 _chk "$(_has_re 'container:')" no  "TEAM_BOOTSTRAP_REPRO_ENV=off → no repro_env stamp"
 _chk "$(grep -q '"precond":{' "$MK" && echo yes || echo no)" yes "  …but precond behaviour intact (still recorded)"
@@ -86,10 +91,16 @@ n2="$(_repro | grep -o 'container:' | wc -l | tr -d ' ')"
 _chk "$n2" "$n1" "re-probe OVERWRITES (not append) — single repro_env"
 _chk "$(grep -q '"precond":{' "$MK" && echo yes || echo no)" yes "writing repro_env did NOT clobber precond"
 
-echo "AC-7 — no timeout dependency (host has none):"
-_chk "$(command -v timeout >/dev/null 2>&1 && echo present || echo absent)" absent "no timeout on host — stamp must not wrap one"
+echo "AC-7 — no timeout dependency (holds on ANY host):"
+# Audit 2026-08: the old assert was `command -v timeout` → `absent`, which tested the AUTHOR'S machine, not
+# the code — red on any host that ships GNU coreutils. What AC-7 actually claims is that the stamp never
+# wraps a timeout, so assert THAT against the source, keep the behavioural check, and demote the host's
+# timeout to a printed note. Pattern catches both the wrap (`timeout 5 …`, `to="gtimeout 5"`) and the probe.
+_chk "$(grep -cE 'g?timeout[[:space:]]+[0-9]|command -v[[:space:]]+g?timeout' "$PRE" | tr -d ' ')" 0 \
+  "check-preconditions.sh never invokes or probes timeout/gtimeout — nothing to depend on"
+echo "  note: this host has $(command -v timeout >/dev/null 2>&1 && echo 'timeout' || echo 'no timeout') on PATH"
 _reset; ecb="$(_run "REPRO_DOCKERENV=$DOCK REPRO_PROC1_CGROUP=/nope")"
-_chk "$ecb" 0 "records fine with no timeout on PATH"
+_chk "$ecb" 0 "records fine either way — with or without timeout on PATH"
 
 rm -rf "$T"
 if [ "$fail" -eq 0 ]; then echo "repro-env-posture.test.sh: OK"; exit 0; fi

@@ -33,7 +33,8 @@ _on() { ( cd "$T" && git checkout -q "$1" 2>/dev/null || git checkout -q -b "$1"
 # _g PAYLOAD → run the guard from the repo cwd under the armed run 'r'; echo its exit code
 _g() { ( cd "$T" && printf '%s' "$1" | TEAM_BOOTSTRAP_RUN=r bash "$GUARD" >/dev/null 2>&1 ); echo $?; }
 # _gE 'VAR=val ...' PAYLOAD → same, with extra leading env
-_gE() { ( cd "$T" && printf '%s' "$2" | env $1 bash "$GUARD" >/dev/null 2>&1 ); echo $?; }   # shellcheck disable=SC2086
+# shellcheck disable=SC2086
+_gE() { ( cd "$T" && printf '%s' "$2" | env $1 bash "$GUARD" >/dev/null 2>&1 ); echo $?; }
 # P COMMAND → a PreToolUse[Bash] payload whose command has NO embedded quotes (safe to interpolate)
 P() { printf '{"tool_name":"Bash","tool_input":{"command":"%s"}}' "$1"; }
 

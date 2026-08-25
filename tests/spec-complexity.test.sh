@@ -34,7 +34,7 @@ PLAIN='- [ ] T010 Do the thing.
   - file: lib/thing.ts · (feat · P5) — AC-1'
 
 echo "the control: boring prose + boring paths stays light"
-T="$(mktemp -d)"; ( cd "$T"
+T="$(mktemp -d)"; ( cd "$T" || exit 1
   _spec specs/m 'Rename a helper and update its callers.' "$PLAIN"
   o="$("$here/bin/size-from-spec.sh" specs/m 2>/dev/null || true)"
   _chk "$(_tier "$o")" "single-thread" "a genuinely small milestone is not inflated" )
@@ -48,7 +48,7 @@ for c in "consensus:Exactly-once settlement across regions under a network parti
          "migration:A backfill that rewrites every historical row, then a schema migration to drop the old column." \
          "auth:Session tokens gain a scope claim; every existing credential must keep validating."; do
   name="${c%%:*}"; text="${c#*:}"
-  T="$(mktemp -d)"; ( cd "$T"
+  T="$(mktemp -d)"; ( cd "$T" || exit 1
     _spec specs/m "$text" "$PLAIN"
     o="$("$here/bin/size-from-spec.sh" specs/m 2>/dev/null || true)"
     t="$(_tier "$o")"
@@ -59,7 +59,7 @@ done
 
 echo
 echo "the author's own \`⚠ <role>\` markers are a role floor:"
-T="$(mktemp -d)"; ( cd "$T"
+T="$(mktemp -d)"; ( cd "$T" || exit 1
   _spec specs/m 'Rename a helper.' '- [ ] T010 Do it.
   - file: lib/thing.ts · (feat · P5) — AC-1 · ⚠ architecture-reviewer
 - [ ] T011 And this.
@@ -73,7 +73,7 @@ rm -rf "$T"
 
 echo
 echo "declarations are ONE-DIRECTIONAL (they buy review, never skip it):"
-T="$(mktemp -d)"; ( cd "$T"
+T="$(mktemp -d)"; ( cd "$T" || exit 1
   # Paths alone already demand the full set (auth). A task declaring only code-reviewer must not
   # shrink that — a self-declared marker that could LOWER the floor would be a forgeable bypass.
   _spec specs/m 'Ordinary work.' '- [ ] T010 Touch auth.
@@ -86,7 +86,7 @@ rm -rf "$T"
 
 echo
 echo "the per-work-stream view carries roles too:"
-T="$(mktemp -d)"; ( cd "$T"
+T="$(mktemp -d)"; ( cd "$T" || exit 1
   mkdir -p specs/m
   printf '# Spec\n\n## Overview\nOrdinary.\n' > specs/m/spec.md; printf '# Plan\n' > specs/m/plan.md
   cat > specs/m/tasks.md <<'EOT'
@@ -113,7 +113,7 @@ echo "template scaffolding must not lift anything (regression):"
 # The stock plan.md ships `## Data / schema changes (if any)` and `## Migration shape (if applicable)`.
 # Scanning headings meant EVERY milestone using the template tripped prose:data and became `full` —
 # which would make the whole sizing exercise pointless. Prose means what the author wrote.
-T="$(mktemp -d)"; ( cd "$T"
+T="$(mktemp -d)"; ( cd "$T" || exit 1
   mkdir -p specs/m
   printf '# Spec\n\n## Overview\nRename a helper.\n' > specs/m/spec.md
   cp "$here/specs/TEMPLATE/plan.md" specs/m/plan.md 2>/dev/null \
@@ -129,7 +129,7 @@ rm -rf "$T"
 # specs/review-loop-escalation — a domain term, not money. Domain-ambiguous words do not belong in a
 # lift vocabulary, however lift-only it is: everything becoming `full` is the same failure as nothing
 # escalating.
-T="$(mktemp -d)"; ( cd "$T"
+T="$(mktemp -d)"; ( cd "$T" || exit 1
   _spec specs/m 'The batch ledger records each entry; the ledger is append-only.' "$PLAIN"
   o="$("$here/bin/size-from-spec.sh" specs/m 2>/dev/null || true)"
   _chk "$(_tier "$o")" "single-thread" "'ledger' alone (this repo's batch ledger) does not mean money" )
@@ -140,7 +140,7 @@ echo "end-to-end: a declaration must reach the ENFORCEMENT path, not just the sc
 
 # size-from-spec printing roles= proves nothing on its own. What matters is required_roles_for_batch —
 # the function check-role-dispatch and check-review-ack actually gate on.
-T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git config user.name t
+T="$(mktemp -d)"; ( cd "$T" || exit 1; git init -q; git config user.email a@b.c; git config user.name t
   git commit -q --allow-empty -m base
   mkdir -p .runs/r lib
   # The batch's own diff is one benign file, so the diff alone sizes it single-thread → code-reviewer.
@@ -156,7 +156,7 @@ T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git confi
 rm -rf "$T"
 
 # And the doc-batch exemption is not disturbed by any of this.
-T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git config user.name t
+T="$(mktemp -d)"; ( cd "$T" || exit 1; git init -q; git config user.email a@b.c; git config user.name t
   git commit -q --allow-empty -m base
   mkdir -p .runs/r
   printf '{"run":"r","pipeline":"mvp","source":"harness","intends_code":true,"role_plan":[{"ws":"WS-1","tier":"full","roles":"architecture-reviewer","paths":"docs/x.md"}]}\n' > .runs/r/RUN
