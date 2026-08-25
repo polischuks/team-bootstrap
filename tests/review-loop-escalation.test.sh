@@ -104,6 +104,38 @@ T="$(mktemp -d)"; _mk "$T" '{"id":"B1","kind":"code","status":"closed"}
 ( _sig "$T" >/dev/null 2>&1 ); _chk "$?" "0" "dispatches attributed to an id absent from the ledger do not crash the counter"
 rm -rf "$T"
 
+# ---- review findings: false-positive vectors --------------------------------
+# A false escalation is the failure mode that kills an advisory — operators learn to ignore it.
+
+# MEDIUM-1: a DOC-only run (intends_code:false) is healthy and progressing, but P1 keyed only on
+# "zero closed CODE batches" and told it to "ship a batch" — advice it cannot act on.
+T="$(mktemp -d)"; mkdir -p "$T/.runs/r"
+printf '{"run":"r","pipeline":"full","intends_code":false,"baseline_sha":"x"}
+' > "$T/.runs/r/RUN"
+printf '{"id":"D1","kind":"doc","status":"closed"}
+{"id":"D2","kind":"doc","status":"closed"}
+' > "$T/.runs/r/batches.jsonl"
+for i in 1 2 3; do _role architecture-reviewer D1; done > "$T/.runs/r/dispatch.jsonl"
+_chk "$(_sig "$T" | grep -c .)" "0" "FP-1 a doc-only run (intends_code:false) never escalates"
+rm -rf "$T"
+
+# MEDIUM-2: grep -cx uses BRE, so a metacharacter in a batch id over-counts across siblings.
+# 'B1.2' and 'B1x2' with 4 dispatches each must NOT read as 8 on either.
+T="$(mktemp -d)"; _mk "$T" '{"id":"B1.2","kind":"code","status":"announced"}
+{"id":"B1x2","kind":"code","status":"announced"}
+' "$(for i in 1 2 3 4; do _role tb-code-reviewer 'B1.2'; done; for i in 1 2 3 4; do _role tb-code-reviewer 'B1x2'; done)"
+_chk "$(_sig "$T" | grep -c 'STILL OPEN')" "0" "FP-2 a regex metachar in a batch id does not over-count siblings"
+rm -rf "$T"
+
+# MEDIUM-3: unquoted expansions were glob-expanded, so an id like '*' made the advisory name FILES,
+# and ids like 'B[1' or '-v' leaked grep errors into operator-facing output.
+T="$(mktemp -d)"; _mk "$T" '{"id":"*","kind":"code","status":"announced"}
+' "$(for i in 1 2 3 4 5 6 7 8; do _role tb-code-reviewer '*'; done)"
+out="$( cd "$T" && touch zzz1 zzz2 && . "$here/bin/delivery-lib.sh" && TEAM_BOOTSTRAP_RUN=r review_loop_signals 2>&1 )"
+_chk "$(printf '%s' "$out" | grep -c 'zzz')" "0" "FP-3 a glob-like batch id does not make the advisory name files"
+_chk "$(printf '%s' "$out" | grep -ci 'usage\|not balanced')" "0" "FP-3 …and no grep errors leak into operator output"
+rm -rf "$T"
+
 fail="$(cat "$FAILF")"; rm -f "$FAILF"
 [ "$fail" -eq 0 ] && { echo "review-loop-escalation.test.sh: OK"; exit 0; }
 echo "review-loop-escalation.test.sh: $fail failure(s)"; exit 1

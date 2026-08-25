@@ -121,9 +121,15 @@ shas_of_line() {
 _RL_P1_MIN=3; _RL_P2_MIN=8; _RL_RATIO_MAX=8; _RL_PER_DISPATCH="3.6-11.8 min"
 
 review_loop_signals() {
-  local ledger disp line l bid total=0 closed=0 ids="" role
-  disp="$(dirname "$(resolve_marker)")/dispatch.jsonl" 2>/dev/null
+  local ledger disp line l bid total=0 closed=0 role mk marker
+  marker="$(resolve_marker)"; [ -n "$marker" ] && [ -f "$marker" ] || return 0
+  disp="$(dirname "$marker")/dispatch.jsonl"
   [ -f "$disp" ] || return 0
+  # Glob-free from here on: batch ids come from the ledger (`field_str`'s [^"]* capture), so an id like
+  # `*` would otherwise expand against the CWD and make the advisory name FILES, and `B[1` / `-v` would
+  # leak raw grep errors into operator-facing output (review MEDIUM-LOW). Same guard _newest_run_file uses.
+  local _had_noglob=0; case $- in *f*) _had_noglob=1 ;; esac
+  set -f
   ledger="$(resolve_ledger)"
 
   # closed code batches + the set of ids the ledger knows (records naming an unknown id are tolerated:
@@ -153,12 +159,15 @@ review_loop_signals() {
     per_role="$per_role $r"
     b="$(field_str "$line" batch)"; [ -n "$b" ] && per_batch="$per_batch $b"
   done < "$disp"
-  [ "$total" -gt 0 ] || return 0
+  [ "$total" -gt 0 ] || { [ "$_had_noglob" -eq 1 ] || set +f; return 0; }
 
   # --- P1: one role re-run while NOTHING has closed ---------------------------
-  if [ "$closed" -eq 0 ]; then
+  # Only for a run that intends to ship CODE. A doc-only run legitimately closes no code batch, and
+  # telling it to "ship a batch" is advice it cannot act on (review MEDIUM-1).
+  mk="$(cat "$marker" 2>/dev/null || true)"
+  if [ "$closed" -eq 0 ] && [ "$(field_bool "$mk" intends_code)" = "true" ]; then
     for role in $(printf '%s\n' $per_role | sort -u); do
-      local n; n="$(printf '%s\n' $per_role | grep -cx "$role" || true)"
+      local n; n="$(printf '%s\n' $per_role | grep -cxF -e "$role" || true)"
       if [ "${n:-0}" -ge "$_RL_P1_MIN" ]; then
         echo "review-loop: '$role' has run ${n}x with ZERO closed code batches. Each dispatch is a full subagent (~${_RL_PER_DISPATCH}). Reviews find gaps because that is what they are asked to do — ship a batch, or scope the next review to the remediation diff. (advisory, #22)"
       fi
@@ -167,7 +176,7 @@ review_loop_signals() {
 
   # --- P2: a single UNCLOSED batch absorbing two full fan-outs ----------------
   for bid in $open_ids; do
-    local nb; nb="$(printf '%s\n' $per_batch | grep -cx "$bid" || true)"
+    local nb; nb="$(printf '%s\n' $per_batch | grep -cxF -e "$bid" || true)"
     if [ "${nb:-0}" -ge "$_RL_P2_MIN" ]; then
       echo "review-loop: batch '$bid' has taken ${nb} review dispatches and is STILL OPEN (unclosed) — two full four-role fan-outs' worth. Close it and file the remainder, or re-review only the fix diff. (advisory, #22)"
     fi
@@ -180,6 +189,7 @@ review_loop_signals() {
       echo "review-loop: this run has spent ${total} review dispatches across ${closed} closed batches (~${ratio} per closure; a healthy full fan-out is 4). At this rate the remaining batches cost hours. Scope re-reviews to the remediation diff, or split the batch. (advisory, #22)"
     fi
   fi
+  [ "$_had_noglob" -eq 1 ] || set +f
   return 0
 }
 
