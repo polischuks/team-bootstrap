@@ -1,5 +1,5 @@
 {
-  "active_spec": "specs/all-four-role-dispatch",
+  "active_spec": "specs/harness-owned-pipeline-sizing",
   "specs_dir": "specs",
   "constitution": "constitution.md",
   "constitution_version": "1.0.1",
