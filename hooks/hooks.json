@@ -43,6 +43,17 @@
           }
         ]
       }
+    ],
+    "SubagentStart": [
+      {
+        "matcher": "team-bootstrap:.*|.*-reviewer|.*-verifier|.*-guardian",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/subagent-brief.sh"
+          }
+        ]
+      }
     ]
   }
 }

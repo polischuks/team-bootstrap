@@ -36,6 +36,7 @@ bin/guard-git.sh
 bin/quality-gate.sh
 bin/delivery-stop-hook.sh
 bin/delivery-marker-init.sh
+bin/subagent-brief.sh
 
 # hook registrations (glob spans '/', so hooks/nested/*.json is covered too)
 hooks/*.json

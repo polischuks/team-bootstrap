@@ -28,15 +28,6 @@ here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=bin/delivery-lib.sh
 . "$here/delivery-lib.sh"
 
-# _inflight_batch → the in-flight ledger line (last announced; else last non-empty).
-_inflight_batch() {
-  local ledger line
-  ledger="$(resolve_ledger)"; [ -n "$ledger" ] && [ -f "$ledger" ] || return 0
-  line="$(grep '"status":[[:space:]]*"announced"' "$ledger" 2>/dev/null | tail -1)"
-  [ -n "$line" ] || line="$(grep -v '^[[:space:]]*$' "$ledger" 2>/dev/null | tail -1)"
-  printf '%s' "$line"
-}
-
 _evaluate() {
   local marker mk pipeline bline bid bkind cnt
   marker="$(resolve_marker)"
@@ -49,7 +40,7 @@ _evaluate() {
   # so role-dispatch does not apply. This is a KNOWN pipeline, not an undeterminable one.
   [ "$pipeline" = "single-thread" ] && { echo "check-role-dispatch: pipeline=single-thread — one mind is the sanctioned contract (P1); skipping."; return 0; }
 
-  bline="$(_inflight_batch)"
+  bline="$(inflight_batch)"
   [ -n "$bline" ] || { echo "check-role-dispatch: no in-flight batch — nothing to check."; return 0; }
   bid="$(field_str "$bline" id)"; bkind="$(field_str "$bline" kind)"
   [ "$bkind" = "code" ] || { echo "check-role-dispatch: in-flight batch '$bid' is kind=$bkind (not code) — skipping."; return 0; }

@@ -2,6 +2,86 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.35.0] — 2026-08-25
+
+### Changed — BEHAVIOUR: the per-role review floor is now hard, not advisory
+
+`check-role-dispatch.sh` sets `mode="enforce"` whenever a role set is **recorded** on the batch's
+ledger entry — deliberately, and regardless of `role_floor_mode` ("hardness follows from the set having
+been computed"). Nothing ever recorded one, so in practice every code batch ran per-role **warn**.
+`verify-batch.sh` now records the set, so a batch that under-dispatches it **fails closed**.
+
+The set is **sized for the batch**, not the blanket four: any risk touch (auth · schema · infra · API ·
+deps) or an `irreversible`/`run-rate` rank still pulls in the full four, and every code batch keeps the
+≥1 independent reviewer floor, which is never sized away. Ordinary batches size down. Surplus dispatch
+is still reported and never blocked — blocking it would push review inline, the collapse this exists to
+prevent.
+
+**If you need the previous posture,** do not record the set: the gate falls back to its advisory path
+whenever the entry carries no `required_roles`.
+
+### Added — the harness can now say what it decided
+
+Three instances of one defect, from §5 of the harness research: **the policy layer decides and has no
+channel to deliver the decision.** team-bootstrap is not a harness — Claude Code is — so a lever it
+lacks has to be requested through the host's official API rather than reimplemented in prose.
+
+**The sizing verdict reaches the model.** `delivery-marker-init.sh` computed the tier and printed it to
+**stderr at exit 0**, which reaches only the debug log; `UserPromptSubmit` stdout is what gets injected
+as context. The model never saw the tier it is expected to honour, leaving `.runs/<id>/RUN` — a format
+built for scripts — as the only carrier, which the model has to *volunteer* to read. It now returns
+`hookSpecificOutput.additionalContext` stating the run, pipeline, `tier_source`, `spec_present`, marker
+path, sizing reasons and the per-work-stream role plan. Persisted as `harness_context` on the marker and
+**re-stated on the idempotent path**, so the sizing survives a run spanning many prompts and a context
+compaction. An unrecognised prompt still produces no output at all.
+
+**The role set is fixed where the diff exists.** `record_required_roles` was requested in
+`commands/deliver.md` prose, at announce — wrong mechanism *and* wrong place. Prose lands ~70% of the
+time against a hook's ~100%, so nothing wired it; and at announce the batch window is still empty, so
+the set computed there is sized against no diff. `verify-batch.sh` now calls it for the in-flight code
+batch immediately before the gate reads it. Best-effort: a ledger that cannot be rewritten leaves the
+gate advisory and never blocks a close on a bookkeeping failure.
+
+**A spawned review role gets its brief.** New `bin/subagent-brief.sh`, a non-blocking read-only
+`SubagentStart` `command` hook, returns `additionalContext` naming the batch, the sized role set and the
+reviewer dispatches recorded so far. `SubagentStart` addresses its context to the **subagent** rather
+than the parent, which is what a per-role brief needs.
+
+*Why that event and not a `PreToolUse[Agent|Task]` gate:* a blocking pre-dispatch gate was already
+rejected on its merits — refusing an off-plan dispatch pushes the orchestrator to review **inline**, the
+spec-169 collapse. `SubagentStart` **cannot block**, so that failure mode is excluded by construction
+rather than by discipline.
+
+All three texts are written as **fact statements, never imperatives**: the hooks reference is explicit
+that out-of-band-instruction phrasing trips the prompt-injection defence, after which Claude shows the
+text to the user instead of accepting it as context. A test guards the phrasing, and all three respect
+the documented 10 000-character ceiling.
+
+### Added — every registered hook body is control surface, by invariant
+
+`references/control-surface.txt` names hook bodies one at a time, so a new hook was covered only if
+someone remembered — and an uncovered hook body can be gutted to `exit 0` as a silent gate-disable,
+which is precisely what that file exists to make declarable. A test now asserts the property for **every**
+`hooks.json` command body. Mutation-checked: removing an entry turns it red.
+
+### Fixed
+
+- `bin/subagent-brief.sh` extracted the spawned agent type with `\|` alternation inside a sed BRE — a GNU
+  extension that silently matches nothing on BSD sed, so every brief read "for *the dispatched role*".
+  Rewritten on `grep -oE` and pinned by a test that asserts the role name appears.
+- `_inflight_batch` was copy-pasted in `check-role-dispatch.sh` and `check-review-ack.sh`; promoted to
+  `delivery-lib.sh` as `inflight_batch()`. Identical implementation, no behaviour change.
+- `json_esc` / `emit_hook_context` are shared from `delivery-lib.sh`. `delivery-marker-init.sh` keeps
+  private copies on purpose — it runs on every `UserPromptSubmit` and stays dependency-free, so a library
+  defect cannot reach prompt submission. The duplication is declared in both files rather than hidden.
+
+### Known gaps (unchanged by this release)
+
+- `size-from-spec.sh --per-batch` returns **empty with `rc=0`** when `tasks.md` has no `## ` sections —
+  no `degraded=1`. Silent degradation.
+- Steps 4–5 of the plan (model-judged sizing via an `agent` hook; strictness profiles instead of three
+  hardcoded tiers) are not implemented.
+
 ## [2.34.1] — 2026-08-25
 
 ### Fixed — two tests asserted the author's machine, and a stray directive hid a third of a file

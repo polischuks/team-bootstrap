@@ -172,6 +172,19 @@ gate "completeness (task_ids [x], B)"        "$here/check-completeness.sh" .
 gate "seam-ack (high-risk seam read, C)"     "$here/check-seam-ack.sh" .
 gate "disposition (MEDIUM+ finding governed, B)" "$here/check-disposition.sh" .
 gate "review-ack (independent review of diff, C)" "$here/check-review-ack.sh" .
+# The sized role set is fixed HERE, in code, immediately before the gate that reads it — not requested
+# from the orchestrator in commands/deliver.md prose at announce time. Two reasons, and the gate's own
+# comment (check-role-dispatch.sh) already stated both: prose lands ~70% of the time against a hook's
+# ~100%, so nothing actually wired it and the recorded-set (enforce) branch was unreachable in
+# production; and at announce the batch window is still EMPTY, so the set computed then is sized
+# against no diff. Best-effort by construction — a ledger that cannot be rewritten leaves the gate on
+# its advisory path, exactly as before, and never blocks a close on a bookkeeping failure.
+_ib="$(inflight_batch)"
+if [ -n "$_ib" ] && [ "$(field_str "$_ib" kind)" = "code" ] \
+   && [ "$(field_str "$_ib" status)" = "announced" ]; then
+  record_required_roles "$(field_str "$_ib" id)" || \
+    echo "verify-batch: WARN — could not record required_roles for '$(field_str "$_ib" id)'; the dispatch gate stays advisory." >&2
+fi
 gate "role-dispatch (reviewer subagent ran, not inline collapse)" "$here/check-role-dispatch.sh" .
 gate "delivery (no unearned closure)"        "$here/check-delivery.sh" .
 
