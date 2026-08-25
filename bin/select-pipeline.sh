@@ -28,6 +28,10 @@
 #       64 bad usage
 set -uo pipefail
 
+here="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=bin/delivery-lib.sh
+. "$here/delivery-lib.sh"
+
 # rank: single-thread < mvp < full
 _rank() { case "$1" in single-thread) printf 1 ;; mvp) printf 2 ;; full) printf 3 ;; *) printf '' ;; esac; }
 _name() { case "$1" in 1) printf single-thread ;; 2) printf mvp ;; 3) printf full ;; esac; }
@@ -110,16 +114,56 @@ report() {
       echo "select-pipeline: ADVISORY — chosen '${chosen}' is LIGHTER than recommended '$(_name "$rec")'. Consider '/team-bootstrap:deliver $(_name "$rec") …'. Operator decides (P1); this is a visible recommendation, not a block." >&2
       return 2
     fi
+    if [ "$cr" -gt "$rec" ]; then
+      # The missing direction (#27). The tool already computed everything needed to say this; staying
+      # silent made the advisory one-directional — it could only ever push cost UP. Each extra review
+      # role is an independent subagent (measured 3.6-11.8 min), and Anthropic measures multi-agent at
+      # ~15x the tokens of a chat, so this is the single largest cost lever in the pipeline.
+      # NOT a failure: exit stays 0. Blocking over-provisioning would push the orchestrator to review
+      # INLINE — the spec-169 collapse (see the milestone spec's enforceability boundary).
+      echo "select-pipeline: OVER-PROVISIONED — chosen '${chosen}' is HEAVIER than recommended '$(_name "$rec")'. Each extra review role is a separate subagent (~3.6-11.8 min each). Consider '$(_name "$rec")' for this scope. Operator decides (P1); advice, not a block."
+      return 0
+    fi
     echo "select-pipeline: chosen '${chosen}' >= recommended '$(_name "$rec")' — right-sized."
   fi
   return 0
 }
 
+# _batch_numstat BATCH_ID → emit numstat for THAT batch's own window (#27: cost accrues per batch,
+# not per run). Uses the batch's commit_shas when it has them; an announced batch with none yet is
+# still in flight, so its window is baseline..HEAD. Empty output ⇒ caller falls back to the run range.
+_batch_numstat() {
+  local bid="$1" ledger line shas base
+  ledger="$(resolve_ledger)"; [ -n "$ledger" ] && [ -f "$ledger" ] || return 0
+  line="$(grep "\"id\":[[:space:]]*\"$bid\"" "$ledger" 2>/dev/null | tail -1)"
+  [ -n "$line" ] || return 0
+  shas="$(shas_of_line "$line")"
+  if [ -n "$shas" ]; then
+    for c in $shas; do git diff --numstat "$c^" "$c" 2>/dev/null; done
+  else
+    base="$(field_str "$(cat "$(resolve_marker)" 2>/dev/null)" baseline_sha)"
+    [ -n "$base" ] && git diff --numstat "$base" HEAD 2>/dev/null
+  fi
+}
+
+# _batch_risk_floor BATCH_ID → the minimum tier this batch's DECLARED risk_rank demands (empty = none).
+# risk_rank is self-declared and forgeable (ADR-0006), so it only ever LIFTS the recommendation — it can
+# never lower one the diff earned. A doc batch floors at the lightest tier.
+_batch_risk_floor() {
+  local bid="$1" ledger line rr
+  ledger="$(resolve_ledger)"; [ -n "$ledger" ] && [ -f "$ledger" ] || return 0
+  line="$(grep "\"id\":[[:space:]]*\"$bid\"" "$ledger" 2>/dev/null | tail -1)"
+  [ -n "$line" ] || return 0
+  rr="$(field_str "$line" risk_rank)"
+  case "$rr" in irreversible|run-rate) printf '3' ;; *) : ;; esac
+}
+
 # --- arg parse ---------------------------------------------------------------
-chosen=""; from_stdin=0; range=""
+chosen=""; from_stdin=0; range=""; batch=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --chosen) chosen="${2:-}"; shift 2 ;;
+    --batch)  batch="${2:-}";  shift 2 ;;
     --from-stdin) from_stdin=1; shift ;;
     --self-test) selftest=1; shift ;;
     -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
@@ -160,7 +204,9 @@ if [ "$from_stdin" -eq 1 ]; then
 else
   git rev-parse --git-dir >/dev/null 2>&1 || { echo "select-pipeline: not a git repository." >&2; exit 64; }
   numstat=""
-  if [ -n "$range" ]; then
+  if [ -n "$batch" ]; then
+    numstat="$(_batch_numstat "$batch")"
+  elif [ -n "$range" ]; then
     numstat="$(git diff --numstat "$range" 2>/dev/null || true)"
   else
     # one stream, captured once (accumulating per-line via $() would strip newlines):
@@ -179,6 +225,19 @@ else
     exit 0
   fi
   line="$(printf '%s\n' "$numstat" | recommend)"
+fi
+
+# --batch (#27): the recommendation is for THAT batch, lifted by its declared risk_rank. The lift is
+# one-directional on purpose — risk_rank is self-declared and forgeable (ADR-0006), so it may raise a
+# recommendation the diff did not earn, never lower one it did.
+if [ -n "$batch" ]; then
+  _floor="$(_batch_risk_floor "$batch")"
+  if [ -n "$_floor" ]; then
+    _rec_now="$(printf '%s' "$line" | cut -f1)"
+    if [ "$_floor" -gt "${_rec_now:-1}" ]; then
+      line="$(printf '%s' "$line" | awk -v f="$_floor" 'BEGIN{FS=OFS="\t"} {$1=f; $5=($5=="" ? "declared risk_rank" : $5 " + declared risk_rank")} 1')"
+    fi
+  fi
 fi
 
 report "$line" "$chosen"
