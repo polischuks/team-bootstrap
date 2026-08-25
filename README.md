@@ -44,11 +44,19 @@ For a read-only audit that produces an implementation backlog (technical, or lan
 /team-bootstrap l2p "landing: https://… · platform: <routes/screens> · docs: ./docs"
 ```
 
-For a full spec-driven milestone — one command runs the pre-implementation flow (spec → plan → tasks), then drives implementation batches step-by-step through `mvp`/`full`:
+For a spec-driven milestone — one command runs the pre-implementation flow (spec → plan → tasks), then drives implementation batches step-by-step:
 
 ```text
-/deliver full "Add OAuth login to /api/auth"
+/deliver "Add OAuth login to /api/auth"          # no spec yet — Phase A produces it
+/deliver specs/042-oauth-login/spec.md            # the milestone already exists
 ```
+
+**Do not pass a tier unless you mean to override the harness.** With no `mvp`/`full` token the harness
+sizes the run itself: when the milestone is on disk it reads `tasks.md`/`plan.md` before the first
+dispatch and derives a per-work-stream role plan, so a documentation stream and an auth stream get
+different role sets inside one milestone. `/deliver mvp …` and `/deliver full …` still pin the tier —
+the operator decides, but now by saying so rather than by default. See
+[ADR-0018](docs/adr/0018-spec-sourced-role-plan.md).
 
 ## Architecture in three sentences
 

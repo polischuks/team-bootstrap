@@ -28,6 +28,9 @@ team-bootstrap activates when the user types `/team-bootstrap <args>` or asks Cl
 /team-bootstrap role <name> <task>       # single role
 /team-bootstrap resume <run_id>          # resume from checkpoint
 /team-bootstrap replay <run_id>          # re-run from trace
+
+/deliver <task-or-specs/<slug>>          # spec-driven milestone; the HARNESS sizes the pipeline
+/deliver mvp|full <task-or-spec>         # …unless you pin the tier explicitly (ADR-0018)
 ```
 
 The `audit` and `l2p` pipelines are read-only: they assess against a reference and output a prioritized backlog. `audit` = technical/operational readiness; `l2p` = landing↔platform↔docs gaps (conversion). Each backlog item then becomes a separate `single-thread` / `mvp` / `full` run (or feed the whole backlog to `/deliver`).

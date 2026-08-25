@@ -2,6 +2,39 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.33.0] — 2026-08-25
+
+### Spec-sourced role planning (ADR-0018)
+
+The harness now decides which roles run by **evaluating the spec**, instead of taking the tier from the
+first argument token before any spec exists.
+
+**Fixed — passing a spec path bought the 20-role pipeline.** A path is never the literal word `mvp` or
+`full`, and the unrecognized-token fallback was `full`. Every `/deliver specs/<slug>/spec.md` selected
+twenty roles, mechanically. The fallback is now `auto` — the harness sizes it — and explicit
+`mvp`/`full` still pin the tier.
+
+**Fixed — the tier was decided by substring luck.** The tier was grepped from the whole prompt, so
+`specs/full-text-search` bought the full pipeline. The spec path is now excised before the match.
+
+**Fixed — Phase A re-drafted milestones that already existed.** It ran all eight steps, `speckit-specify`
+included, against specs already on disk. It now splits on `spec_present`: Mode 2 runs the checking steps
+(`speckit-analyze`, `architecture-reviewer`) and skips the producing ones, re-opening only the step a
+reported gap actually needs.
+
+**Fixed — two pre-existing sizing fail-opens**, both of which also affected diff-sourced sizing:
+`api/routes.ts`, `models/user.py` and `.github/workflows/ci.yml` at the repository root did not escalate,
+because three risk categories matched only the nested directory form; and an all-doc change tripped the
+layer thresholds, buying `mvp` at two documentation files and `full` at three.
+
+**Added** — `bin/size-from-spec.sh`, which turns an on-disk milestone into a tier and a per-work-stream
+role plan by delegating to `select-pipeline.sh`'s existing classifier. New marker fields: `spec_path`,
+`spec_present`, `spec_artifacts`, `tier_source`, `sizing`, `role_plan`. `check-preflight` reports
+spec-artifact drift (WARN this release).
+
+Authority order: the spec-sourced plan is a **floor**, the diff may **lift** it and never lower it, and
+the ≥1 independent-reviewer invariant is untouched by either.
+
 ## [2.32.0] - 2026-08-21
 
 > **review-loop escalation** (issue #22) — every gate here is closure-time, so the *shape* of review

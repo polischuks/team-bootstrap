@@ -340,6 +340,34 @@ T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git confi
 _chk "$(_pf "$T" | grep -c 'spec artifact')" "0" "AC-7d description-form run → no drift report (AC-10 shape)"
 rm -rf "$T"
 
+echo
+echo "WS-6 — the description form does not regress (AC-10):"
+
+# The milestone changes what happens when a spec EXISTS. A description-form run must be untouched:
+# no spec fields invented, and every gate that enforced before still enforces. The one intentional
+# difference is the tier token (full -> auto), and it must not weaken anything — AC-8/R4 pin that.
+T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git config user.name t
+  git commit -q --allow-empty -m base
+  m="$(_arm '/deliver "add a retry wrapper to the http client"')"
+  _chk "$(_field spec_present "$m")" "false"   "AC-10 description form → spec_present:false"
+  _chk "$(_field spec_path    "$m")" "<absent>" "AC-10 …no spec_path invented"
+  _chk "$(_field role_plan    "$m")" "<absent>" "AC-10 …no role_plan invented"
+  _chk "$(_field feature      "$m")" "unknown"  "AC-10 …feature stays the no-spec sentinel" )
+rm -rf "$T"
+
+# AC-10 — check-role-dispatch must NOT treat the new token as an exemption. Only single-thread is
+# exempt; if `auto` ever fell into that branch, the reviewer-independence check would go silent.
+T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git config user.name t
+  git commit -q --allow-empty -m base; printf 'x\n' > c.js; git add -A; git commit -q -m work
+  mkdir -p .runs/r
+  printf '{"run":"r","pipeline":"auto","source":"harness","intends_code":true,"baseline_sha":"%s"}\n' "$(git rev-parse HEAD~1)" > .runs/r/RUN
+  printf 'r\n' > .runs/current
+  printf '{"id":"B1","kind":"code","status":"announced","base":"%s"}\n' "$(git rev-parse HEAD~1)" > .runs/r/batches.jsonl
+  out="$(TEAM_BOOTSTRAP_RUN=r "$here/bin/check-role-dispatch.sh" 2>&1 || true)"
+  _chk "$(printf '%s' "$out" | grep -c 'sanctioned contract')" "0" \
+       "AC-10 pipeline=auto is not treated as the single-thread exemption" )
+rm -rf "$T"
+
 fail="$(cat "$FAILF")"; rm -f "$FAILF"
 [ "$fail" -eq 0 ] && { echo "spec-sourced-sizing.test.sh: OK"; exit 0; }
 echo "spec-sourced-sizing.test.sh: $fail failure(s)"; exit 1
