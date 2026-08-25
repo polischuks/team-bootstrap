@@ -173,7 +173,20 @@ Then, for **each batch, one at a time**:
    `Test:` suite to actually fail and records the observed red. `check-tdd.sh` (in `verify-batch`, below)
    fails the batch if this code batch has no red recorded before its own commits — every code batch must
    be red-first in its own window (see [../references/tdd.md](../references/tdd.md)).
-5. **The four review roles run AFTER the builders — but CONCURRENTLY with each other (#23 item 4).**
+5. **`full` means the HARNESS sizes each batch — not "four roles every time" (#27).**
+   At announce, the harness computes this batch's required review roles from **its own diff and its
+   declared `risk_rank`** (`required_roles_for_batch`, recorded on the ledger entry) — because the
+   operator picks a tier once, before any batch exists, while cost accrues per batch. Dispatch **the
+   set it asks for**. Any risk touch (auth · schema · infra · API · deps) or an
+   `irreversible`/`run-rate` rank still pulls in the full four; only ordinary batches size down.
+   `bin/select-pipeline.sh --batch <id>` shows the recommendation, and now reports **over**-provisioning
+   as well as under- (it used to be silent when you overspent).
+   **Two floors that never move:** every code batch keeps **≥1 independent reviewer** (the
+   anti-collapse guarantee — it is never sized away), and `check-role-dispatch` **fails closed** on a
+   required role that was not dispatched. Dispatching **more** than the set is reported, never blocked —
+   blocking it would push review inline, which is the collapse this exists to prevent.
+
+   **The four review roles run AFTER the builders — but CONCURRENTLY with each other (#23 item 4).**
    `integration-verifier`, `architecture-reviewer` (conformance), `regression-guardian` and the
    `code-reviewer` all read the same closed batch diff and **do not consume each other's output**, so
    nothing orders them: `roles_covered` is a set-union and `reviewer_dispatch_count` is a count —
@@ -183,6 +196,13 @@ Then, for **each batch, one at a time**:
    collect all four verdicts, then act on every finding.
    *(Caveat: two of them execute test suites — on a machine where those are CPU-bound, expect
    contention rather than a clean 4× win. The saving is in the reasoning time, which dominates.)*
+   **Reviewers flag only what affects correctness or the stated requirements.** A reviewer asked to
+   find gaps will report some even when the work is sound — that is what it was asked to do — and
+   chasing every finding produces over-engineering: extra layers, defensive code, tests for cases that
+   cannot happen. Treat the rest as optional. This is the missing exit condition behind multi-round
+   review loops (measured: one batch took four full rounds, ~16 dispatches, with findings decaying to
+   LOW).
+
    **Re-verification after remediation is scoped to the FIX (#23 item 3):** when you send findings back
    and they are fixed, re-review the **remediation diff plus the findings it claims to close**, not the
    whole batch window again. A full re-fan-out is right when the fix is structural — not for a 40-line

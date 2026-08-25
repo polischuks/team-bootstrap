@@ -314,7 +314,7 @@ _mkclose() { # $1=dir  $2=required_roles JSON array  $3...=dispatched role slugs
 T="$(mktemp -d)"; ( _mkclose "$T" '["integration-verifier","code-reviewer"]' tb-code-reviewer
   out="$(_crd "$T")"; rc=$?
   _chk "$rc" "1" "AC-6 a RECORDED role that was not dispatched fails closed"
-  _chk "$(printf '%s' "$out" | grep -c 'integration-verifier')" "1" "AC-6 …naming the missing role" ) ; rm -rf "$T"
+  _chk "$(printf '%s' "$out" | grep -c 'MISSING: \[integration-verifier\]')" "1" "AC-6 …naming the missing role" ) ; rm -rf "$T"
 
 T="$(mktemp -d)"; ( _mkclose "$T" '["integration-verifier","code-reviewer"]' tb-code-reviewer integration-verifier
   ( _crd "$T" >/dev/null ); _chk "$?" "0" "AC-6 exactly the recorded set passes" ) ; rm -rf "$T"
