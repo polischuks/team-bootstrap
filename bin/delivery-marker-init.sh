@@ -19,9 +19,29 @@
 # fallback is a PreToolUse floor on the first Skill call + deliver.md step 0 — see
 # specs/.../plan.md §2.4.)
 #
-# Exit: always 0 (non-blocking). Stdout is intentionally empty (UserPromptSubmit
-# stdout is injected as context; we add none).
+# Exit: always 0 (non-blocking). STDOUT carries the harness's sizing verdict to the
+# model via hookSpecificOutput.additionalContext — the sanctioned UserPromptSubmit
+# context channel. It used to go to stderr, which at exit 0 reaches only the debug
+# log: the harness decided the tier and had no way to say so, leaving .runs/<id>/RUN
+# (a format built for scripts) as the sole carrier and the model free to never read
+# it. An unrecognised prompt still produces NO output at all.
 set -uo pipefail
+
+# _json_esc TEXT → TEXT safe inside a JSON string. Control chars are dropped rather than escaped:
+# additionalContext is a one-line fact statement, so a literal newline is a defect, not content.
+_json_esc() {
+  printf '%s' "$1" | tr -d '\000-\037' | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+
+# _emit_ctx ESCAPED_TEXT → the hook's one line of stdout. ESCAPED_TEXT is already _json_esc'd.
+# The documented ceiling is 10 000 characters; we cut well under it and then drop a trailing lone
+# backslash, which a cut through an escape pair would otherwise leave behind and break the JSON.
+_emit_ctx() {
+  local t; t="$(printf '%s' "$1" | cut -c1-9000)"
+  case "$t" in *\\\\) : ;; *\\) t="${t%\\}" ;; esac
+  [ -n "$t" ] || return 0
+  printf '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"%s"}}\n' "$t"
+}
 
 [ "${TEAM_BOOTSTRAP_DELIVERY_GATE:-on}" = "off" ] && exit 0
 
@@ -87,7 +107,12 @@ mkdir -p ".runs/$run" 2>/dev/null || exit 0
 # so re-arming an in-flight run re-points the pointer at it. Best-effort: a write failure just
 # degrades to the legacy mtime rule, it never blocks the run.
 { printf '%s\n' "$run" > .runs/current; } 2>/dev/null || true
-[ -f "$marker" ] && exit 0                      # idempotent: never clobber baseline_sha
+# Idempotent: never clobber baseline_sha. The verdict is RE-STATED, though — a run spans many prompts
+# and a context compaction, and the sizing is only useful in the window where it is read.
+if [ -f "$marker" ]; then
+  _emit_ctx "$(sed -n 's/.*"harness_context":"\([^"]*\)".*/\1/p' "$marker" 2>/dev/null | head -1)"
+  exit 0
+fi
 base="$(git rev-parse --short HEAD 2>/dev/null || true)"
 # Normalize the feature to the spec.md PATH check-completeness expects: a bare dir/slug gets /spec.md
 # appended (a value already ending in .md is left as-is; no specs path ⇒ "unknown", the no-spec sentinel).
@@ -120,7 +145,7 @@ fi
 # single-thread and fails CLOSED on anything else. So an unresolved tier enforces the strictest
 # posture rather than opening a bypass — enforce until we know, which is the correct default. It
 # persists only on the description form, where Phase A resolves it at the A->B boundary.
-role_plan=""
+role_plan=""; ctx_ws=""
 if [ "$spec_present" = "true" ]; then
   # Per-work-stream floors (OQ-2). `paths` is a SPACE-SEPARATED STRING, not a nested array: the shipped
   # marker_list reader slices its body at the first ']', so an entry containing an array would truncate
@@ -133,6 +158,7 @@ if [ "$spec_present" = "true" ]; then
     _rr="$(printf '%s' "$_l" | sed -n 's/.*	roles=\([^	]*\).*/\1/p')"
     [ -n "$_w" ] && [ -n "$_t" ] || continue
     role_plan="${role_plan:+$role_plan,}{\"ws\":\"$_w\",\"tier\":\"$_t\",\"roles\":\"$_rr\",\"paths\":\"$_pp\"}"
+    ctx_ws="${ctx_ws:+$ctx_ws; }$_w tier=$_t roles=${_rr:-unsized}"
   done <<EOF
 $("$(dirname "$0")/size-from-spec.sh" --per-batch "$spec_path" 2>/dev/null || true)
 EOF
@@ -159,8 +185,19 @@ _spec_f="\"spec_present\":$spec_present,\"tier_source\":\"$tier_source\","
 [ -n "$artifacts" ] && _spec_f="$_spec_f\"spec_artifacts\":[$artifacts],"
 [ -n "$sizing" ]    && _spec_f="$_spec_f\"sizing\":\"$sizing\","
 [ -n "$role_plan" ] && _spec_f="$_spec_f\"role_plan\":[$role_plan],"
+
+# The verdict, as FACT STATEMENTS. The hooks reference is explicit that additionalContext phrased as
+# out-of-band imperatives trips the prompt-injection defence — Claude then shows the text to the user
+# instead of accepting it as context. So: what the harness computed, never what the model should do.
+_ctx="team-bootstrap harness sizing for run $run: pipeline=$pipeline, tier_source=$tier_source, spec_present=$spec_present, marker=$marker."
+[ -n "$sizing" ]  && _ctx="$_ctx Sizing reasons: $sizing."
+[ -n "$ctx_ws" ]  && _ctx="$_ctx Per-work-stream plan: $ctx_ws."
+[ "$tier_source" = "harness" ] && [ "$pipeline" = "auto" ] && \
+  _ctx="$_ctx The tier is unresolved on disk, so every tier-reading gate fails closed until Phase A resolves it."
+_ctx_esc="$(_json_esc "$_ctx")"
+_spec_f="$_spec_f\"harness_context\":\"$_ctx_esc\","
+
 printf '{"run":"%s","pipeline":"%s","source":"harness","feature":"%s","intends_code":true,%s%s"precond":{"exit":0,"items":[],"ack":false}}\n' \
   "$run" "$pipeline" "$feat" "$_base_f" "$_spec_f" > "$marker" 2>/dev/null || true
-printf 'delivery-marker-init: wrote harness RUN marker %s (run=%s pipeline=%s tier_source=%s spec_present=%s)\n' \
-  "$marker" "$run" "$pipeline" "$tier_source" "$spec_present" >&2
+_emit_ctx "$_ctx_esc"
 exit 0

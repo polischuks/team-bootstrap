@@ -309,6 +309,17 @@ required_roles_for_batch() {
   printf '%s' "${out# }"
 }
 
+# inflight_batch → the in-flight ledger line (last announced; else last non-empty). Single source: it
+# was copy-pasted into check-role-dispatch.sh and check-review-ack.sh, and verify-batch now needs the
+# same window to record the sized role set before the dispatch gate reads it.
+inflight_batch() {
+  local ledger line
+  ledger="$(resolve_ledger)"; [ -n "$ledger" ] && [ -f "$ledger" ] || return 0
+  line="$(grep '"status":[[:space:]]*"announced"' "$ledger" 2>/dev/null | tail -1)"
+  [ -n "$line" ] || line="$(grep -v '^[[:space:]]*$' "$ledger" 2>/dev/null | tail -1)"
+  printf '%s' "$line"
+}
+
 # record_required_roles BATCH_ID → compute the batch's role set and splice it into ITS ledger line as
 # a flat "required_roles":[…] array. Recorded at announce so the close gate reads a FACT rather than
 # recomputing against a window that has since moved. Rewrite is temp-file + mv (atomic, #25) and the

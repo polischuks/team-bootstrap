@@ -229,9 +229,11 @@ Then, for **each batch, one at a time**:
    set it asks for**. Any risk touch (auth · schema · infra · API · deps) or an
    `irreversible`/`run-rate` rank still pulls in the full four; only ordinary batches size down.
    `bin/select-pipeline.sh --batch <id>` shows the recommendation, and now reports **over**-provisioning
-   as well as under- (it used to be silent when you overspent). The gate **announces the sized set on
-   every run**; to make that floor *hard* for a batch, record it on the ledger entry with
-   `record_required_roles <batch-id>` when you announce.
+   as well as under- (it used to be silent when you overspent). The floor is **hard on every code
+   batch, and you do not arm it**: `verify-batch.sh` records the sized set on the ledger entry itself,
+   in code, immediately before the dispatch gate reads it. It is recorded *there* rather than at
+   announce because that is where the batch's diff exists — at announce the window is still empty, so
+   the set computed then is the wrong one.
    **Two floors that never move:** every code batch keeps **≥1 independent reviewer** (the
    anti-collapse guarantee — it is never sized away), and `check-role-dispatch` **fails closed** on a
    required role that was not dispatched. Dispatching **more** than the set is reported, never blocked —

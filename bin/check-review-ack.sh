@@ -66,15 +66,6 @@ EOF
 }
 _sev_ge_medium() { case "$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')" in MEDIUM|HIGH|CRITICAL) return 0 ;; esac; return 1; }
 
-# _inflight_batch → the in-flight ledger line (last announced; else last non-empty).
-_inflight_batch() {
-  local ledger line
-  ledger="$(resolve_ledger)"; [ -n "$ledger" ] && [ -f "$ledger" ] || return 0
-  line="$(grep '"status":[[:space:]]*"announced"' "$ledger" 2>/dev/null | tail -1)"
-  [ -n "$line" ] || line="$(grep -v '^[[:space:]]*$' "$ledger" 2>/dev/null | tail -1)"
-  printf '%s' "$line"
-}
-
 _evaluate() {
   local marker mk bline bid bkind builder base_full head_full
   marker="$(resolve_marker)"
@@ -82,7 +73,7 @@ _evaluate() {
   mk="$(cat "$marker" 2>/dev/null || true)"
   [ "$(field_bool "$mk" intends_code)" = "true" ] || { echo "check-review-ack: marker not intends_code — skipping."; return 0; }
 
-  bline="$(_inflight_batch)"
+  bline="$(inflight_batch)"
   [ -n "$bline" ] || { echo "check-review-ack: no in-flight batch — nothing to review."; return 0; }
   bid="$(field_str "$bline" id)"; bkind="$(field_str "$bline" kind)"
   [ "$bkind" = "code" ] || { echo "check-review-ack: in-flight batch '$bid' is kind=$bkind (not code) — skipping."; return 0; }
