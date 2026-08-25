@@ -54,6 +54,19 @@ _tier_for() {
   printf '%s\n' "$v" | sed -n 's/^select-pipeline: RECOMMENDED pipeline: \([a-z-]*\).*/\1/p' | head -1
 }
 
+# _sane_paths — drop anything that is not plausibly a repo path. tasks.md is AUTHORED content and its
+# paths are spliced into the run marker's JSON; a value carrying a double quote or a backslash produced
+# an UNPARSEABLE marker, and the marker is the machine fact every gate reads (atomic-marker AC-A1 pins
+# an unreadable marker as a fail-OPEN). Filtering is the right shape rather than escaping: a path with
+# a quote in it is a parse artifact, not a target file, so keeping it would be wrong even if it were
+# encodable. Rejecting the token also keeps the surviving paths in the same task usable.
+_sane_paths() {
+  # A single leading dot is allowed and load-bearing: `.github/workflows/` is one of the five risk
+  # categories, so anchoring on [A-Za-z0-9] silently declined to escalate CI changes — caught by the
+  # AC-3 infra fixture. `..` is rejected in any position: a traversal is never a milestone target.
+  grep -E '^\.?[A-Za-z0-9][A-Za-z0-9._/-]*$' 2>/dev/null | grep -v '\.\.' || true
+}
+
 # _paths_in TEXT — the `- file: a, b · (meta)` convention, then the conservative backtick fallback.
 _paths_in() {
   local out
@@ -61,10 +74,12 @@ _paths_in() {
          | sed 's/·.*$//' | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' \
          | sort -u || true)"   # dedup: one file named by two tasks is one file, not two — counting it
                                 # twice inflates the files>=3 / files>=10 thresholds and buys a tier
+  out="$(printf '%s\n' "$out" | _sane_paths)"
   if [ -z "$out" ]; then
     out="$(printf '%s\n' "$1" | grep -oE '`[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)+\.[A-Za-z0-9]+`' 2>/dev/null \
            | tr -d '`' | sort -u || true)"
   fi
+  out="$(printf '%s\n' "$out" | _sane_paths)"
   printf '%s' "$out"
 }
 

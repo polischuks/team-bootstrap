@@ -368,6 +368,24 @@ T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git confi
        "AC-10 pipeline=auto is not treated as the single-thread exemption" )
 rm -rf "$T"
 
+echo
+echo "WS-1 — hostile tasks.md content cannot corrupt the marker (adversarial):"
+
+# tasks.md is authored content, and its paths are spliced into the marker JSON. A path containing a
+# quote or a backslash produced an INVALID marker. That marker is the machine fact every gate reads,
+# and an unparseable one is exactly the state atomic-marker.test.sh AC-A1 pins as a fail-OPEN.
+T="$(mktemp -d)"; ( cd "$T"; git init -q; git config user.email a@b.c; git config user.name t
+  git commit -q --allow-empty -m base
+  mkdir -p specs/evil
+  printf '# Spec\n' > specs/evil/spec.md; printf '# Plan\n' > specs/evil/plan.md
+  printf '# Tasks\n\n## Phase 1 — WS-1: hostile\n- [ ] T010 Do it.\n  - file: bin/we"ird.sh, bin/back\\slash.sh, bin/ok.sh · (feat · P10) — AC-1\n' > specs/evil/tasks.md
+  m="$(_arm '/deliver specs/evil/spec.md')"
+  ok="$(python3 -c "import json;json.load(open('$m'));print('valid')" 2>/dev/null || echo invalid)"
+  _chk "$ok" "valid" "hostile path characters in tasks.md still yield a parseable marker"
+  # and the sane path survives — sanitising must not silently drop everything
+  _chk "$(grep -c 'bin/ok.sh' "$m" || true)" "1" "…and the well-formed path in the same task is kept" )
+rm -rf "$T"
+
 fail="$(cat "$FAILF")"; rm -f "$FAILF"
 [ "$fail" -eq 0 ] && { echo "spec-sourced-sizing.test.sh: OK"; exit 0; }
 echo "spec-sourced-sizing.test.sh: $fail failure(s)"; exit 1
