@@ -44,6 +44,67 @@ esac
 tasks="$dir/tasks.md"
 [ -f "$tasks" ] || _degrade "no-tasks-md"
 
+# --- complexity the PATHS cannot show (ADR-0019) ------------------------------
+# The path classifier reads file count, layer count and five path-pattern risk categories. It is blind
+# to what the milestone actually DOES. A spec about exactly-once distributed settlement — consensus,
+# split-brain reconciliation, irreversible money movement — sized to single-thread because it touched
+# two files in one directory. The hard part is described in spec.md and plan.md, and was never read.
+#
+# LIFT-ONLY, and word-boundary matched using this repo's portable idiom ((^|[^a-z])term([^a-z]|$)) —
+# `\b` is not dependable across BSD and GNU grep. Bare `auth` is deliberately NOT a term: it matches
+# "author", which appears in ordinary spec prose.
+_PROSE_SECURITY='authentication|authoris|authoriz|oauth|jwt|credential|password|session token|access token|rbac|permission'
+_PROSE_MONEY='payout|payment|billing|invoice|refund|settlement|irreversible'
+_PROSE_DATA='migration|migrate|backfill|schema|reindex'
+_PROSE_DIST='consensus|split-brain|partition|idempotent|idempotency|exactly-once|race|concurrency|concurrent|distributed|deadlock|lock-free'
+_PROSE_INFRA='rollout|kubernetes|terraform|failover|blue-green|canary'
+
+# _prose_reasons DIR → space-separated category names the milestone's prose trips (empty if none).
+_prose_reasons() {
+  local txt r="" c pat
+  # Headings and <angle-bracket placeholders> are template scaffolding, not description. The stock
+  # plan.md ships `## Data / schema changes (if any)` and `## Migration shape (if applicable)`, so
+  # scanning them lifted EVERY milestone that used the template — which would make everything `full`
+  # and destroy the point of sizing. Strip both, then match on what the author actually wrote.
+  txt="$( { cat "$1/spec.md" "$1/plan.md"; } 2>/dev/null \
+          | grep -v '^[[:space:]]*#' | sed 's/<[^>]*>//g' | tr '[:upper:]' '[:lower:]' )"
+  [ -n "$txt" ] || return 0
+  for c in "security:$_PROSE_SECURITY" "money:$_PROSE_MONEY" "data:$_PROSE_DATA" \
+           "dist:$_PROSE_DIST" "infra:$_PROSE_INFRA"; do
+    pat="${c#*:}"
+    printf '%s' "$txt" | grep -qE "(^|[^a-z])(${pat})([^a-z]|\$)" && r="$r prose:${c%%:*}"
+  done
+  printf '%s' "${r# }"
+}
+
+# _declared_roles TEXT → the roles the task author asked for with `⚠ <role>`. A DECLARATION, not a
+# heuristic — the strongest signal available, and it was being thrown away. Same trust model as the
+# ledger's self-declared risk_rank (ADR-0006): forgeable, therefore one-directional. It can buy extra
+# review; it can never remove review the paths or the prose already earned.
+# `tb-code-reviewer` is the subagent type; `code-reviewer` is the attributed role (review-types.txt).
+_declared_roles() {
+  printf '%s\n' "$1" \
+    | grep -oE '⚠[[:space:]]*[a-z-]+' 2>/dev/null \
+    | sed 's/⚠[[:space:]]*//; s/^tb-code-reviewer$/code-reviewer/' \
+    | sort -u | tr '\n' ' ' | sed 's/[[:space:]]*$//'
+}
+
+# _roles_for TIER DECLARED → the review set: the tier's own roles UNION whatever was declared.
+# Mirrors delivery-lib's required_roles_for_batch mapping exactly; the >=1 code-reviewer floor on a
+# code batch is an invariant here too and is never sized or declared away.
+_roles_for() {
+  local tier="$1" declared="$2" base r out=""
+  case "$tier" in
+    full) base='integration-verifier architecture-reviewer regression-guardian code-reviewer' ;;
+    mvp)  base='integration-verifier code-reviewer' ;;
+    *)    base='code-reviewer' ;;
+  esac
+  for r in $base $declared; do
+    case " $out " in *" $r "*) : ;; *) out="$out $r" ;; esac
+  done
+  printf '%s' "${out# }"
+}
+
 # _tier_for PATHS — hand a newline-separated path list to select-pipeline's classifier and read back
 # the tier. One place calls the classifier; both modes go through it.
 _tier_for() {
@@ -89,15 +150,23 @@ _paths_in() {
 # cannot force its control flow (ADR-0006/0008) — only observe it. A batch is matched to an entry at
 # announce time by path overlap; no overlap means no floor, and the diff decides alone.
 if [ "$per_batch" -eq 1 ]; then
-  _ws=""; _body=""
+  _ws=""; _body=""; _prose="$(_prose_reasons "$dir")"
   _emit_ws() {
     [ -n "$_ws" ] || return 0
-    local wp wt
+    local wp wt dr
     wp="$(_paths_in "$_body")"
     [ -n "$wp" ] || return 0                 # a section that names no path earns no floor
     wt="$(_tier_for "$wp")"
     [ -n "$wt" ] || return 0
-    printf 'ws=%s\ttier=%s\tpaths=%s\n' "$_ws" "$wt" \
+    # The prose describes the MILESTONE, so it lifts every work-stream — except an all-doc one.
+    # Applying it uniformly would re-create the flat fan-out ADR-0017 removed; skipping it for docs
+    # is the same line select-pipeline's all-doc short-circuit already draws.
+    if [ -n "$_prose" ] && [ "$wt" != "full" ] \
+       && printf '%s\n' "$wp" | grep -qvE '\.(md|mdx|txt)$|^docs/|^references/'; then
+      wt="full"        # a non-doc path is present, so the milestone's stated complexity applies here
+    fi
+    dr="$(_declared_roles "$_body")"
+    printf 'ws=%s\ttier=%s\troles=%s\tpaths=%s\n' "$_ws" "$wt" "$(_roles_for "$wt" "$dr")" \
       "$(printf '%s' "$wp" | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
   }
   # Read in the CURRENT shell (redirect on `done`), not a pipeline — a subshell would discard the
@@ -152,6 +221,15 @@ if [ "$ntasks" -ge 12 ] && [ "$tier" = "single-thread" ]; then
   tier="mvp"; reasons="${reasons:+$reasons }tasks>=12"
 fi
 
-printf 'tier=%s\nfiles=%s\ntasks=%s\nlayers=%s\nreasons=%s\n' \
-  "$tier" "$files" "$ntasks" "$layers" "$reasons"
+# --- what the paths cannot show (ADR-0019) -----------------------------------
+prose="$(_prose_reasons "$dir")"
+if [ -n "$prose" ] && [ "$tier" != "full" ]; then
+  tier="full"; reasons="${reasons:+$reasons }$prose"
+fi
+declared="$(_declared_roles "$(cat "$tasks")")"
+[ -n "$declared" ] && reasons="${reasons:+$reasons }declared-roles"
+roles="$(_roles_for "$tier" "$declared")"
+
+printf 'tier=%s\nroles=%s\nfiles=%s\ntasks=%s\nlayers=%s\nreasons=%s\n' \
+  "$tier" "$roles" "$files" "$ntasks" "$layers" "$reasons"
 exit 0

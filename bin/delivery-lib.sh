@@ -218,7 +218,7 @@ _tier_rank() { case "$1" in single-thread) printf 1 ;; mvp) printf 2 ;; full) pr
 # the best-overlapping entry supplies the floor. No overlap ⇒ no floor, and the diff decides alone;
 # that is the fail-SAFE direction, since the floor can only ever raise the role set.
 spec_plan_tier_for_batch() {
-  local bid="$1" list rest idx body ws tier wp bpaths best_t="" best_n=0 n f
+  local bid="$1" list rest idx body ws tier wp wr bpaths best_t="" best_r="" best_n=0 n f
   list="$(marker_list role_plan)"
   [ -n "$list" ] || return 0
   bpaths="$(_batch_paths "$bid")"
@@ -232,14 +232,16 @@ spec_plan_tier_for_batch() {
     body="{${rest:0:idx}}"
     rest="${rest:idx+1}"; rest="${rest#,}"
     ws="$(field_str "$body" ws)"; tier="$(field_str "$body" tier)"; wp="$(field_str "$body" paths)"
+    wr="$(field_str "$body" roles)"
     [ -n "$tier" ] && [ -n "$wp" ] || continue
     n=0
     for f in $bpaths; do
       case " $wp " in *" $f "*) n=$((n + 1)) ;; esac
     done
-    if [ "$n" -gt "$best_n" ]; then best_n="$n"; best_t="$tier"; fi
+    if [ "$n" -gt "$best_n" ]; then best_n="$n"; best_t="$tier"; best_r="$wr"; fi
   done
-  [ "$best_n" -gt 0 ] && printf '%s' "$best_t"
+  # tier<TAB>roles — the caller lifts the tier and UNIONS the roles.
+  [ "$best_n" -gt 0 ] && printf '%s\t%s' "$best_t" "$best_r"
   return 0
 }
 
@@ -285,17 +287,26 @@ required_roles_for_batch() {
   # ADR-0018 — the spec-planned tier is a FLOOR the diff may LIFT but never lower. One-directional on
   # purpose: text-sourced sizing can under-state a risk the spec never names as a path (R2), so the
   # diff stays the backstop; and a plan that over-states can only cost review, never skip it.
-  local ptier prank drank
-  ptier="$(spec_plan_tier_for_batch "$bid" 2>/dev/null || true)"
+  local plan ptier proles prank drank base r out=""
+  plan="$(spec_plan_tier_for_batch "$bid" 2>/dev/null || true)"
+  ptier="$(printf '%s' "$plan" | cut -f1)"; proles="$(printf '%s' "$plan" | cut -f2)"
   if [ -n "$ptier" ]; then
     prank="$(_tier_rank "$ptier")"; drank="$(_tier_rank "$tier")"
     [ -n "$prank" ] && [ "$prank" -gt "${drank:-0}" ] && tier="$ptier"
   fi
   case "$tier" in
-    full) printf 'integration-verifier architecture-reviewer regression-guardian code-reviewer' ;;
-    mvp)  printf 'integration-verifier code-reviewer' ;;
-    *)    printf 'code-reviewer' ;;                   # unknown/lightest ⇒ the invariant floor only
+    full) base='integration-verifier architecture-reviewer regression-guardian code-reviewer' ;;
+    mvp)  base='integration-verifier code-reviewer' ;;
+    *)    base='code-reviewer' ;;                     # unknown/lightest ⇒ the invariant floor only
   esac
+  # ADR-0019 — roles the task author DECLARED with `⚠ <role>` are unioned in, never subtracted. Same
+  # trust model as the ledger's self-declared risk_rank (ADR-0006): forgeable, therefore permitted to
+  # raise the requirement and never to lower it. Declaring `⚠ code-reviewer` on an auth batch cannot
+  # shrink the full set the paths already earned.
+  for r in $base $proles; do
+    case " $out " in *" $r "*) : ;; *) out="$out $r" ;; esac
+  done
+  printf '%s' "${out# }"
 }
 
 # record_required_roles BATCH_ID → compute the batch's role set and splice it into ITS ledger line as
