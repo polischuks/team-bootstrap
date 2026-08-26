@@ -311,4 +311,28 @@ fi
 [ "${TEAM_BOOTSTRAP_GITGUARD:-on}" = "off" ] && exit 0
 payload="$(head -c 1048576 2>/dev/null || true)"
 guard_git "$payload"
-exit $?
+_rc=$?
+[ "$_rc" -ne 0 ] && exit "$_rc"
+
+# permissionDecision:"ask" — the middle path this guard did not have. Everything above is binary: block
+# (exit 2) or stay silent. A force-push to a NON-default branch is not the default-branch write this
+# guard refuses, but it is irreversible and rewrites history someone else may have pulled — the one
+# shape where "let a human look" is the right answer rather than either extreme. Aider's auditability
+# and Cline's approval points, in the one place they actually apply here.
+#
+# Advisory by construction: any parse failure falls through to exit 0, so a payload we cannot read is
+# handled exactly as before. Disable with TEAM_BOOTSTRAP_GITGUARD_ASK=off.
+if [ "${TEAM_BOOTSTRAP_GITGUARD_ASK:-on}" != "off" ]; then
+  _cmd="$(printf '%s' "$payload" | python3 -c 'import json,sys
+try: d=json.load(sys.stdin)
+except Exception: sys.exit(0)
+c=(d.get("tool_input") or {}).get("command")
+print(c if isinstance(c,str) else "")' 2>/dev/null || true)"
+  case "$_cmd" in
+    *"git push"*--force*|*"git push"*-f\ *)
+      printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"This rewrites published history: `%s`. It is not the default-branch write the guard refuses, and it is not reversible by re-running anything — so it is escalated for a human decision rather than blocked or waved through."}}\n' \
+        "$(printf '%s' "$_cmd" | tr -d '"\\' | cut -c1-160)"
+      ;;
+  esac
+fi
+exit 0
