@@ -18,7 +18,8 @@ done
 
 # AC-7 — every gate with a --self-test passes it
 for s in check-enforcement check-completeness check-seam-ack check-tdd check-diff-coverage \
-         check-mutation check-version-sync check-delivery verify-batch; do
+         check-mutation check-version-sync check-delivery check-role-triples check-context-phrasing \
+         verify-batch; do
   if grep -q -- '--self-test' "$here/bin/$s.sh" 2>/dev/null; then
     if "$here/bin/$s.sh" --self-test >/dev/null 2>&1; then echo "  PASS AC-7 $s --self-test"; else
       echo "  FAIL AC-7 $s --self-test" >&2; fail=$((fail + 1)); fi

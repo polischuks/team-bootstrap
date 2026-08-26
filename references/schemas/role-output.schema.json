@@ -778,16 +778,29 @@
         {
           "properties": {
             "role": { "const": "architecture-reviewer" },
+            "architecture_verdict": {
+              "enum": ["go", "no_go"],
+              "description": "The role's own verdict, mode-independent, on the release-manager `release_decision` pattern. Required as of milestone 020 (AC-24). Until then this role — one of the FOUR MANDATORY review roles — declared no required field at all: bin/check-role-verdict.sh had nothing to demand of it and exited 0 on every invocation, a check that cannot fail. agents/architecture-reviewer.md recorded that as a KNOWN GAP and deferred closing it to a deliberate major bump, because a new required handoff field is major under references/versioning.md. This milestone is that bump."
+            },
             "review_mode": { "enum": ["soundness", "conformance"] },
             "architecture_sound": { "type": "boolean", "description": "Soundness mode: is the planned architecture correct and baseline-fitting? See references/architecture-baseline.md." },
             "conformance_verified": { "type": "boolean", "description": "Conformance mode: did the batch stay within the baseline (no drift)?" },
             "drift_findings": { "type": "integer", "minimum": 0, "description": "Conformance mode: count of baseline violations (boundary/layer/dependency drift)." },
             "findings": { "$ref": "#/$defs/reviewFindings" }
-          }
+          },
+          "required": ["architecture_verdict", "review_mode"]
         },
         {
           "if": { "properties": { "status": { "const": "completed" } }, "required": ["status"] },
           "then": { "properties": { "architecture_sound": { "const": true }, "conformance_verified": { "const": true }, "drift_findings": { "const": 0 } } }
+        },
+        {
+          "if": { "properties": { "review_mode": { "const": "conformance" } }, "required": ["review_mode"] },
+          "then": { "required": ["conformance_verified", "drift_findings"] }
+        },
+        {
+          "if": { "properties": { "review_mode": { "const": "soundness" } }, "required": ["review_mode"] },
+          "then": { "required": ["architecture_sound"] }
         }
       ],
       "unevaluatedProperties": false
