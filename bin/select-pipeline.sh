@@ -54,7 +54,7 @@ _untracked_numstat() {
 #   <rec_rank>\t<files>\t<nondoc_lines>\t<layers>\t<reasons>
 recommend() {
   local add del path files=0 nondoc=0 layers="" lc docpaths=""
-  local sec=0 data=0 infra=0 api=0 deps=0 ui=0 perf=0
+  local sec=0 data=0 infra=0 api=0 deps=0 ui=0 perf=0 lic=0 hastest=0
   # NOTE (ADR-0018): every directory pattern must carry BOTH the root form and the nested form.
   # `*/api/*` does not match `api/routes.ts` at the repo root — there is no parent segment to match
   # `*/`. That silently under-escalated root-level api/, models/ and .github/workflows/ changes, in
@@ -83,6 +83,14 @@ recommend() {
     # pattern answers "is this hot", and a guess would route the role at noise while looking exactly as
     # load-bearing to eval-role --liveness. Paths the repo itself calls performance work, nothing more.
     case "$lc" in bench/*|*/bench/*|benchmark*|*/benchmark*|*.bench.*|perf/*|*/perf/*|*loadtest*|*load-test*|*.jmx|*k6*) perf=1 ;; esac
+    # milestone 020, Д2 §1.2 — LICENCE surface. Distinct from `deps`: a manifest change is an IP event
+    # (a new transitive dependency can carry a copyleft obligation), while an edit to the licence text
+    # itself is a compliance event. They route to different roles for that reason.
+    case "$lc" in license|licence|license.*|licence.*|copying|copying.*|notice|notice.*|*/license|*/licence|*/license.*|*/licence.*|*/copying|*/notice) lic=1 ;; esac
+    # milestone 020, Д2 §1.2 — "test-designer при отсутствии тестов в диффе". Recorded per file here;
+    # the CATEGORY is derived after the loop, because "no test file" is a property of the whole diff and
+    # cannot be decided from any single path.
+    if is_test_path "$path"; then hastest=1; fi
   done
   local nlayers
   nlayers="$(printf '%s' "$layers" | tr ' ' '\n' | grep -ve '^$' | sort -u | grep -c . || true)"
@@ -128,6 +136,12 @@ recommend() {
   [ "$ui" -eq 1 ] && reasons="$reasons ui"
   # Composition signals, like `ui`: they summon a role without lifting the tier.
   [ "$perf" -eq 1 ] && reasons="$reasons perf"
+  [ "$lic" -eq 1 ] && reasons="$reasons licence"
+  # `no-tests` is a property of the DIFF, not of any one path: non-doc work changed and no test file
+  # came with it. It cannot lift the tier — shipping untested code is not a bigger change, it is an
+  # unreviewed one — so like `ui` and `perf` it summons a role and leaves the depth alone. A doc-only
+  # diff never reaches here (the all-doc short-circuit returns above), so this cannot fire on prose.
+  [ "$hastest" -eq 0 ] && [ "$nondoc" -gt 0 ] && reasons="$reasons no-tests"
   [ "$full" -eq 1 ] && rec=3
 
   printf '%s\t%s\t%s\t%s\t%s\n' "$rec" "$files" "$nondoc" "$nlayers" "${reasons# }"
@@ -226,7 +240,7 @@ while [ $# -gt 0 ]; do
     --chosen) chosen="${2:-}"; shift 2 ;;
     --batch)  batch="${2:-}";  shift 2 ;;
     --from-stdin) from_stdin=1; shift ;;
-    --categories) printf 'security/auth data/schema infra/deploy api/contract deps ui perf\n'; exit 0 ;;
+    --categories) printf 'security/auth data/schema infra/deploy api/contract deps ui perf licence no-tests\n'; exit 0 ;;
     --self-test) selftest=1; shift ;;
     -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
     -*) echo "select-pipeline: unknown flag '$1'" >&2; exit 64 ;;

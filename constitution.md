@@ -125,7 +125,7 @@ before claiming a threshold, and flag any delta:
 | Role playbooks (`references/roles/*.md`) | 51 | New role → PATCH (new sanctioned enumeration entry) + role-matrix row + schema branch + skills-manifest entry |
 | Pipelines (`references/pipelines/*.md`) | 6 | New pipeline → MINOR (new doctrine surface) |
 | Reviewer roles carrying `severity_counts` | 4 | New reviewer dimension → MINOR |
-| Live role bindings (`bin/eval-role.sh --liveness`) | 7 | A new binding → PATCH; a binding that stops reddening → the binding is dead (P12) |
+| Live role bindings (`bin/eval-role.sh --liveness`) | 11 | A new binding → PATCH; a binding that stops reddening → the binding is dead (P12) |
 | Irreversibility action classes | see [irreversibility.md](references/irreversibility.md) | New class → MINOR |
 
 ## Registry impact

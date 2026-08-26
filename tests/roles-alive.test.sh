@@ -110,8 +110,14 @@ while read -r _cat _roles; do
 done < "$MAP"
 _chk "${_dead:-none}" none "every role named by the map has an agents/ file"
 
-# no DEAD KEYS: every category must be one select-pipeline.sh actually emits
-_emitted="$(grep -oE 'reasons="\$reasons [a-z/]+"' "$here/bin/select-pipeline.sh" | sed -E 's/.* ([a-z/]+)"/\1/' | sort -u)"
+# no DEAD KEYS: every category must be one select-pipeline.sh actually emits.
+#
+# Read from `--categories`, which publishes the vocabulary beside the code that emits it, rather than
+# scraping the source. The scrape this replaces matched `[a-z/]+` and therefore could not see a category
+# containing a hyphen: `no-tests` was invisible to it and reported as a dead key while being emitted
+# correctly. A check that reconstructs its expectation from source text drifts from the source the
+# moment the source gains a character class the regex does not know about.
+_emitted="$("$here/bin/select-pipeline.sh" --categories 2>/dev/null | tr ' ' '\n' | grep -v '^$' | sort -u)"
 _deadk=""
 while read -r _cat _rest; do
   case "$_cat" in ''|'#'*) continue ;; esac

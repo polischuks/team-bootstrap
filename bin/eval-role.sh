@@ -67,7 +67,13 @@ if [ "${LIVENESS:-0}" -eq 1 ]; then
   ROOT="$(cd "$(dirname "$0")/.." && pwd)"
   MAPF="${TEAM_BOOTSTRAP_PROFILE:-$ROOT/profiles/default.map}"
   [ -f "$MAPF" ] || { echo "eval-role --liveness: no profile map at $MAPF" >&2; exit 1; }
-  # one probe path per category the classifier emits — the same paths select-pipeline.sh classifies
+  # The probe paths per category — the same paths select-pipeline.sh classifies. A probe may name MORE
+  # THAN ONE path (space-separated), because not every category can be tripped by a single file: an
+  # all-doc diff short-circuits to `docs-only` before any category is emitted, so a LICENSE-only change
+  # is a doc batch and earns no review fan-out by design. The realistic licence event is a MIXED diff —
+  # a vendored dependency arriving with its licence — and the probe has to be able to say so. A
+  # one-path-only probe would have reported that binding DEAD and invited someone to "fix" a binding
+  # that was never broken.
   _probe_for() {
     case "$1" in
       security/auth) printf 'src/auth/login.ts' ;;
@@ -76,19 +82,25 @@ if [ "${LIVENESS:-0}" -eq 1 ]; then
       infra/deploy)  printf 'infra/Dockerfile' ;;
       deps)          printf 'package.json' ;;
       ui)            printf 'src/components/Button.tsx' ;;
-      infra/deploy)  printf 'infra/Dockerfile' ;;
       perf)          printf 'bench/throughput.bench.ts' ;;
+      licence)       printf 'LICENSE src/vendored.ts' ;;
+      # `no-tests` is a property of the whole diff, not of a path: the probe is any non-doc file that is
+      # not itself a test. Every other probe here trips it too, which is correct and harmless — the
+      # liveness check compares PER ROLE, so test-designer being present in a security/auth probe's set
+      # does not affect whether security-reviewer is load-bearing.
+      no-tests)      printf 'src/untested.ts' ;;
       *)             printf '' ;;
     esac
   }
-  _required_with() { # $1=profile-map path  $2=touch path → the sized role set
-    local D; D="$(mktemp -d)"
+  _required_with() { # $1=profile-map path  $2=space-separated touch paths → the sized role set
+    local D _p; D="$(mktemp -d)"
     ( cd "$D" || exit 1
       git init -q; git config user.email a@b.c; git config user.name t
       printf 'x\n' > seed.txt; git add -A; git commit -q -m base
       B="$(git rev-parse --short HEAD)"
-      mkdir -p "$(dirname "$2")" .runs/r
-      printf 'z\n' > "$2"; git add -A; git commit -q -m work
+      mkdir -p .runs/r
+      for _p in $2; do mkdir -p "$(dirname "$_p")"; printf 'z\n' > "$_p"; done
+      git add -A; git commit -q -m work
       printf '{"run":"r","pipeline":"full","intends_code":true,"baseline_sha":"%s"}\n' "$B" > .runs/r/RUN
       printf '{"id":"B1","kind":"code","status":"announced"}\n' > .runs/r/batches.jsonl
       . "$ROOT/bin/delivery-lib.sh"

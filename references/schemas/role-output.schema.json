@@ -433,7 +433,17 @@
     "test-designer": {
       "allOf": [
         { "$ref": "#/$defs/base" },
-        { "properties": { "role": { "const": "test-designer" } } }
+        {
+          "properties": {
+            "role": { "const": "test-designer" },
+            "test_design_verdict": {
+              "enum": ["go", "no_go"],
+              "description": "The role's own verdict. `no_go` when the change has behaviour the designed cases do not reach — an uncovered branch is a finding, not a note. Required (milestone 020, AC-24) for the same reason as every other revived role: a dispatch that closure cannot confirm is not evidence that a review happened."
+            },
+            "uncovered_behaviours": { "type": "integer", "minimum": 0 }
+          },
+          "required": ["test_design_verdict"]
+        }
       ],
       "unevaluatedProperties": false
     },
@@ -563,7 +573,17 @@
     "chaos-engineer": {
       "allOf": [
         { "$ref": "#/$defs/base" },
-        { "properties": { "role": { "const": "chaos-engineer" } } }
+        {
+          "properties": {
+            "role": { "const": "chaos-engineer" },
+            "resilience_verdict": {
+              "enum": ["go", "no_go"],
+              "description": "The role's own verdict, on the release-manager `release_decision` pattern. `no_go` when an experiment found an unbounded blast radius, or a hardening gap this batch does not close. Required (milestone 020, AC-24): without a required field a dispatch of this role can be COUNTED but never CONFIRMED at closure, which is exactly the decoy the verdict pipeline exists to reject."
+            },
+            "blast_radius_bounded": { "type": "boolean" }
+          },
+          "required": ["resilience_verdict"]
+        }
       ],
       "unevaluatedProperties": false
     },
@@ -573,8 +593,12 @@
         {
           "properties": {
             "role": { "const": "legal-compliance-checker" },
-            "release_recommendation": { "enum": ["hold", "conditional_go", "go"] }
-          }
+            "release_recommendation": {
+              "enum": ["hold", "conditional_go", "go"],
+              "description": "Promoted from optional to REQUIRED (milestone 020, AC-24). It was always the role's stated output — references/roles/legal-compliance-checker.md emits a `Release Recommendation` — but optional in the schema, so a handoff could omit the answer to the only question the role was dispatched to answer, and closure had no way to tell that from a clean result."
+            }
+          },
+          "required": ["release_recommendation"]
         }
       ],
       "unevaluatedProperties": false

@@ -79,3 +79,17 @@ team-bootstrap:devops-platform	devops-platform
 devops-platform	devops-platform
 team-bootstrap:performance-reviewer	performance-reviewer
 performance-reviewer	performance-reviewer
+
+# --- second wave (milestone 020, AC-9/AC-10): the roles Д2 §1.2 supplies a routing signal for. Same
+# three conditions as the wave above — each ships an agents/<slug>.md, declares a REQUIRED verdict field
+# in role-output.schema.json, and denies Write/Edit in its playbook (the anti-builder invariant). The
+# required field landed BEFORE the slug on purpose (R2): a role that can be dispatched but not confirmed
+# at closure is one more way to dispatch a decoy, which is the opposite of what this file is for.
+team-bootstrap:chaos-engineer	chaos-engineer
+chaos-engineer	chaos-engineer
+team-bootstrap:test-designer	test-designer
+test-designer	test-designer
+team-bootstrap:legal-compliance-checker	legal-compliance-checker
+legal-compliance-checker	legal-compliance-checker
+team-bootstrap:ip-contracts-reviewer	ip-contracts-reviewer
+ip-contracts-reviewer	ip-contracts-reviewer

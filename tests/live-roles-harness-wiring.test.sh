@@ -183,5 +183,83 @@ _chk "$( "$here/bin/check-context-phrasing.sh" "$P" >/dev/null 2>&1 && echo pass
 rm -rf "$P"
 
 # ---------------------------------------------------------------------------
+# WS-C — the second wave: a role is dispatchable, attributable, TYPED, and routed by a real signal.
+#
+# Four roles have a playbook, a role-matrix row and a schema branch, and are invisible to the harness:
+# no agents/<slug>.md means no subagent_type, and no required verdict field means nothing to confirm at
+# closure. R2 is the reason the order is fixed — a dispatchable role with no confirmable verdict is one
+# more way to dispatch a decoy, so the TYPE lands before the agent does.
+#
+# The routing signals come from Д2 §1.2, which supplies what the tree lacked: test-designer on a diff
+# with no test file, the legal pair on licences and dependency manifests, chaos-engineer alongside
+# devops-platform on infra/deploy.
+# ---------------------------------------------------------------------------
+WAVE2="chaos-engineer test-designer legal-compliance-checker ip-contracts-reviewer"
+
+echo "AC-24 — every revived role declares its OWN required verdict field:"
+for r in $WAVE2; do
+  _chk "$(PY '
+import json,sys
+d=json.load(open("references/schemas/role-output.schema.json"))["$defs"].get(sys.argv[1],{})
+req=[f for b in d.get("allOf",[]) for f in b.get("required",[])]
+print("yes" if req else "no")' "$r")" yes "$r has a required field (confirmable at closure)"
+done
+
+echo "AC-24b — the required field is the ROLE own, never one inherited from base:"
+_own="$(PY '
+import json,sys
+d=json.load(open("references/schemas/role-output.schema.json"))["$defs"]
+base=set(d["base"].get("required",[]))
+bad=[]
+for r in sys.argv[1].split():
+    req=[f for b in d[r].get("allOf",[]) for f in b.get("required",[])]
+    if not [f for f in req if f not in base]:
+        bad.append(r)
+print(",".join(bad) or "none")' "$WAVE2")"
+_chk "$_own" none "every wave-2 role names a field of its own"
+
+echo "AC-9/AC-10 — the triple exists: agent + BOTH slug forms with attribution + playbook:"
+for r in $WAVE2; do
+  _chk "$([ -f "$here/agents/$r.md" ] && echo yes || echo no)" yes "$r: agents/$r.md exists"
+  _chk "$(awk -F'\t' -v s="$r" '$1==s && $2!="" {f=1} END{exit !f}' "$here/references/review-types.txt" && echo yes || echo no)" yes \
+    "$r: bare slug carries an attribution column"
+  _chk "$(awk -F'\t' -v s="team-bootstrap:$r" '$1==s && $2!="" {f=1} END{exit !f}' "$here/references/review-types.txt" && echo yes || echo no)" yes \
+    "$r: prefixed slug carries an attribution column"
+  _chk "$([ -f "$here/references/roles/$r.md" ] && echo yes || echo no)" yes "$r: playbook exists"
+done
+
+echo "AC-8 — the agent body does not restate the playbook (single source of truth):"
+for r in $WAVE2; do
+  [ -f "$here/agents/$r.md" ] || continue
+  _chk "$(grep -qF "references/roles/$r.md" "$here/agents/$r.md" && echo yes || echo no)" yes \
+    "$r: the agent points at its playbook"
+  _chk "$(awk 'BEGIN{fm=0} /^---$/{fm++; next} fm>=2 && NF>0 {n++} END{v=(n+0)<=40 ? "ok" : "over"; print v}' "$here/agents/$r.md")" ok \
+    "$r: agent body is within the calibrated 40-line duplication ceiling"
+done
+
+echo "AC-12 — anti-builder invariant holds for every new slug (no builder is dispatchable as a reviewer):"
+for r in $WAVE2; do
+  [ -f "$here/references/roles/$r.md" ] || continue
+  _chk "$(grep -qE '^[[:space:]]*deny:.*(Write|Edit)' "$here/references/roles/$r.md" && echo yes || echo no)" yes \
+    "$r: the playbook denies Write/Edit"
+done
+
+echo "AC-10b — each new role is routed by a category the classifier actually emits:"
+VOCAB="$("$here/bin/select-pipeline.sh" --categories 2>/dev/null)"
+while read -r cat _rest; do
+  case "$cat" in ''|'#'*) continue ;; esac
+  _in=no; case " $VOCAB " in *" $cat "*) _in=yes ;; esac
+  _chk "$_in" yes "profile category '$cat' is one select-pipeline emits"
+done < "$here/profiles/default.map"
+
+echo "AC-27 — every routed binding is ALIVE (removing it turns something red):"
+_chk "$( "$here/bin/eval-role.sh" --liveness >/dev/null 2>&1 && echo alive || echo dead )" alive \
+  "eval-role --liveness reports every binding load-bearing"
+
+echo "AC-10c — the new slugs collide with nothing (R10):"
+_chk "$(awk -F'\t' '!/^#/ && NF && $1!="" {print $1}' "$here/references/review-types.txt" | sort | uniq -d | tr '\n' ' ' | sed 's/ *$//')" "" \
+  "no duplicate slug in review-types.txt"
+
+# ---------------------------------------------------------------------------
 if [ "$fail" -eq 0 ]; then echo "live-roles-harness-wiring: OK"; exit 0; fi
 echo "live-roles-harness-wiring: $fail check(s) FAILED" >&2; exit 1

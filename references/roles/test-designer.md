@@ -1,6 +1,6 @@
 ---
 name: test-designer
-version: 1.1.0
+version: 2.0.0
 model: claude-sonnet-4-6
 compatible_pipelines: [full, single-thread]
 tool_surface:
