@@ -180,11 +180,16 @@ if [ "$tier_source" = "harness" ]; then
 fi
 # Write baseline_sha only when HEAD resolves. A bogus "unknown" would silently disarm the
 # predate check (R-3); omitting it is honest — reachable-from-HEAD (R-2) still anchors closure.
+# The tier is a DEPTH as well as a role list (the other half of ADR-0020): derive it once, here,
+# where the tier has just resolved, so the marker field and the context sentence cannot disagree.
+case "$pipeline" in full) _depth=high ;; mvp) _depth=medium ;; *) _depth=low ;; esac
+
 _base_f=""; [ -n "$base" ] && _base_f="\"baseline_sha\":\"$base\","
 _spec_f="\"spec_present\":$spec_present,\"tier_source\":\"$tier_source\","
 [ -n "$spec_path" ] && _spec_f="$_spec_f\"spec_path\":\"$spec_path\","
 [ -n "$artifacts" ] && _spec_f="$_spec_f\"spec_artifacts\":[$artifacts],"
 [ -n "$sizing" ]    && _spec_f="$_spec_f\"sizing\":\"$sizing\","
+_spec_f="$_spec_f\"review_depth\":\"$_depth\","
 [ -n "$role_plan" ] && _spec_f="$_spec_f\"role_plan\":[$role_plan],"
 [ -n "$sizing_degraded" ] && _spec_f="$_spec_f\"sizing_degraded\":\"$sizing_degraded\","
 
@@ -192,6 +197,7 @@ _spec_f="\"spec_present\":$spec_present,\"tier_source\":\"$tier_source\","
 # out-of-band imperatives trips the prompt-injection defence — Claude then shows the text to the user
 # instead of accepting it as context. So: what the harness computed, never what the model should do.
 _ctx="team-bootstrap harness sizing for run $run: pipeline=$pipeline, tier_source=$tier_source, spec_present=$spec_present, marker=$marker."
+_ctx="$_ctx Review depth: $_depth (the /code-review low-medium-high scale; the tier sets depth, the risk categories set composition)."
 [ -n "$sizing" ]  && _ctx="$_ctx Sizing reasons: $sizing."
 [ -n "$ctx_ws" ]  && _ctx="$_ctx Per-work-stream plan: $ctx_ws."
 # Degradation is stated, never inferred from an absent plan. An empty per-work-stream result used to be

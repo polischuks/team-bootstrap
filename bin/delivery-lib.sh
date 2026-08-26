@@ -265,6 +265,23 @@ _batch_paths() {
   fi
 }
 
+# review_depth_for_tier TIER → the /code-review level the tier buys: low | medium | high.
+#
+# ADR-0020 split composition from depth and only delivered the composition half — the tier stopped
+# deciding WHO reviews, and nothing then consumed it as HOW DEEPLY. That left the tier a role list
+# with a smaller list, which is not the split that was claimed. This is the other half: the tier is a
+# number on the /code-review scale, and it is stated to the model and to each dispatched role.
+#
+# `ultra` is deliberately unreachable here: it is user-triggered and billed, and a harness that could
+# spend it without being asked would be exactly the unbounded autonomy P1 rejects.
+review_depth_for_tier() {
+  case "$1" in
+    full) printf 'high' ;;
+    mvp)  printf 'medium' ;;
+    *)    printf 'low' ;;
+  esac
+}
+
 # profile_map_path → the active strictness profile. $TEAM_BOOTSTRAP_PROFILE overrides the shipped one,
 # which is how an organisation supplies its own mapping without touching the core (the Spec Kit preset
 # model: a preset overrides rules, it never adds capability). Empty when neither is readable.

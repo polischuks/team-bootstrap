@@ -41,6 +41,8 @@ bin/subagent-brief.sh
 bin/check-role-verdict.sh
 # UserPromptExpansion tier judge (model classification, deterministically launched)
 bin/judge-tier.sh
+# read-only reporter over the ledgers; listed because shrinking a metric hides a regression
+bin/delivery-metrics.sh
 
 # hook registrations (glob spans '/', so hooks/nested/*.json is covered too)
 hooks/*.json
