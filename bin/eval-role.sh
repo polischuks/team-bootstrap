@@ -105,7 +105,7 @@ if [ "${LIVENESS:-0}" -eq 1 ]; then
     for r in $roles; do
       total=$((total + 1))
       with="$(_required_with "$MAPF" "$probe")"
-      tmpmap="$(mktemp)"; grep -v "^$cat[[:space:]]" "$MAPF" > "$tmpmap"
+      tmpmap="$(mktemp)"; grep -v "^${cat}[[:space:]]" "$MAPF" > "$tmpmap"
       without="$(_required_with "$tmpmap" "$probe")"; rm -f "$tmpmap"
       # the role may still be earned by the TIER (integration-verifier is in the full base set); what
       # must differ is only the roles the CATEGORY contributes, so compare per-role, not set-equality.
