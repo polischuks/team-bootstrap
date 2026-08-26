@@ -1,6 +1,6 @@
 # team-bootstrap Constitution
 
-**Version: 1.0.1** · Governs the invariants every milestone and role change must respect.
+**Version: 1.1.0** · Governs the invariants every milestone and role change must respect.
 This is the `principles` document referenced by
 [references/speckit-preimpl-flow.md](references/speckit-preimpl-flow.md) Step 1. It distills
 the doctrine already stated across [ARCHITECTURE.md](ARCHITECTURE.md),
@@ -90,6 +90,20 @@ by prose; `plan.md` is the single source of truth that `tasks.md` derives from. 
 from a name that merely sounds right — the dominant avoidable failure in a mature codebase — violates
 P11.
 
+### P12 — A role is alive only if an eval reddens when it is removed
+A role's existence is proved by a **mutation eval**, never by the presence of a playbook. For every
+role the harness can assign, removing it from the active set must turn something red
+(`bin/eval-role.sh --liveness`, `bin/check-role-liveness.sh`). A binding whose removal changes no
+outcome is **dead**: it inflates the appearance of routing while routing nothing, and it is deleted
+or given a real signal rather than left in place. A role with no such eval is a playbook, and a
+playbook is not assigned.
+
+This is [P11](#p11--ground-claims-in-the-mechanism-not-the-name) applied to roles and
+`check-gate-integrity.sh`'s philosophy applied to the role set: the count of live roles is what the
+mutation eval reports, never the number of files in `references/roles/`. Compressing or deleting a
+playbook is permitted **only after** its knowledge is provably in a reddening eval — otherwise the
+compression removes knowledge that was recorded nowhere else.
+
 ---
 
 ## Boundary rules
@@ -111,6 +125,7 @@ before claiming a threshold, and flag any delta:
 | Role playbooks (`references/roles/*.md`) | 51 | New role → PATCH (new sanctioned enumeration entry) + role-matrix row + schema branch + skills-manifest entry |
 | Pipelines (`references/pipelines/*.md`) | 6 | New pipeline → MINOR (new doctrine surface) |
 | Reviewer roles carrying `severity_counts` | 4 | New reviewer dimension → MINOR |
+| Live role bindings (`bin/eval-role.sh --liveness`) | 7 | A new binding → PATCH; a binding that stops reddening → the binding is dead (P12) |
 | Irreversibility action classes | see [irreversibility.md](references/irreversibility.md) | New class → MINOR |
 
 ## Registry impact
@@ -125,7 +140,7 @@ Adding a role touches, in the same change: the role playbook, its
 
 - **PATCH** — clarification or wording; no rule redefined.
 - **MINOR** — a new principle, a new sanctioned exception, or a new enumeration invariant.
-- **MAJOR** — changing, weakening, or removing an existing invariant (P1–P11).
+- **MAJOR** — changing, weakening, or removing an existing invariant (P1–P12).
 
 Every milestone's Step 1 analysis
 ([references/speckit-preimpl-flow.md](references/speckit-preimpl-flow.md)) must state which,

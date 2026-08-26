@@ -101,6 +101,11 @@ recommend() {
     return 0
   fi
 
+  # RISK CATEGORY VOCABULARY. `reasons` carries two different kinds of token: SIZE reasons
+  # (files>=3, lines>=150, layers>=2, docs-only) and RISK CATEGORIES (the seven below). Only the
+  # second kind is a routing input — profiles/default.map keys on it, and the harness states it to the
+  # model as "risk categories detected". `--categories` publishes the vocabulary from HERE, beside the
+  # lines that emit it, so no caller has to keep a second copy in sync (the _roles_for lesson).
   local rec=1 reasons=""
   if [ "$files" -ge 3 ] || [ "$nondoc" -ge 150 ] || [ "$nlayers" -ge 2 ] || [ "$deps" -eq 1 ]; then
     rec=2
@@ -221,6 +226,7 @@ while [ $# -gt 0 ]; do
     --chosen) chosen="${2:-}"; shift 2 ;;
     --batch)  batch="${2:-}";  shift 2 ;;
     --from-stdin) from_stdin=1; shift ;;
+    --categories) printf 'security/auth data/schema infra/deploy api/contract deps ui perf\n'; exit 0 ;;
     --self-test) selftest=1; shift ;;
     -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
     -*) echo "select-pipeline: unknown flag '$1'" >&2; exit 64 ;;
