@@ -37,6 +37,8 @@ bin/quality-gate.sh
 bin/delivery-stop-hook.sh
 bin/delivery-marker-init.sh
 bin/subagent-brief.sh
+# per-role SubagentStop verdict check, declared in each review role's own frontmatter
+bin/check-role-verdict.sh
 
 # hook registrations (glob spans '/', so hooks/nested/*.json is covered too)
 hooks/*.json

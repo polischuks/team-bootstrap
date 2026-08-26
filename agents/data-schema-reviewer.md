@@ -2,6 +2,11 @@
 name: data-schema-reviewer
 description: Dedicated fresh-context reviewer for team-bootstrap's data-schema-reviewer role — assigned automatically when the batch diff trips the classifier's data/schema risk category. Dispatched under its own identifiable subagent type so the harness can attribute the dispatch to THIS role (references/review-types.txt → data-schema-reviewer). Use for the data gate of a kind:code batch touching migrations, schema or backfills.
 tools: Read, Grep, Glob, Bash
+hooks:
+  Stop:
+    - hooks:
+        - type: command
+          command: "${CLAUDE_PLUGIN_ROOT}/bin/check-role-verdict.sh"
 ---
 
 # Data Schema Reviewer (dedicated review role)

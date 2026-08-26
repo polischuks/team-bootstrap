@@ -2,6 +2,11 @@
 name: overengineering-reviewer
 description: Dedicated fresh-context reviewer for team-bootstrap's overengineering-reviewer role — assigned automatically when the batch diff trips the classifier's deps risk category (a dependency added to carry weight the codebase could carry itself). Dispatched under its own identifiable subagent type so the harness can attribute the dispatch to THIS role (references/review-types.txt → overengineering-reviewer).
 tools: Read, Grep, Glob, Bash
+hooks:
+  Stop:
+    - hooks:
+        - type: command
+          command: "${CLAUDE_PLUGIN_ROOT}/bin/check-role-verdict.sh"
 ---
 
 # Overengineering Reviewer (dedicated review role)

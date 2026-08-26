@@ -2,6 +2,11 @@
 name: integration-verifier
 description: Dedicated fresh-context reviewer for team-bootstrap's integration-verifier role in a full/mvp batch — executes the E2E command and scans for orphaned/unwired code. Dispatched under its own identifiable subagent type so the harness can attribute the dispatch to THIS role (references/review-types.txt → integration-verifier), proving the role ran rather than collapsing to single-thread. Use for the integration gate of a full/mvp kind:code batch.
 tools: Read, Grep, Glob, Bash
+hooks:
+  Stop:
+    - hooks:
+        - type: command
+          command: "${CLAUDE_PLUGIN_ROOT}/bin/check-role-verdict.sh"
 ---
 
 # Integration Verifier (dedicated review role)

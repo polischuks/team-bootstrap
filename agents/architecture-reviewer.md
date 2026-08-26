@@ -2,6 +2,11 @@
 name: architecture-reviewer
 description: Dedicated fresh-context reviewer for team-bootstrap's architecture-reviewer role in a full/mvp batch — runs the architecture fitness functions against the baseline and flags drift (wrong layer, bypassed boundary). Dispatched under its own identifiable subagent type so the harness can attribute the dispatch to THIS role (references/review-types.txt → architecture-reviewer). Use for the architecture conformance/soundness gate of a full/mvp kind:code batch.
 tools: Read, Grep, Glob, Bash
+hooks:
+  Stop:
+    - hooks:
+        - type: command
+          command: "${CLAUDE_PLUGIN_ROOT}/bin/check-role-verdict.sh"
 ---
 
 # Architecture Reviewer (dedicated review role)

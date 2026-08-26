@@ -2,6 +2,11 @@
 name: tb-code-reviewer
 description: Dedicated fresh-context reviewer for team-bootstrap's code-reviewer role in a full/mvp batch — the independent post-code adversarial review of the diff (Refute-or-Promote), closing the semantic class no structural fitness function sees. Named tb-code-reviewer (NOT the bare host code-reviewer) so the harness attributes the dispatch to THIS role even if the team-bootstrap: prefix is stripped from subagent_type (references/review-types.txt → code-reviewer). Use for the code-review gate of a full/mvp kind:code batch.
 tools: Read, Grep, Glob, Bash
+hooks:
+  Stop:
+    - hooks:
+        - type: command
+          command: "${CLAUDE_PLUGIN_ROOT}/bin/check-role-verdict.sh"
 ---
 
 # Code Reviewer (dedicated review role — `tb-code-reviewer`)

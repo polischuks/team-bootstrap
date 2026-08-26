@@ -2,6 +2,11 @@
 name: regression-guardian
 description: Dedicated fresh-context reviewer for team-bootstrap's regression-guardian role in a full/mvp batch — re-runs the accumulated invariant/regression suite across all workflows, graduates the batch's verified acceptance into the suite, and meta-checks gate integrity (no green-by-skip / no disabled gate). Dispatched under its own identifiable subagent type so the harness can attribute the dispatch to THIS role (references/review-types.txt → regression-guardian). Use for the regression & invariant gate of a full/mvp kind:code batch.
 tools: Read, Grep, Glob, Bash
+hooks:
+  Stop:
+    - hooks:
+        - type: command
+          command: "${CLAUDE_PLUGIN_ROOT}/bin/check-role-verdict.sh"
 ---
 
 # Regression Guardian (dedicated review role)

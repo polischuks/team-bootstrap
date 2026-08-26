@@ -2,6 +2,11 @@
 name: security-reviewer
 description: Dedicated fresh-context reviewer for team-bootstrap's security-reviewer role — assigned automatically when the batch diff trips the classifier's security/auth or deps risk category. Dispatched under its own identifiable subagent type so the harness can attribute the dispatch to THIS role (references/review-types.txt → security-reviewer). Use for the security gate of a kind:code batch touching auth, secrets, tokens, payment or dependency manifests.
 tools: Read, Grep, Glob, Bash
+hooks:
+  Stop:
+    - hooks:
+        - type: command
+          command: "${CLAUDE_PLUGIN_ROOT}/bin/check-role-verdict.sh"
 ---
 
 # Security Reviewer (dedicated review role)

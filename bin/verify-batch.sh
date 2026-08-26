@@ -186,6 +186,7 @@ if [ -n "$_ib" ] && [ "$(field_str "$_ib" kind)" = "code" ] \
     echo "verify-batch: WARN — could not record required_roles for '$(field_str "$_ib" id)'; the dispatch gate stays advisory." >&2
 fi
 gate "role-dispatch (reviewer subagent ran, not inline collapse)" "$here/check-role-dispatch.sh" .
+gate "role-verdict (each required role returned a typed verdict)" "$here/check-role-verdict.sh" --gate .
 gate "delivery (no unearned closure)"        "$here/check-delivery.sh" .
 
 if [ "$fails" -gt 0 ]; then
