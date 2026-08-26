@@ -27,6 +27,12 @@
 set -uo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
+# The tier→roles mapping and the profile lookup live in ONE place (AC-14). This file used to carry a
+# second copy as `_roles_for`, self-described as "Mirrors delivery-lib's required_roles_for_batch
+# mapping exactly" — the drift Д2 §1.1 names by example. Sourcing is safe: delivery-lib never sources
+# this script, it execs it, so there is no cycle.
+# shellcheck source=bin/delivery-lib.sh
+. "$here/delivery-lib.sh"
 
 _degrade() { printf 'degraded=1\nreason=%s\n' "$1"; exit 0; }
 
@@ -89,17 +95,18 @@ _declared_roles() {
     | sort -u | tr '\n' ' ' | sed 's/[[:space:]]*$//'
 }
 
-# _roles_for TIER DECLARED → the review set: the tier's own roles UNION whatever was declared.
-# Mirrors delivery-lib's required_roles_for_batch mapping exactly; the >=1 code-reviewer floor on a
-# code batch is an invariant here too and is never sized or declared away.
-_roles_for() {
-  local tier="$1" declared="$2" base r out=""
-  case "$tier" in
-    full) base='integration-verifier architecture-reviewer regression-guardian code-reviewer' ;;
-    mvp)  base='integration-verifier code-reviewer' ;;
-    *)    base='code-reviewer' ;;
-  esac
-  for r in $base $declared; do
+# _roles_set TIER DECLARED CATEGORIES → the review set: the tier's DEPTH base, UNION whatever the task
+# author declared with `⚠ <role>`, UNION whatever the risk CATEGORIES earn under the active profile.
+#
+# The base comes from delivery-lib's tier_base_roles — one definition, not a mirrored copy (AC-14).
+# The category half is new here: this file could previously state a role plan for a work-stream whose
+# paths clearly tripped security/auth without ever naming security-reviewer, because the profile was
+# only consulted at batch time. The run-start plan and the close-time requirement now read the same
+# two sources. The >=1 code-reviewer floor on a code batch is an invariant here too and is never sized,
+# declared or profiled away — it is in every branch of tier_base_roles.
+_roles_set() {
+  local tier="$1" declared="$2" cats="$3" r out=""
+  for r in $(tier_base_roles "$tier") $declared $(roles_for_categories "$cats" 2>/dev/null || true); do
     case " $out " in *" $r "*) : ;; *) out="$out $r" ;; esac
   done
   printf '%s' "${out# }"
@@ -107,12 +114,32 @@ _roles_for() {
 
 # _tier_for PATHS — hand a newline-separated path list to select-pipeline's classifier and read back
 # the tier. One place calls the classifier; both modes go through it.
-_tier_for() {
+_tier_for() { _classify "$1" | sed -n 's/^tier=//p'; }
+
+# _cats_for PATHS → the risk categories those paths trip, space-separated (empty for none).
+#
+# Prefer _classify_once + _pick in a caller that needs BOTH facts: each _classify is a select-pipeline
+# process, and asking twice for one path list costs a spawn to recompute an answer already in hand
+# (ADR-0016 gate cost). _emit_ws does exactly that. This wrapper stays for callers that need only the
+# categories.
+_cats_for() { _pick cats "$(_classify "$1")"; }
+
+# _pick KEY CLASSIFY_OUTPUT → the value of `KEY=` in a _classify result. Categories are filtered to the
+# risk vocabulary here, at the one place that reads them, so no caller can forget to.
+_pick() {
+  local v; v="$(printf '%s\n' "$2" | sed -n "s/^$1=//p" | head -1)"
+  case "$1" in cats) risk_categories_only "$v" ;; *) printf '%s' "$v" ;; esac
+}
+
+# _classify PATHS → `tier=<t>` and `cats=<c>` from ONE select-pipeline run, so composition and depth
+# can never disagree about what the paths hold.
+_classify() {
   local v
   v="$(printf '%s\n' "$1" | while IFS= read -r q || [ -n "$q" ]; do
          [ -n "$q" ] && printf '0\t0\t%s\n' "$q"
        done | "$here/select-pipeline.sh" --from-stdin 2>/dev/null || true)"
-  printf '%s\n' "$v" | sed -n 's/^select-pipeline: RECOMMENDED pipeline: \([a-z-]*\).*/\1/p' | head -1
+  printf 'tier=%s\n' "$(printf '%s\n' "$v" | sed -n 's/^select-pipeline: RECOMMENDED pipeline: \([a-z-]*\).*/\1/p' | head -1)"
+  printf 'cats=%s\n' "$(printf '%s\n' "$v" | sed -nE 's/.*\(reasons: (.*)\)$/\1/p' | tail -1)"
 }
 
 # _sane_paths — drop anything that is not plausibly a repo path. tasks.md is AUTHORED content and its
@@ -153,10 +180,11 @@ if [ "$per_batch" -eq 1 ]; then
   _ws=""; _body=""; _prose="$(_prose_reasons "$dir")"; _emitted=0
   _emit_ws() {
     [ -n "$_ws" ] || return 0
-    local wp wt dr
+    local wp wt dr wc_ cl_
     wp="$(_paths_in "$_body")"
     [ -n "$wp" ] || return 0                 # a section that names no path earns no floor
-    wt="$(_tier_for "$wp")"
+    cl_="$(_classify "$wp")"          # ONE classifier run; both facts are read out of it below
+    wt="$(_pick tier "$cl_")"
     [ -n "$wt" ] || return 0
     # The prose describes the MILESTONE, so it lifts every work-stream — except an all-doc one.
     # Applying it uniformly would re-create the flat fan-out ADR-0017 removed; skipping it for docs
@@ -166,7 +194,8 @@ if [ "$per_batch" -eq 1 ]; then
       wt="full"        # a non-doc path is present, so the milestone's stated complexity applies here
     fi
     dr="$(_declared_roles "$_body")"
-    printf 'ws=%s\ttier=%s\troles=%s\tpaths=%s\n' "$_ws" "$wt" "$(_roles_for "$wt" "$dr")" \
+    wc_="$(_pick cats "$cl_")"
+    printf 'ws=%s\ttier=%s\troles=%s\tcats=%s\tpaths=%s\n' "$_ws" "$wt" "$(_roles_set "$wt" "$dr" "$wc_")" "$wc_" \
       "$(printf '%s' "$wp" | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
     _emitted=$((_emitted + 1))
   }
@@ -234,7 +263,7 @@ if [ -n "$prose" ] && [ "$tier" != "full" ]; then
 fi
 declared="$(_declared_roles "$(cat "$tasks")")"
 [ -n "$declared" ] && reasons="${reasons:+$reasons }declared-roles"
-roles="$(_roles_for "$tier" "$declared")"
+roles="$(_roles_set "$tier" "$declared" "$reasons")"
 
 printf 'tier=%s\nroles=%s\nfiles=%s\ntasks=%s\nlayers=%s\nreasons=%s\n' \
   "$tier" "$roles" "$files" "$ntasks" "$layers" "$reasons"

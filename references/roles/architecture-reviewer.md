@@ -1,6 +1,6 @@
 ---
 name: architecture-reviewer
-version: 1.1.0
+version: 2.0.0
 model: claude-opus-4-8
 compatible_pipelines: [mvp, full, audit, single-thread]
 tool_surface:

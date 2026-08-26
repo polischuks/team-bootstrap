@@ -41,77 +41,13 @@ Opt-in addition to the `full` or `single-thread` pipeline. Triggers:
 - failure modes documented: hallucination risk, prompt-injection surface, refusal handling
 - handoff object
 
-## Output Template
+## Output shape
 
-```markdown
-## Role — ai-engineer
-
-### Implementation Summary
-- <Feature implemented (RAG, agent, classifier, etc.)>
-- <Model(s) chosen and why>
-- <Retrieval / orchestration approach>
-
-### Changed Files
-- `path/to/llm/client.ts`
-- `path/to/prompts/system.md`
-
-### Prompt + Retrieval Strategy
-- System prompt: <intent, constraints, output format>
-- Context construction: <retrieval method, top-k, reranking>
-- Caching: <prompt caching, embedding caching>
-
-### Eval Plan
-- Offline: <rubric, golden set size, pass threshold>
-- Online: <metrics, alert thresholds>
-
-### Cost & Latency
-- Tokens per request (in/out): <numbers>
-- p50/p95 latency: <numbers>
-- Projected monthly cost at <N> req/day: <amount>
-
-### Risks & Mitigations
-- Hallucination: <mitigation>
-- Prompt injection: <input sanitization, scoping>
-- Provider outage: <fallback path>
-
-### Validation Results
-- `npm run typecheck` — passed/failed
-- `npm run test:unit` — passed/failed
-- Eval golden set: <X>/<Y> passed
-
-### Handoff
-```yaml
-status: completed
-role: ai-engineer
-summary: <one-line summary>
-artifacts:
-  - kind: code
-    path: src/lib/llm/feature.ts
-    description: <what it does>
-  - kind: eval
-    path: evals/<feature>.json
-    description: Eval rubric and golden set
-checks:
-  - name: typecheck
-    status: passed
-    details: 0 errors
-  - name: unit_tests
-    status: passed
-    details: All tests pass
-  - name: eval_golden_set
-    status: passed
-    details: <X>/<Y> passed (threshold <Z>)
-  - name: cost_within_budget
-    status: passed
-    details: <cost> ≤ <budget>
-next_role: <determined-by-pipeline>  # full: qa-test-engineer
-risks_or_blockers: []
-manual_approval_requested: false
-stop_reason: null
-rollback_recommended: false
-rollback_scope: null
-```
-```
+`references/schemas/role-output.schema.json` (`$defs/ai-engineer`) is the authoritative handoff
+shape, and it is validated. This file used to restate it as a filled-in template — a second
+copy of a machine-checked contract, which can only agree at a maintenance cost or drift and
+be wrong where nobody looks. The fields the schema marks `required` are the ones closure
+checks; `verification_evidence` is required whenever `status: completed`.
 
 ## Verification Loop
 

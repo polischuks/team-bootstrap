@@ -28,10 +28,10 @@
 # Exit: 0 allow/OK · 1 gate failure · 2 blocking (malformed verdict)
 set -uo pipefail
 
-[ "${TEAM_BOOTSTRAP_DELIVERY_GATE:-on}" = "off" ] && exit 0
+[ "${TEAM_BOOTSTRAP_DELIVERY_GATE:-on}" = "off" ] && exit 0   # gate-integrity: sanctioned — explicit operator kill switch
 here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=bin/delivery-lib.sh
-. "$here/delivery-lib.sh" 2>/dev/null || exit 0
+. "$here/delivery-lib.sh" 2>/dev/null || { echo "$(basename "$0"): delivery-lib.sh is unreadable — this gate cannot evaluate and is NOT passing; it is absent (AC-48)." >&2; exit 0; }
 SCHEMA="$here/../references/schemas/role-output.schema.json"
 
 # required_fields_for ROLE → space-separated field names role-output.schema.json requires of ROLE.
@@ -76,14 +76,14 @@ _hook_mode() {
   role="$(printf '%s' "$payload" \
     | grep -oE '"(agent_type|subagent_type|agentType|subagentType)"[[:space:]]*:[[:space:]]*"[^"]*"' \
     | head -1 | sed -E 's/.*"([^"]*)"[[:space:]]*$/\1/')"
-  [ -n "$role" ] || exit 0
+  [ -n "$role" ] || exit 0   # gate-integrity: sanctioned — not a team-bootstrap review role: out of scope for this hook
   role="$(role_of_slug "$role" 2>/dev/null || true)"      # slug → attributed role; empty ⇒ not a review type
-  [ -n "$role" ] || exit 0
+  [ -n "$role" ] || exit 0   # gate-integrity: sanctioned — not a team-bootstrap review role: out of scope for this hook
   tr="$(printf '%s' "$payload" | grep -oE '"transcript_path"[[:space:]]*:[[:space:]]*"[^"]*"' \
     | head -1 | sed -E 's/.*"([^"]*)"[[:space:]]*$/\1/')"
-  [ -n "$tr" ] && [ -f "$tr" ] || exit 0                  # nothing to read ⇒ never block on ignorance
+  [ -n "$tr" ] && [ -f "$tr" ] || exit 0   # gate-integrity: sanctioned — no transcript to read; the --gate pass reports this as DEGRADED, so it is recorded there rather than here
   obj="$(_verdict_obj "$tr" "$role")"
-  [ -n "$obj" ] || exit 0                                 # no verdict object ⇒ cannot prove malformed
+  [ -n "$obj" ] || exit 0   # gate-integrity: sanctioned — no verdict object to judge; the --gate pass reports the absence as DEGRADED
 
   missing=""
   for f in $(required_fields_for "$role"); do
@@ -98,9 +98,9 @@ _hook_mode() {
   # Well-formed: record it as a HARNESS-OBSERVED fact for the in-flight batch, so closure reads
   # something the harness saw rather than something the orchestrator asserted.
   bline="$(inflight_batch 2>/dev/null || true)"; bid="$(field_str "$bline" id)"
-  [ -n "$bid" ] || exit 0
+  [ -n "$bid" ] || exit 0   # gate-integrity: sanctioned — no in-flight batch to confirm roles for
   rundir="$(dirname "$(resolve_marker 2>/dev/null || true)")"
-  [ -n "$rundir" ] && [ -d "$rundir" ] || exit 0
+  [ -n "$rundir" ] && [ -d "$rundir" ] || exit 0   # gate-integrity: sanctioned — no run directory: out of scope, and the --gate pass fails closed on a missing capture
   printf '{"batch":"%s","role":"%s","fields_ok":true}\n' "$bid" "$role" >> "$rundir/verdicts.jsonl" 2>/dev/null || true
   exit 0
 }
@@ -160,6 +160,13 @@ if [ "${1:-}" = "--self-test" ]; then
 fi
 
 case "${1:-}" in
-  --gate) shift; [ -n "${1:-}" ] && cd "$1" 2>/dev/null; _gate_mode; exit $? ;;
+  # A failed `cd` used to be swallowed: the gate then evaluated the CURRENT directory instead of the
+  # one it was handed, silently answering a different question. Fail loudly — a gate that runs
+  # somewhere else is not a gate that passed.
+  --gate) shift
+          if [ -n "${1:-}" ]; then
+            cd "$1" 2>/dev/null || { echo "check-role-verdict: bad project dir '$1'" >&2; exit 64; }
+          fi
+          _gate_mode; exit $? ;;
   *)      _hook_mode ;;
 esac

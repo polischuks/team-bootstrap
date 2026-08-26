@@ -9,17 +9,17 @@ treats it as the default implementation discipline for `mvp`, `full`, and the im
 ## The loop (do not skip a step)
 
 1. **Write the tests first** from the acceptance criteria — before any implementation.
-2. **Run them and confirm they FAIL** (red) via [`../bin/tdd-red.sh`](../bin/tdd-red.sh) — it runs the
+2. **Run them and confirm they FAIL** (red) via [`../bin/check-tdd.sh --record-red`](../bin/check-tdd.sh) — it runs the
    project's `Test:` command, **requires** a non-zero (red) result, and records the observed red
    (`red_sha` = current HEAD) to `.runs/<run>/tdd.jsonl`. A test that passes before you wrote the code
-   tests nothing — `tdd-red` refuses to record a green suite. This makes "seen to fail" a **git-grounded
+   tests nothing — `--record-red` refuses to record a green suite. This makes "seen to fail" a **git-grounded
    fact**, not the self-declared `tests_failed_first` boolean: [`../bin/check-tdd.sh`](../bin/check-tdd.sh)
    (run inside `verify-batch`) **fails the batch** if a code-shipping run has no red record whose
    `red_sha` sits between the run baseline and HEAD, or if the suite isn't green at HEAD.
-   **Per batch:** run `tdd-red.sh --batch <id>` at the red step of **each** code batch — every code
+   **Per batch:** run `check-tdd.sh --record-red --batch <id>` at the red step of **each** code batch — every code
    batch must be red-first in its own window (`… < redₖ < codeₖ`), and one red record credits at most
    one batch, so you cannot cover B2 with B1's red.
-   **A red must change a test file (F1, v2.17.0).** `tdd-red` refuses a red whose committed change since
+   **A red must change a test file (F1, v2.17.0).** `--record-red` refuses a red whose committed change since
    the baseline touched **no** test-path file (rejects an `--allow-empty` red and a non-test-only red;
    exit 4). So **commit the failing test *before* recording red** — the failing-test commit *is* the
    `red_sha`. `check-tdd` then requires each code batch's red window `<prev-code-tip‖baseline>..red_sha`

@@ -70,7 +70,11 @@ if [ "${1:-}" = "--self-test" ]; then
 fi
 
 JSON=0; [ "${1:-}" = "--json" ] && { JSON=1; shift; }
-[ -n "${1:-}" ] && cd "$1" 2>/dev/null
+# Same reasoning as check-role-verdict's --gate: an unreachable directory must not silently become
+# "report metrics for wherever I happen to be".
+if [ -n "${1:-}" ]; then
+  cd "$1" 2>/dev/null || { echo "delivery-metrics: bad project dir '$1'" >&2; exit 64; }
+fi
 
 _scan
 LIVE="$("$here/eval-role.sh" --liveness 2>/dev/null | sed -n 's/.*: \([0-9]*\)\/\([0-9]*\) assignable.*/\1\/\2/p' | tail -1)"

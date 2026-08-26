@@ -5,19 +5,41 @@
 # PER-BATCH (v2.16.0): every code batch must have its OWN red step, observed before that batch's own
 # commits. For an ACTIVE delivery run (marker intends_code:true):
 #   - Ledger flow — for each kind:code batch (closed, using its commit_shas; and the in-flight last
-#     announced one, using HEAD), require a red record (.runs/<run>/tdd.jsonl, written by tdd-red.sh)
+#     announced one, using HEAD), require a red record (.runs/<run>/tdd.jsonl, written by --record-red)
 #     bearing that batch's id, whose red_sha resolves, is a DESCENDANT of the run baseline and a PROPER
 #     ANCESTOR of that batch's code. One red record credits at most one batch (no reuse).
 #   - Direct flow (no ledger, but code since baseline) — require one red record whose red_sha is
 #     post-baseline and a proper ancestor of HEAD.
 # Plus: the suite must be GREEN at HEAD now. Any code batch without its own valid red → fail-closed.
 #
-# A red record exists only because tdd-red.sh actually ran the tests red — prose cannot fabricate it.
+# A red record exists only because `--record-red` actually ran the tests and SAW them fail — prose
+# cannot fabricate it.
+#
+# DIVISION OF LABOUR WITH `/test` (Д2 Фаза 4, AC-29). `/test` is how you REACH red: it writes the
+# failing test and iterates. This gate is how the harness OBSERVES and RECORDS that red, anchored to a
+# git sha. Those are different jobs, and the duplication Ф4 found was a SECOND SCRIPT (bin/tdd-red.sh)
+# that also drove the suite. It is deleted; its observation entry point lives here, in the gate that
+# consumes the record, so there is exactly one of each job.
+#
+# WHY THE OBSERVATION IS NOT A RE-RUN AT CLOSE TIME. The obvious alternative — have this gate find the
+# red commit in git and re-run the suite against it in a detached worktree — was designed and rejected
+# after measuring it. A fresh worktree carries only TRACKED files: no node_modules, no .venv, no vendor
+# tree. In any project whose Test: command needs them, the suite cannot START and exits non-zero, which
+# this gate would read as a genuine red. That is a FALSE red — the precise inversion of what P9 asks —
+# and it would fire hardest on exactly the mainstream projects the plugin targets. The observation has
+# to happen where the dependencies are, which is the working tree at the moment the red exists.
+#
+# Usage of the observation step: bin/check-tdd.sh --record-red [--batch <id>] [project-dir]
+#   Run it at the TDD red step: AFTER writing the failing test(s), BEFORE implementing. It runs the
+#   project's Test: command and REQUIRES it to fail. You cannot record red when the suite is already
+#   green — nothing failed means no test-first.
+#   Exit: 0 red recorded · 1 the suite is GREEN (no valid red) · 3 no Test: command · 4 the red changed
+#   no committed test file.
 #
 # Graceful skips (exit 0): no active marker, no code delivered, or no runnable AGENTS.md `Test:`
 # command (warns — unenforceable). Marker-gated ⇒ in-session (CI has no marker), like check-delivery.
 #
-# Usage: bin/check-tdd.sh [project-dir]  ·  bin/check-tdd.sh --self-test
+# Usage: bin/check-tdd.sh [project-dir]  ·  --record-red [--batch <id>]  ·  --self-test
 # Exit:  0 pass / skip · 1 a code batch lacks its red step, mis-ordered, or HEAD not green · 64 bad usage
 set -uo pipefail
 
@@ -102,7 +124,7 @@ _evaluate() {
         any_code_batch=1   # in-flight batch being closed now: its code is up to HEAD, not yet stamped
         r="$(_find_red "$id" "$hd" "$bfull" "$used")" || r=""
         if [ -z "$r" ]; then
-          echo "  FAIL-CLOSED: in-flight code batch '$id' has no red step before HEAD — run bin/tdd-red.sh --batch $id before implementing (P9, per-batch)." >&2; viol=$((viol + 1))
+          echo "  FAIL-CLOSED: in-flight code batch '$id' has no red step before HEAD — run bin/check-tdd.sh --record-red --batch $id before implementing (P9, per-batch)." >&2; viol=$((viol + 1))
         else
           used="$used $r"
           if ! window_touches_test "$prev_tip" "$r" "$tglobs"; then
@@ -117,7 +139,7 @@ _evaluate() {
     if code_since_baseline "${baseline:-}"; then          # direct run (no ledger): run-level red
       r="$(_find_red "" "$hd" "$bfull" "")" || r=""
       if [ -z "$r" ]; then
-        echo "  FAIL-CLOSED: code shipped (direct run) with no observed red step before HEAD (P9). Run bin/tdd-red.sh before implementing." >&2; viol=$((viol + 1))
+        echo "  FAIL-CLOSED: code shipped (direct run) with no observed red step before HEAD (P9). Run bin/check-tdd.sh --record-red before implementing." >&2; viol=$((viol + 1))
       elif ! window_touches_test "$bfull" "$r" "$tglobs"; then
         echo "  FAIL-CLOSED: code shipped (direct run) but the red window changed no test file — a red must touch a test path (F1)." >&2; viol=$((viol + 1))
       fi
@@ -134,6 +156,53 @@ _evaluate() {
   echo "check-tdd: per-batch red→green verified — every code batch had its own red step before its code, and the suite is green at HEAD."
   return 0
 }
+
+# --- --record-red: the observation step (moved here from the deleted bin/tdd-red.sh) -----------------
+if [ "${1:-}" = "--record-red" ]; then
+  shift
+  rr_batch=""; rr_root="."
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --batch) rr_batch="${2:-}"; shift 2 ;;
+      -*) echo "check-tdd --record-red: unknown flag '$1'" >&2; exit 64 ;;
+      *) rr_root="$1"; shift ;;
+    esac
+  done
+  cd "$rr_root" 2>/dev/null || { echo "check-tdd --record-red: bad dir '$rr_root'" >&2; exit 64; }
+
+  rr_cmd="$(_test_cmd)"
+  case "$rr_cmd" in '') echo "check-tdd --record-red: no runnable Test: command in AGENTS.md — cannot observe red." >&2; exit 3 ;; esac
+
+  echo "check-tdd --record-red: running tests (expecting RED) -> $rr_cmd" >&2
+  if eval "$rr_cmd" >/dev/null 2>&1; then
+    echo "check-tdd --record-red: tests PASS (green) — nothing failed. Write a failing test FIRST (P9 red step), then re-run." >&2
+    exit 1
+  fi
+
+  # F1 (red-touches-tests): the red must be caused by a COMMITTED test-file change, so the red_sha this
+  # writes sits in the same window _find_red later verifies. An --allow-empty red, a non-test-only red,
+  # or a worktree-only test would all record a sha the ordering check cannot honestly credit.
+  rr_marker="$(resolve_marker)"; rr_baseline=""
+  [ -n "$rr_marker" ] && [ -f "$rr_marker" ] && rr_baseline="$(field_str "$(cat "$rr_marker" 2>/dev/null)" baseline_sha)"
+  rr_base="$(resolve_sha "${rr_baseline:-}")" || rr_base=""
+  [ -n "$rr_base" ] || rr_base="$(git rev-parse -q --verify 'HEAD^' 2>/dev/null || true)"
+  if ! window_touches_test "$rr_base" "HEAD" "$(read_test_globs)"; then
+    echo "check-tdd --record-red: the red changed no COMMITTED test file — commit your failing test FIRST so the red is git-anchored, then re-run. (Inline-test projects: widen TestGlobs: in AGENTS.md.)" >&2
+    exit 4
+  fi
+
+  rr_run="${TEAM_BOOTSTRAP_RUN:-}"
+  [ -n "$rr_run" ] || rr_run="$(resolve_marker | sed -E 's#^\.runs/([^/]+)/RUN$#\1#')"
+  [ -n "$rr_run" ] || rr_run="deliver-run"
+  mkdir -p ".runs/$rr_run" 2>/dev/null || { echo "check-tdd --record-red: cannot write .runs/$rr_run" >&2; exit 1; }
+  rr_sha="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+  [ -n "$rr_batch" ] || rr_batch="?"
+  rr_esc="$(printf '%s' "$rr_cmd" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  printf '{"batch":"%s","red_sha":"%s","test_cmd":"%s","observed":"red"}\n' \
+    "$rr_batch" "$rr_sha" "$rr_esc" >> ".runs/$rr_run/tdd.jsonl"
+  echo "check-tdd --record-red: RED recorded (run=$rr_run batch=$rr_batch red_sha=$rr_sha) — now implement to green." >&2
+  exit 0
+fi
 
 # --- self-test ---------------------------------------------------------------
 if [ "${1:-}" = "--self-test" ]; then

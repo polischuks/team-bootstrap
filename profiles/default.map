@@ -19,36 +19,56 @@
 #     AND a required verdict field in references/schemas/role-output.schema.json (or it cannot be
 #     confirmed at closure). Every category key must be one select-pipeline.sh actually emits.
 #
-# NOT MAPPED, on purpose — api/contract. Its natural owner is integration-verifier, but the category
-# itself forces the `full` tier, whose base set ALREADY contains that role. The mapping would therefore
-# never change an outcome: `bin/eval-role.sh --liveness` reports such a binding DEAD, because removing it
-# turns nothing red. A no-op entry inflates the appearance of routing without adding any, so it is gone.
+# NOW MAPPED (milestone 020) — chaos-engineer, test-designer, legal-compliance-checker,
+# ip-contracts-reviewer. The four used to be unmapped because none declared a required field in
+# role-output.schema.json: assigning them bought a dispatch and no confirmation, which is the decoy the
+# whole verdict pipeline exists to reject. AC-24 gave each one (resilience_verdict, test_design_verdict,
+# release_recommendation promoted to required, ip_verdict) — a new required handoff field, so a MAJOR
+# bump by references/versioning.md, and a decision rather than a detail. Their routing signals come from
+# Д2 §1.2, which supplies what the tree lacked:
 #
-# NOT MAPPED, on purpose — a hot-path/performance category. performance-reviewer is dispatchable and
-# typed, but no path pattern honestly answers "is this a hot path": a guessed classifier would produce a
-# binding that fires on the wrong batches, and `eval-role.sh --liveness` would rightly call the guess
-# alive while it routed noise. It stays reachable by DECLARATION — `⚠ performance-reviewer` on the task —
-# which required_roles_for_batch already unions in, one-directionally. A real signal (profiling data, a
-# benchmark budget) can add the category later; a fabricated one cannot be improved, only unwound.
+#   * chaos-engineer shares infra/deploy with devops-platform, exactly as Д2 §1.2 offers
+#     ("devops-platform (в ревью-режиме) или chaos-engineer"). They ask different questions of the same
+#     diff: is the pipeline sound, and what happens when it fails.
+#   * test-designer takes `no-tests` — non-doc work changed and no test file came with it. Under this
+#     repo's own TDD gate that never fires on a healthy batch, which is the point: it fires exactly when
+#     something shipped unreached.
+#   * legal-compliance-checker takes `licence` (the licence TEXT changed — a compliance event) and
+#     ip-contracts-reviewer takes `deps` (a manifest changed — an IP event, where a new transitive
+#     dependency can carry a copyleft obligation). Д2 §1.2 names "лицензии и зависимости" for the pair;
+#     splitting them by which signal each actually answers keeps both bindings load-bearing instead of
+#     doubling two roles onto both categories and paying the fan-out twice (OQ-3, ADR-0016).
 #
-# NOT MAPPED, on purpose — test-designer. Same reason as chaos-engineer: no required field in the schema,
-# so it cannot be confirmed at closure.
-#
-# NOT MAPPED, on purpose — chaos-engineer, test-designer, legal-compliance-checker. None declares a
-# required field in role-output.schema.json, so none can be CONFIRMED at closure: assigning them buys a
-# dispatch and no confirmation, which is the decoy the whole verdict pipeline exists to reject. Giving
-# any of them one is a new required handoff field = a MAJOR bump (references/versioning.md), a decision
-# rather than a detail. infra/deploy is served by devops-platform instead, which IS typed (ci_status)
-# and denies Write/Edit, so it satisfies the anti-builder invariant in review mode.
-#
-# NOT MAPPED, on purpose — ip-contracts-reviewer. It IS typed (ip_verdict) and read-only, but its
-# frontmatter declares `compatible_pipelines: [audit-dd]`, and the orchestrator refuses a pipeline
-# containing an incompatible role. Routing it into a full/mvp code batch would violate the role's own
-# declared contract; widening that list is a role-version decision, not a routing one.
+# STILL NOT MAPPED, on purpose — api/contract. Its natural owner is integration-verifier, but the
+# category itself forces the `full` tier, whose base set ALREADY contains that role, so the mapping could
+# never change an outcome. `bin/eval-role.sh --liveness` reports such a binding DEAD, and a no-op entry
+# inflates the appearance of routing without adding any.
 
+# TIER → DEPTH BASE SET. ADR-0020 split composition from depth and shipped only half: the risk
+# categories moved here while the tier's own base set stayed a hardcoded three-branch `case` in
+# delivery-lib.sh — the same "the tier decides who reviews" the split was meant to end, just smaller.
+# The whole mapping now lives in ONE file (AC-13), so an organisation can narrow or widen the base
+# without touching the core, exactly as it already could for the categories.
+#
+# THREE THINGS THIS CANNOT DO, enforced in tests/live-roles-harness-wiring.test.sh:
+#   * It cannot remove the >=1 independent-reviewer floor. That floor is asserted in
+#     required_roles_for_batch AFTER this file is read, outside every profile's reach (F4, AC-18).
+#     A profile declaring nothing at all still yields it.
+#   * It cannot make a batch lighter than the categories earned. The category lines below are unioned
+#     ON TOP of the tier base — add-only in both directions.
+#   * It cannot fail SILENTLY. A profile with no `tier:` key for the resolved tier falls back to the
+#     STRICTEST base, not the lightest: an unresolved tier enforces the strictest posture rather than
+#     opening a bypass, the same "enforce until we know" delivery-marker-init.sh applies to pipeline=auto.
+tier:full           integration-verifier architecture-reviewer regression-guardian code-reviewer
+tier:mvp            integration-verifier code-reviewer
+tier:single-thread  code-reviewer
+
+# RISK CATEGORY → the roles it ADDS to the tier base.
 security/auth   security-reviewer
 data/schema     data-schema-reviewer
-deps            security-reviewer overengineering-reviewer
+deps            security-reviewer overengineering-reviewer ip-contracts-reviewer
 ui              accessibility-reviewer
-infra/deploy    devops-platform
+infra/deploy    devops-platform chaos-engineer
 perf            performance-reviewer
+licence         legal-compliance-checker
+no-tests        test-designer

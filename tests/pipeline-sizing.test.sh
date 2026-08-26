@@ -336,7 +336,14 @@ T="$(mktemp -d)"; ( _mkclose "$T" 'null' tb-code-reviewer
   sed -i.bak 's/,"required_roles":null//' .runs/r/batches.jsonl 2>/dev/null || true
   out="$(_crd "$T")"; rc=$?
   _chk "$(printf '%s' "$out" | grep -c 'SIZED')" "1" "AC-9 the harness announces the sized set even with nothing recorded (not inert)"
-  _chk "$rc" "0" "AC-9 …and that announcement is advisory — it does not block a non-adopter's run" ) ; rm -rf "$T"
+  # AC-26 (milestone 020) changed what happens NEXT, not what is announced. The sized announcement is
+  # still advisory in the sense that matters — it does not invent a requirement — but the per-role floor
+  # it reports against now ENFORCES by default, so a run that dispatched nothing is blocked rather than
+  # warned. That is the migration cost R8 names, and it is asserted here rather than left to be
+  # discovered by a user. Under warn the old contract still holds exactly.
+  _chk "$rc" "1" "AC-9/AC-26 the sized announcement now blocks under the shipped enforce default"
+  rc_warn=0; ( cd "$T" && TEAM_BOOTSTRAP_ROLE_FLOOR=warn _crd "$T" >/dev/null 2>&1 ) || rc_warn=$?
+  _chk "$rc_warn" "0" "AC-9 …and remains advisory under warn — a non-adopter's run is not blocked" ) ; rm -rf "$T"
 
 fail="$(cat "$FAILF")"; rm -f "$FAILF"
 [ "$fail" -eq 0 ] && { echo "pipeline-sizing.test.sh: OK"; exit 0; }

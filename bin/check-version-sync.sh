@@ -6,7 +6,10 @@
 #
 # Version-location set:
 #   - Default (a plugin: `.claude-plugin/plugin.json` exists): `VERSION` (trimmed), plugin.json `version`,
-#     and EVERY `"version"` in `marketplace.json` (metadata.version + each plugins[].version).
+#     EVERY `"version"` in `marketplace.json` (metadata.version + each plugins[].version), and any
+#     version LITERAL README.md states as the current one (AC-37 — README is not a field anything reads,
+#     but it is where a stale version is read by the most people; this repo shipped 2.11.0 there against
+#     2.34.0 in VERSION for twenty-three releases with no gate able to see it).
 #   - Else an AGENTS.md/CLAUDE.md `VersionFiles:` contract — a space/comma list of `path` (whole trimmed
 #     file) or `path:key` (first `"key":"…"` in that file). For non-plugin projects.
 #   - Neither ⇒ skip + WARN (no version locations — never a false block, quality-gate parity).
@@ -33,12 +36,35 @@ _json_versions() {
 # _json_key FILE KEY → first "key":"value"
 _json_key() { grep -oE "\"$2\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" "$1" 2>/dev/null | head -1 | sed -E 's/.*"([^"]*)"[[:space:]]*$/\1/'; }
 
+# _prose_versions FILE → emit "FILE:<line>\t<value>" for every version LITERAL a prose file states as
+# the project's current version (AC-37).
+#
+# README.md is not a version LOCATION — nothing reads a version out of it — but it is where a stale
+# version does the most damage, because it is the first thing a user reads. This repo shipped
+# `2.11.0` in README against `2.34.0` in VERSION for twenty-three releases, and no gate could see it
+# because the file declares no field.
+#
+# So this is a SCAN, not a location: it looks only at lines that CLAIM a current version
+# ("version: 1.2.3", "Current version: 1.2.3", "v1.2.3" next to the word version) and leaves alone the
+# many legitimate mentions of other versions — a changelog link, a required Claude Code version, a
+# historical "since 2.21.0". A scan that flagged every x.y.z in prose would be noise, and a noisy gate
+# gets disabled (ADR-0016).
+_prose_versions() {
+  [ -f "$1" ] || return 0
+  grep -nEi '(current version|^[[:space:]]*version)[^0-9]{0,20}v?[0-9]+\.[0-9]+\.[0-9]+' "$1" 2>/dev/null \
+    | sed -E 's/^([0-9]+):.*[^0-9]v?([0-9]+\.[0-9]+\.[0-9]+).*/\1\t\2/' \
+    | while IFS="$(printf '\t')" read -r ln v; do
+        [ -n "$v" ] && printf '%s:%s\t%s\n' "$1" "$ln" "$v"
+      done
+}
+
 # _collect → emit "source\tvalue" for every version-bearing field (empty if no locations)
 _collect() {
   if [ -f .claude-plugin/plugin.json ]; then
     [ -f VERSION ] && printf 'VERSION\t%s\n' "$(_plain VERSION)"
     _json_versions .claude-plugin/plugin.json ".claude-plugin/plugin.json"
     [ -f .claude-plugin/marketplace.json ] && _json_versions .claude-plugin/marketplace.json ".claude-plugin/marketplace.json"
+    _prose_versions README.md
     return 0
   fi
   local doc vf ent path key val
@@ -101,6 +127,17 @@ if [ "${1:-}" = "--self-test" ]; then
   mkmani 2.17.0 2.16.0 2.16.0 2.16.0; _chk "VERSION 2.17 but manifests 2.16 (the real drift) → fail" "$(_run)" 1
   # AC-3 — one plugins[] entry diverges → fail (per-entry, not just first)
   mkmani 2.17.0 2.17.0 2.17.0 2.17.0 2.16.0; _chk "one plugins[] entry stale → fail" "$(_run)" 1
+  # AC-37 (milestone 020) — a version literal in README.md is covered.
+  mkmani 2.17.0 2.17.0 2.17.0 2.17.0
+  printf '# x\n\nCurrent version: 2.17.0\n' > "$T/README.md"
+  _chk "README states the SAME version → pass" "$(_run)" 0
+  printf '# x\n\nCurrent version: 2.11.0\n' > "$T/README.md"
+  _chk "README states a STALE version (the real 2.11-vs-2.34 drift) → fail" "$(_run)" 1
+  # …and prose that mentions other versions for legitimate reasons is NOT a claim about this project.
+  printf '# x\n\nRequires Claude Code 1.2.3 or newer. Fixed in 2.16.0. See CHANGELOG.\n' > "$T/README.md"
+  _chk "README mentioning other versions in passing → pass (a scan, not a grep for x.y.z)" "$(_run)" 0
+  rm -f "$T/README.md"
+
   # AC-6 — marker-less → skip
   ( cd "$T" && rm -f .runs/r/RUN ); _chk "no active marker → skip" "$(_run)" 0
   printf '{"run":"r","intends_code":true,"source":"harness"}\n' > "$T/.runs/r/RUN"

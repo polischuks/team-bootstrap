@@ -27,21 +27,16 @@
 # it. An unrecognised prompt still produces NO output at all.
 set -uo pipefail
 
-# _json_esc TEXT → TEXT safe inside a JSON string. Control chars are dropped rather than escaped:
-# additionalContext is a one-line fact statement, so a literal newline is a defect, not content.
-_json_esc() {
-  printf '%s' "$1" | tr -d '\000-\037' | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
-}
+# The JSON escaper and the context emitter live in delivery-lib.sh — ONE definition (AC-3, AC-14).
+# This file used to carry private copies named _json_esc/_emit_ctx, and the copy here kept the old
+# `cut -c1-9000` truncation after delivery-lib had already learned to SPILL: the same mapping in two
+# places, drifting, on the channel whose whole job is not losing the decision. Sourcing delivery-lib
+# has no side effects (see its header).
+# shellcheck source=bin/delivery-lib.sh
+. "$(cd "$(dirname "$0")" && pwd)/delivery-lib.sh"
 
-# _emit_ctx ESCAPED_TEXT → the hook's one line of stdout. ESCAPED_TEXT is already _json_esc'd.
-# The documented ceiling is 10 000 characters; we cut well under it and then drop a trailing lone
-# backslash, which a cut through an escape pair would otherwise leave behind and break the JSON.
-_emit_ctx() {
-  local t; t="$(printf '%s' "$1" | cut -c1-9000)"
-  case "$t" in *\\\\) : ;; *\\) t="${t%\\}" ;; esac
-  [ -n "$t" ] || return 0
-  printf '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"%s"}}\n' "$t"
-}
+_json_esc() { json_esc "$1"; }
+_emit_ctx() { emit_hook_context UserPromptSubmit "$1"; }
 
 [ "${TEAM_BOOTSTRAP_DELIVERY_GATE:-on}" = "off" ] && exit 0
 
@@ -145,7 +140,16 @@ fi
 # single-thread and fails CLOSED on anything else. So an unresolved tier enforces the strictest
 # posture rather than opening a bypass — enforce until we know, which is the correct default. It
 # persists only on the description form, where Phase A resolves it at the A->B boundary.
-role_plan=""; ctx_ws=""; sizing_degraded=""
+role_plan=""; ctx_ws=""; sizing_degraded=""; all_cats=""; all_roles=""; sel_ran=""
+# _uniq_into VARNAME "item..." → append each item to the named accumulator, skipping duplicates.
+_uniq_into() {
+  local __n="$1" __cur __i
+  eval "__cur=\"\$$__n\""
+  for __i in $2; do
+    case " $__cur " in *" $__i "*) : ;; *) __cur="${__cur:+$__cur }$__i" ;; esac
+  done
+  eval "$__n=\"\$__cur\""
+}
 if [ "$spec_present" = "true" ]; then
   # Per-work-stream floors (OQ-2). `paths` is a SPACE-SEPARATED STRING, not a nested array: the shipped
   # marker_list reader slices its body at the first ']', so an entry containing an array would truncate
@@ -156,10 +160,17 @@ if [ "$spec_present" = "true" ]; then
     _t="$(printf '%s' "$_l" | sed -n 's/.*	tier=\([a-z-]*\).*/\1/p')"
     _pp="$(printf '%s' "$_l" | sed -n 's/.*	paths=\(.*\)$/\1/p')"
     _rr="$(printf '%s' "$_l" | sed -n 's/.*	roles=\([^	]*\).*/\1/p')"
+    _cc="$(printf '%s' "$_l" | sed -n 's/.*	cats=\([^	]*\).*/\1/p')"
     case "$_l" in degraded=1*) sizing_degraded="unknown" ;; reason=*) [ -n "$sizing_degraded" ] && sizing_degraded="${_l#reason=}" ;; esac
     [ -n "$_w" ] && [ -n "$_t" ] || continue
-    role_plan="${role_plan:+$role_plan,}{\"ws\":\"$_w\",\"tier\":\"$_t\",\"roles\":\"$_rr\",\"paths\":\"$_pp\"}"
+    role_plan="${role_plan:+$role_plan,}{\"ws\":\"$_w\",\"tier\":\"$_t\",\"roles\":\"$_rr\",\"cats\":\"$_cc\",\"paths\":\"$_pp\"}"
     ctx_ws="${ctx_ws:+$ctx_ws; }$_w tier=$_t roles=${_rr:-unsized}"
+    # Run-level union of what the work-streams found and earned. These two facts are the whole output
+    # of the selector, and until now neither reached the model: the categories were computed and thrown
+    # away into `reasons=`, and the composition existed only per work-stream inside the marker.
+    _uniq_into all_cats "$_cc"
+    _uniq_into all_roles "$_rr"
+    sel_ran=1
   done <<EOF
 $("$(dirname "$0")/size-from-spec.sh" --per-batch "$spec_path" 2>/dev/null || true)
 EOF
@@ -169,6 +180,14 @@ if [ "$tier_source" = "harness" ]; then
   pipeline="auto"
   if [ "$spec_present" = "true" ]; then
     _out="$("$(dirname "$0")/size-from-spec.sh" "$spec_path" 2>/dev/null || true)"
+    # UNION, not a fallback: this runs on every harness-sized run, not only the degraded one. The
+    # whole-spec pass classifies files no single work-stream owns, so it can name a category the
+    # per-work-stream loop never saw. Unioning is add-only and therefore keeps the one-directional
+    # discipline the whole selector is built on (ADR-0018/0020) — a second source may raise the set,
+    # never shrink it. It also covers the degraded case for free, where --per-batch reports nothing.
+    _uniq_into all_cats "$(risk_categories_only "$(printf '%s\n' "$_out" | sed -n 's/^reasons=//p' | head -1)")"
+    _uniq_into all_roles "$(printf '%s\n' "$_out" | sed -n 's/^roles=//p' | head -1)"
+    [ -n "$_out" ] && sel_ran=1
     _t="$(printf '%s\n' "$_out" | sed -n 's/^tier=//p' | head -1)"
     case "$_t" in
       single-thread|mvp|full)
@@ -192,6 +211,11 @@ _spec_f="\"spec_present\":$spec_present,\"tier_source\":\"$tier_source\","
 _spec_f="$_spec_f\"review_depth\":\"$_depth\","
 [ -n "$role_plan" ] && _spec_f="$_spec_f\"role_plan\":[$role_plan],"
 [ -n "$sizing_degraded" ] && _spec_f="$_spec_f\"sizing_degraded\":\"$sizing_degraded\","
+# The selector's two outputs as first-class marker fields, so a later gate reads a recorded FACT
+# instead of re-running the classifier against a window that has since moved (the record_required_roles
+# precedent). Empty stays empty here; the CONTEXT states "none" explicitly — a marker field and a
+# sentence have different jobs.
+_spec_f="$_spec_f\"risk_categories\":\"$all_cats\",\"assigned_roles\":\"$all_roles\","
 
 # The verdict, as FACT STATEMENTS. The hooks reference is explicit that additionalContext phrased as
 # out-of-band imperatives trips the prompt-injection defence — Claude then shows the text to the user
@@ -199,6 +223,21 @@ _spec_f="$_spec_f\"review_depth\":\"$_depth\","
 _ctx="team-bootstrap harness sizing for run $run: pipeline=$pipeline, tier_source=$tier_source, spec_present=$spec_present, marker=$marker."
 _ctx="$_ctx Review depth: $_depth (the /code-review low-medium-high scale; the tier sets depth, the risk categories set composition)."
 [ -n "$sizing" ]  && _ctx="$_ctx Sizing reasons: $sizing."
+# The two facts the selector exists to produce, in the channel, phrased as statements (AC-1, Д2 Ф0.1).
+#
+# "none" and "not computed" are DIFFERENT facts and are never collapsed. Empty accumulators mean either
+# "the classifier ran and this run trips no category" or "the classifier never ran" (no `## ` headings
+# and an operator-chosen tier, so neither source was consulted). Printing "none" for the second case
+# would report a result that was never computed — the silent degradation AC-47 removed from the sizing
+# path, re-introduced on the context channel. $sel_ran is set only where classifier output was actually
+# consumed, so it distinguishes them at the one place that knows.
+if [ -n "$sel_ran" ]; then
+  _ctx="$_ctx Risk categories detected: ${all_cats:-none}."
+  _ctx="$_ctx Assigned review roles for this run: ${all_roles:-none}."
+else
+  _ctx="$_ctx Risk categories detected: not computed (the classifier was not consulted for this run)."
+  _ctx="$_ctx Assigned review roles for this run: not computed; the batch diff sizes each batch alone."
+fi
 [ -n "$ctx_ws" ]  && _ctx="$_ctx Per-work-stream plan: $ctx_ws."
 # Degradation is stated, never inferred from an absent plan. An empty per-work-stream result used to be
 # indistinguishable from "sized it, no floors apply"; size-from-spec now says degraded=1 + a reason, and

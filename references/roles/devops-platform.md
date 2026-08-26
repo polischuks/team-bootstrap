@@ -28,41 +28,13 @@ Handle infrastructure and CI concerns for the implementation.
 - CI status: pipeline health
 - handoff object
 
-## Output Template
+## Output shape
 
-```markdown
-## Role — devops-platform
-
-### Platform Notes
-- <Infrastructure change needed>
-- <Environment configuration>
-
-### CI Status
-- <Pipeline health>
-- <Any failures or warnings>
-
-### Handoff
-```yaml
-status: completed
-role: devops-platform
-ci_status: <green|yellow|red>
-summary: <one-line summary>
-artifacts:
-  - kind: platform
-    path: <doc-path>
-    description: Platform and CI notes
-checks:
-  - name: ci_healthy
-    status: passed
-    details: CI pipeline green
-next_role: <determined-by-pipeline>  # full: data-schema-reviewer
-risks_or_blockers: []
-manual_approval_requested: true
-stop_reason: null
-rollback_recommended: false
-rollback_scope: null
-```
-```
+`references/schemas/role-output.schema.json` (`$defs/devops-platform`) is the authoritative handoff
+shape, and it is validated. This file used to restate it as a filled-in template — a second
+copy of a machine-checked contract, which can only agree at a maintenance cost or drift and
+be wrong where nobody looks. The fields the schema marks `required` are the ones closure
+checks; `verification_evidence` is required whenever `status: completed`.
 
 ## Recommended skills (invoke via `Skill` tool)
 

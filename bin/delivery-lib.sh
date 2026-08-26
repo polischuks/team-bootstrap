@@ -282,6 +282,95 @@ review_depth_for_tier() {
   esac
 }
 
+# tier_base_roles TIER → the review roles the tier's DEPTH earns, before any risk category is added.
+#
+# SINGLE DEFINITION (AC-14, Д2 §1.1). This mapping used to exist twice — here, inside
+# required_roles_for_batch, and again as `_roles_for` in size-from-spec.sh, which carried the comment
+# "Mirrors delivery-lib's required_roles_for_batch mapping exactly". Two copies of one mapping is a
+# drift waiting to happen, and Д2 §1.1 names this exact pair as the precedent for why an agent file
+# must not restate its playbook. size-from-spec.sh now sources this file and calls this function.
+#
+# The list itself comes from `profiles/default.map` (AC-13), not from a case here: ADR-0020 moved the
+# risk categories to the profile and left the tier base hardcoded, which is the same "the tier decides
+# who reviews" the split was meant to end. `profile_map_path` is defined further down; bash resolves
+# calls at call time, so the ordering is fine.
+tier_base_roles() {
+  local tier="$1" map line roles
+  map="$(profile_map_path)"
+  if [ -n "$map" ] && [ -f "$map" ]; then
+    # `$tier` reaches here from select-pipeline's own `[a-z-]*` capture, so it carries no regex
+    # metacharacters; the anchor and the trailing space class are what keep `tier:mvp` from matching a
+    # hypothetical `tier:mvp-strict`.
+    line="$(grep -E "^tier:${tier}[[:space:]]" "$map" 2>/dev/null | head -1)"
+    if [ -n "$line" ]; then
+      # Squeeze the value before testing it: a `tier:full` line with nothing but whitespace after it is
+      # an ANSWERLESS key, and treating it as an answer would hand back a blank base — the silent empty
+      # set the fallback below exists to prevent. `[ -n "$roles" ]` alone would call "   " an answer.
+      roles="$(printf '%s' "$line" | sed -E 's/^tier:[^[:space:]]*[[:space:]]+//' \
+               | tr '\t' ' ' | sed -E 's/^ +//; s/ +$//; s/  +/ /g')"
+      [ -n "$roles" ] && { printf '%s' "$roles"; return 0; }
+    fi
+  fi
+  # FAIL CLOSED, STRICTEST. No profile, no `tier:` key for this tier, or an empty one: the harness
+  # cannot say what this tier's base is, and the safe answer to "I do not know how much review this
+  # needs" is ALL of it, never the least of it. Same posture delivery-marker-init.sh takes on an
+  # unresolved tier (pipeline=auto: every tier-reading gate fails closed until Phase A resolves it).
+  # Returning the lightest base here would turn a missing config line into a silent bypass.
+  printf 'integration-verifier architecture-reviewer regression-guardian code-reviewer'
+}
+
+# risk_categories_only "REASON..." → just the RISK CATEGORIES out of a select-pipeline `reasons` list.
+#
+# `reasons` mixes two kinds of token: size reasons (files>=3, lines>=150, layers>=2, docs-only) and risk
+# categories. Only the second kind routes a role or belongs in the "risk categories detected" statement
+# — telling the model that `docs-only` is a risk category would be false, and a false fact in the
+# context channel is worse than a missing one. The vocabulary comes from `select-pipeline.sh
+# --categories`, which publishes it beside the code that emits it.
+_RISK_VOCAB=""
+risk_categories_only() {
+  local here_ vocab tok out=""
+  [ -n "$1" ] || return 0
+  # Cached for the life of the process: the vocabulary is a constant, and this is called once per
+  # work-stream. A spawn per call would make the honest-categories fix cost more than the fact is
+  # worth (ADR-0016).
+  if [ -z "$_RISK_VOCAB" ]; then
+    here_="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    _RISK_VOCAB="$("$here_/select-pipeline.sh" --categories 2>/dev/null || true)"
+  fi
+  vocab="$_RISK_VOCAB"
+  [ -n "$vocab" ] || return 0
+  for tok in $1; do
+    case " $vocab " in *" $tok "*) : ;; *) continue ;; esac
+    case " $out " in *" $tok "*) : ;; *) out="$out $tok" ;; esac
+  done
+  printf '%s' "${out# }"
+}
+
+# roles_for_categories "CAT..." → the roles those risk categories earn under the active profile.
+#
+# Split out of profile_roles_for_batch so the SAME mapping serves both callers: the batch path (which
+# gets its categories from the diff) and the spec path (which gets them from a work-stream's declared
+# file list). Before this split the spec path had no access to the profile at all, so the harness could
+# state a role plan at run start that no profile had ever been consulted about.
+roles_for_categories() {
+  local cats="$1" map cat roles r out="" tok
+  map="$(profile_map_path)"; [ -n "$map" ] && [ -f "$map" ] || return 0
+  [ -n "$cats" ] || return 0
+  for tok in $cats; do
+    while read -r cat roles; do
+      # `tier:<name>` is the depth base set (AC-13), a different record kind in the same file. It can
+      # never match a classifier token, so skipping it is defensive rather than load-bearing — but the
+      # skip is explicit so a future category named `tier-something` cannot half-match by accident.
+      case "$cat" in ''|'#'*|tier:*) continue ;; esac
+      [ "$cat" = "$tok" ] || continue
+      for r in $roles; do
+        case " $out " in *" $r "*) : ;; *) out="$out $r" ;; esac
+      done
+    done < "$map"
+  done
+  printf '%s' "${out# }"
+}
+
 # profile_map_path → the active strictness profile. $TEAM_BOOTSTRAP_PROFILE overrides the shipped one,
 # which is how an organisation supplies its own mapping without touching the core (the Spec Kit preset
 # model: a preset overrides rules, it never adds capability). Empty when neither is readable.
@@ -299,22 +388,13 @@ profile_map_path() {
 # The categories come from select-pipeline.sh's own `(reasons: …)` line — the same computation that sizes
 # the tier, so composition and depth cannot disagree about what the diff contains.
 profile_roles_for_batch() {
-  local bid="$1" map here_ reasons cat roles r out="" tok
+  local bid="$1" map here_ reasons
   map="$(profile_map_path)"; [ -n "$map" ] && [ -f "$map" ] || return 0
   here_="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   reasons="$("$here_/select-pipeline.sh" --batch "$bid" 2>/dev/null \
     | sed -nE 's/.*\(reasons: (.*)\)$/\1/p' | tail -1)"
   [ -n "$reasons" ] || return 0
-  for tok in $reasons; do
-    while read -r cat roles; do
-      case "$cat" in ''|'#'*) continue ;; esac
-      [ "$cat" = "$tok" ] || continue
-      for r in $roles; do
-        case " $out " in *" $r "*) : ;; *) out="$out $r" ;; esac
-      done
-    done < "$map"
-  done
-  printf '%s' "${out# }"
+  roles_for_categories "$reasons"
 }
 
 required_roles_for_batch() {
@@ -361,11 +441,7 @@ required_roles_for_batch() {
       *) : ;;                                   # unrecognised ⇒ ignored, never a guess
     esac
   fi
-  case "$tier" in
-    full) base='integration-verifier architecture-reviewer regression-guardian code-reviewer' ;;
-    mvp)  base='integration-verifier code-reviewer' ;;
-    *)    base='code-reviewer' ;;                     # unknown/lightest ⇒ the invariant floor only
-  esac
+  base="$(tier_base_roles "$tier")"
   # roles-alive phase 2 — the tier decides DEPTH; the risk CATEGORIES decide composition. The classifier
   # already computes five (security/auth, data/schema, infra/deploy, api/contract, deps) and used to
   # discard them into `reasons=`: a ready routing signal with no addressee, which is why 47 of 51 roles
@@ -384,6 +460,18 @@ required_roles_for_batch() {
   for r in $base $proles; do
     case " $out " in *" $r "*) : ;; *) out="$out $r" ;; esac
   done
+  # F4 / AC-18 — the >=1 independent-reviewer floor, asserted HERE, after every configurable source has
+  # had its say. It is not negotiable by profile, by judgement or by declaration.
+  #
+  # This became load-bearing the moment AC-13 moved the tier base into profiles/*.map. Until then the
+  # floor held by ACCIDENT: every branch of the hardcoded case happened to contain code-reviewer, so no
+  # code ever had to enforce it. An organisation shipping `tier:full  integration-verifier` would have
+  # sized the anti-collapse floor away — silently, and on the strictest tier. A floor that depends on
+  # every future config file remembering to include it is not a floor.
+  case " $out " in
+    *" code-reviewer "*) : ;;
+    *) out="$out code-reviewer" ;;
+  esac
   printf '%s' "${out# }"
 }
 
@@ -394,13 +482,41 @@ json_esc() {
 }
 
 # emit_hook_context EVENT ESCAPED_TEXT → one line of hook stdout on the sanctioned context channel.
-# ESCAPED_TEXT must already be json_esc'd. The documented ceiling is 10 000 characters; we cut well
-# under it and then drop a trailing lone backslash, which a cut landing inside an escape pair would
-# otherwise leave behind and break the JSON. Empty text emits nothing at all.
+# ESCAPED_TEXT must already be json_esc'd. Empty text emits nothing at all.
+#
+# OVER THE CEILING: SPILL, NEVER CUT (AC-3). The documented ceiling is 10 000 characters, and the
+# documented over-limit path is "write to a file and pass the path". This used to `cut -c1-9000` and
+# emit the head — a silent truncation, which is the precise failure P10 refuses: the tail of a verdict
+# vanished with no reason recorded, and nothing downstream could tell a short verdict from a cut one.
+# Now the whole text lands in .runs/<id>/context.txt and the emission states the path, so the decision
+# is never lost — only relocated, and the model is told where.
+#
+# The trailing-lone-backslash trim stays: a cut landing inside an escape pair would leave a dangling
+# `\` and break the JSON. It now only ever applies to the summary line, which is built here.
 emit_hook_context() {
-  local ev="$1" t; t="$(printf '%s' "$2" | cut -c1-9000)"
-  case "$t" in *\\\\) : ;; *\\) t="${t%\\}" ;; esac
+  local ev="$1" t="$2" id dir spill head_
   [ -n "$t" ] || return 0
+  if [ "${#t}" -gt 10000 ]; then
+    id="$(_active_run_id 2>/dev/null || true)"
+    dir=".runs/${id:-unknown}"
+    if [ -n "$id" ] && mkdir -p "$dir" 2>/dev/null; then
+      spill="$dir/context.txt"
+      # json_unesc: the caller handed us an ESCAPED string; the spill file holds the plain text, so a
+      # human (and a Read) sees the verdict, not its JSON encoding.
+      printf '%s' "$t" | sed -e 's/\\"/"/g' -e 's/\\\\/\\/g' > "$spill" 2>/dev/null || spill=""
+    fi
+    if [ -n "${spill:-}" ] && [ -f "$spill" ]; then
+      head_="$(printf '%s' "$t" | cut -c1-8000)"
+      case "$head_" in *\\\\) : ;; *\\) head_="${head_%\\}" ;; esac
+      t="$head_ [context continues; the full text of this verdict is in $spill]"
+    else
+      # No run directory to spill into. Cutting is still wrong, so say so IN the context rather than
+      # dropping the tail in silence — an honest gap, never a green-by-skip (P6, P10).
+      head_="$(printf '%s' "$t" | cut -c1-8000)"
+      case "$head_" in *\\\\) : ;; *\\) head_="${head_%\\}" ;; esac
+      t="$head_ [context truncated: over the 10000-character ceiling and no run directory was available to spill into]"
+    fi
+  fi
   printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$ev" "$t"
 }
 

@@ -224,7 +224,7 @@ $gaps
 EOF
   [ "$hard" -gt 0 ] && ex=1
   # record the verdict to the active marker (scoped to DIR), unless graceful-skip (AC-5)
-  ( cd "$dir" 2>/dev/null || exit 0
+  ( cd "$dir" 2>/dev/null || exit 0   # gate-integrity: sanctioned — exits the SUBSHELL, not the gate; the caller still evaluates
     mk_="$(resolve_marker)"
     if [ -n "$mk_" ] && [ -f "$mk_" ] && [ "$(field_bool "$(cat "$mk_")" intends_code)" = "true" ]; then
       record_preflight "$ex" "[$arr]"

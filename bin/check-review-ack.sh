@@ -235,6 +235,22 @@ if [ "${1:-}" = "--self-test" ]; then
   # AC-7 — reviewer == builder (self-review) → fail
   _marker '{'"$M"',"review_acks":[{"batch":"C1","reviewer":"orchestrator","context":"clean","commit":"'"$C1"'","verdict":"go"}]}'
   _chk "AC-7 self-review (reviewer==builder) → fail" "$(_run)" 1
+  # AC-24 (milestone 020) — the discipline holds for EVERY revived role, not only for code-reviewer.
+  # A review_acks entry naming any of them is subject to the same four conditions: reviewer ≠ builder,
+  # context clean, the commit reachable and post-baseline, verdict go. Parameterised over the roles the
+  # profile can actually assign, so a role added to profiles/default.map without a case here is caught
+  # by the loop rather than by nobody.
+  for _r in security-reviewer data-schema-reviewer chaos-engineer test-designer \
+            legal-compliance-checker ip-contracts-reviewer accessibility-reviewer \
+            performance-reviewer overengineering-reviewer devops-platform; do
+    _marker '{'"$M"',"review_acks":[{"batch":"C1","reviewer":"'"$_r"'","context":"clean","commit":"'"$C1"'","verdict":"go"}]}'
+    _chk "AC-24 $_r: independent clean go review → pass" "$(_run)" 0
+    _marker '{'"$M"',"review_acks":[{"batch":"C1","reviewer":"orchestrator","context":"clean","commit":"'"$C1"'","verdict":"go"}]}'
+    _chk "AC-24 $_r: self-review by the builder → fail" "$(_run)" 1
+    _marker '{'"$M"',"review_acks":[{"batch":"C1","reviewer":"'"$_r"'","context":"clean","commit":"'"$C1"'","verdict":"blocked"}]}'
+    _chk "AC-24 $_r: verdict blocked → fail" "$(_run)" 1
+  done
+
   # AC-7 — verdict blocked → fail
   _marker '{'"$M"',"review_acks":[{"batch":"C1","reviewer":"code-reviewer","context":"clean","commit":"'"$C1"'","verdict":"blocked"}]}'
   _chk "AC-7 verdict blocked → fail" "$(_run)" 1

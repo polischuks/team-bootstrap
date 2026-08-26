@@ -32,15 +32,24 @@ appreciated: please give a reasonable window to ship a fix before public discuss
 
 Reasoning happens inside the user's Claude Code harness, against the user's own
 credentials and repository. But the plugin is **not** inert markdown: it ships
-`bin/*.sh` and wires them into four Claude Code hook points via
+**39 scripts under `bin/`** and wires them into **11 Claude Code hook events** via
 [hooks/hooks.json](hooks/hooks.json):
 
-| Hook | Script | Effect |
+| Hook event | Script(s) | Effect |
 | --- | --- | --- |
-| `UserPromptSubmit` | `delivery-marker-init.sh` | arms/updates the run marker |
-| `PreToolUse[Agent\|Task]` | `record-dispatch.sh` | records role dispatches |
-| `PreToolUse[Bash]` | `guard-git.sh` | **blocking** — can refuse a git command |
+| `UserPromptSubmit` | `delivery-marker-init.sh` | arms/updates the run marker; injects context |
+| `UserPromptExpansion` | `judge-tier.sh` + a `type: agent` handler | may invoke a model to size the milestone |
+| `SessionStart` | `session-context.sh` | injects the constitution and invariants as context |
+| `PreToolUse[Agent\|Task]` | `record-dispatch.sh` | records role dispatches; rewrites the dispatch prompt via `updatedInput` |
+| `PreToolUse[Bash]` | `guard-git.sh` | **blocking** — refuses a git command, or escalates via `permissionDecision: "ask"` |
+| `PostToolBatch` | `check-review-batch.sh` | **blocking** — gates a parallel reviewer fan-out |
+| `PreCompact` / `PostCompact` | `session-context.sh` | preserves the blackboard across context compaction |
+| `TaskCreated` / `TaskCompleted` | `record-task.sh` | records native task lifecycle events |
+| `SubagentStart` | `subagent-brief.sh` | hands a review role its plan (context only; cannot block) |
 | `Stop` | `quality-gate.sh`, `delivery-stop-hook.sh` | **blocking** — can refuse completion |
+
+Review-role subagents additionally declare a `Stop` hook in their own frontmatter
+(`check-role-verdict.sh`), which lives only while that subagent runs.
 
 Hooks run automatically, without a per-call permission prompt.
 
@@ -53,7 +62,7 @@ The gates read their commands from the **target repository's**
 | Site | Contract read | Reached via |
 | --- | --- | --- |
 | [`quality-gate.sh:39`](bin/quality-gate.sh) | `Lint:`, `Typecheck:` | **`Stop` hook — no prompt** |
-| [`check-tdd.sh:131`](bin/check-tdd.sh), [`tdd-red.sh:88`](bin/tdd-red.sh) | `Test:` | gate run during a batch |
+| [`check-tdd.sh`](bin/check-tdd.sh) — both the close-time gate and its `--record-red` observation step | `Test:` | gate run during a batch |
 | [`check-diff-coverage.sh:106,109`](bin/check-diff-coverage.sh) | `Coverage:` | `verify-batch.sh` |
 | [`check-mutation.sh:60`](bin/check-mutation.sh) | `Mutation:` | `verify-batch.sh` |
 

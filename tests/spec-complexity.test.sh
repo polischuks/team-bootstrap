@@ -166,6 +166,44 @@ T="$(mktemp -d)"; ( cd "$T" || exit 1; git init -q; git config user.email a@b.c;
   _chk "$(printf '%s' "$got" | tr -d ' \n')" "" "a kind:doc batch still earns no review role" )
 rm -rf "$T"
 
+# ---------------------------------------------------------------------------
+# AC-22 (milestone 020) — the named blind spot, pinned by a fixture.
+#
+# size-from-spec.sh:54-56 records the failure this whole line of work started from: a spec about
+# exactly-once distributed settlement sized to single-thread, because the PATH classifier saw two files
+# in one directory and nothing else. The prose signal (ADR-0019) closed it. Nothing until now held it
+# closed: the mechanism is a regex list, and a regex list is one careless edit away from losing a word.
+# This fixture IS that spec, reduced. If `exactly-once`, `partition` or `settlement` ever leaves the
+# prose vocabulary, this reddens instead of a production milestone silently under-sizing.
+# ---------------------------------------------------------------------------
+T="$(mktemp -d)"; mkdir -p "$T/specs/eo"
+cat > "$T/specs/eo/spec.md" <<'SPEC'
+# Spec — exactly-once settlement
+
+The settlement calculator must produce each payout exactly once across two services,
+surviving a network partition without double-paying.
+SPEC
+printf '# Tasks\n\n## WS-A settle\n\n- [ ] T1 a\n  - file: src/settle/calc.ts\n- [ ] T2 b\n  - file: src/settle/ledger.ts\n' \
+  > "$T/specs/eo/tasks.md"
+( cd "$T" || exit 1
+  git init -q; git config user.email a@b.c; git config user.name t
+  printf 'x\n' > seed.txt; git add -A; git commit -q -m base
+  out="$(bash "$here/bin/size-from-spec.sh" specs/eo 2>/dev/null)"
+  _chk "$(printf '%s\n' "$out" | sed -n 's/^tier=//p')" "full" \
+    "the exactly-once fixture sizes FULL — two files in one directory no longer decide alone"
+  _chk "$(printf '%s\n' "$out" | sed -n 's/^reasons=//p' | grep -q 'prose:dist' && echo yes || echo no)" yes \
+    "  …because the PROSE names distributed correctness, not because of the file count"
+  # The path half is genuinely blind here, and saying so is the point: the fixture proves the prose
+  # signal is what carries it. If a future path rule starts matching src/settle/, this assertion is
+  # what tells the next reader the fixture stopped testing the blind spot.
+  _chk "$(printf '%s\n' "$out" | sed -n 's/^layers=//p')" "1" \
+    "  …and the path signal alone still sees a single layer (the blind spot is real, not removed)"
+  # Per-work-stream must agree: a floor derived from the same spec cannot be lighter than the run.
+  wsout="$(bash "$here/bin/size-from-spec.sh" --per-batch specs/eo 2>/dev/null)"
+  _chk "$(printf '%s' "$wsout" | sed -n 's/.*\ttier=\([a-z-]*\).*/\1/p' | head -1)" "full" \
+    "  …and the work-stream floor is full too (run and per-batch cannot disagree)" )
+rm -rf "$T"
+
 fail="$(cat "$FAILF")"; rm -f "$FAILF"
 [ "$fail" -eq 0 ] && { echo "spec-complexity.test.sh: OK"; exit 0; }
 echo "spec-complexity.test.sh: $fail failure(s)"; exit 1

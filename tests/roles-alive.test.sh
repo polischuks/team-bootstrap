@@ -104,17 +104,35 @@ _chk "$([ -f "$MAP" ] && echo yes || echo no)" yes "profiles/default.map exists"
 
 # no DEAD ENTRIES: every role the map names must be dispatchable
 _dead=""
+# A role's DISPATCH SLUG is not always its name: the code-review role dispatches as `tb-code-reviewer`
+# so it stays attributable when the `team-bootstrap:` prefix is stripped (review-types.txt). Resolve
+# role → slug through the attribution column rather than assuming they are equal; assuming it made this
+# check report `code-reviewer` dead the moment the tier base set moved into the profile and started
+# naming roles by name.
+_slug_for_role() { awk -F'\t' -v r="$1" '!/^#/ && NF>1 && $2==r {print $1; exit}' "$here/references/review-types.txt"; }
 while read -r _cat _roles; do
   case "$_cat" in ''|'#'*) continue ;; esac
-  for _r in $_roles; do [ -f "$here/agents/$_r.md" ] || _dead="${_dead:+$_dead }$_r"; done
+  for _r in $_roles; do
+    _s="$(_slug_for_role "$_r")"; [ -n "$_s" ] || _s="$_r"
+    _s="${_s#team-bootstrap:}"
+    [ -f "$here/agents/$_s.md" ] || _dead="${_dead:+$_dead }$_r"
+  done
 done < "$MAP"
-_chk "${_dead:-none}" none "every role named by the map has an agents/ file"
+_chk "${_dead:-none}" none "every role named by the map is dispatchable under some slug"
 
-# no DEAD KEYS: every category must be one select-pipeline.sh actually emits
-_emitted="$(grep -oE 'reasons="\$reasons [a-z/]+"' "$here/bin/select-pipeline.sh" | sed -E 's/.* ([a-z/]+)"/\1/' | sort -u)"
+# no DEAD KEYS: every category must be one select-pipeline.sh actually emits.
+#
+# Read from `--categories`, which publishes the vocabulary beside the code that emits it, rather than
+# scraping the source. The scrape this replaces matched `[a-z/]+` and therefore could not see a category
+# containing a hyphen: `no-tests` was invisible to it and reported as a dead key while being emitted
+# correctly. A check that reconstructs its expectation from source text drifts from the source the
+# moment the source gains a character class the regex does not know about.
+_emitted="$("$here/bin/select-pipeline.sh" --categories 2>/dev/null | tr ' ' '\n' | grep -v '^$' | sort -u)"
 _deadk=""
 while read -r _cat _rest; do
-  case "$_cat" in ''|'#'*) continue ;; esac
+  # `tier:<name>` records the DEPTH base set (AC-13); it is not a classifier category and has no
+  # emission to match against.
+  case "$_cat" in ''|'#'*|tier:*) continue ;; esac
   printf '%s\n' "$_emitted" | grep -qx "$_cat" || _deadk="${_deadk:+$_deadk }$_cat"
 done < "$MAP"
 _chk "${_deadk:-none}" none "every category key is one the classifier emits"

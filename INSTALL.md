@@ -77,6 +77,39 @@ For each project where you'll use team-bootstrap, add an `AGENTS.md` to the repo
 
 If your project already uses `CLAUDE.md`, team-bootstrap will read that as a fallback. The contract is the same.
 
+## Enterprise: managed policy settings
+
+The install methods above are user-level: the user who installs the plugin can also remove it, edit
+`hooks.json`, or set `TEAM_BOOTSTRAP_DELIVERY_GATE=off`. That is correct for an individual, and wrong
+for an organisation that needs the gates to hold regardless of who is at the keyboard.
+
+Claude Code's **managed policy settings** are the supported path. An administrator deploys the settings
+file to the OS policy location, and its contents cannot be overridden by user or project settings:
+
+| Platform | Managed policy location |
+| --- | --- |
+| macOS | `/Library/Application Support/ClaudeCode/managed-settings.json` |
+| Linux / WSL | `/etc/claude-code/managed-settings.json` |
+| Windows | `C:\ProgramData\ClaudeCode\managed-settings.json` |
+
+Two keys matter here:
+
+- **`allowManagedHooksOnly`** — when true, only hooks defined in managed settings run. User- and
+  project-level hooks are ignored entirely. This is what makes the delivery gates non-removable: a
+  developer cannot disable them by editing a file in the repository or in their home directory.
+- **`permissions`** — the other of the two deterministic enforcement mechanisms. A hook filter like
+  `if: "Bash(git *)"` is **best-effort and fail-open** by design; a hard prohibition belongs in
+  `permissions`, not in a hook. See [references/hooks.md](references/hooks.md).
+
+**The trade-off to weigh before deploying this.** `allowManagedHooksOnly` means the plugin's own
+`hooks/hooks.json` no longer runs unless its entries are copied into managed settings — so the
+administrator becomes responsible for keeping them in step with plugin upgrades. Version-pin the
+plugin (`.claude-plugin/marketplace.json`) if you take this path, and re-check the hook list on each
+upgrade; a managed settings file that has silently fallen behind is a gate that is not running.
+
+Read [SECURITY.md](SECURITY.md) first regardless: the gates `eval` commands out of the target
+repository's `AGENTS.md`, and that trust boundary does not change under managed settings.
+
 ## Optional: MCP servers
 
 team-bootstrap roles can integrate with MCP servers for GitHub, Linear, Slack, etc. The skill itself does not bundle MCP servers — it only declares which servers each role uses in its frontmatter. Configure servers separately in Claude Code's MCP settings. See [references/mcp-integration.md](references/mcp-integration.md).
