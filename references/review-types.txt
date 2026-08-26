@@ -73,3 +73,5 @@ team-bootstrap:data-schema-reviewer	data-schema-reviewer
 data-schema-reviewer	data-schema-reviewer
 team-bootstrap:overengineering-reviewer	overengineering-reviewer
 overengineering-reviewer	overengineering-reviewer
+team-bootstrap:accessibility-reviewer	accessibility-reviewer
+accessibility-reviewer	accessibility-reviewer

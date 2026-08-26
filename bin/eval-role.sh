@@ -75,6 +75,7 @@ if [ "${LIVENESS:-0}" -eq 1 ]; then
       api/contract)  printf 'src/api/openapi.yaml' ;;
       infra/deploy)  printf 'infra/Dockerfile' ;;
       deps)          printf 'package.json' ;;
+      ui)            printf 'src/components/Button.tsx' ;;
       *)             printf '' ;;
     esac
   }

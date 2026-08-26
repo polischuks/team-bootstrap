@@ -24,6 +24,16 @@
 # never change an outcome: `bin/eval-role.sh --liveness` reports such a binding DEAD, because removing it
 # turns nothing red. A no-op entry inflates the appearance of routing without adding any, so it is gone.
 #
+# NOT MAPPED, on purpose — a hot-path/performance category. performance-reviewer is dispatchable and
+# typed, but no path pattern honestly answers "is this a hot path": a guessed classifier would produce a
+# binding that fires on the wrong batches, and `eval-role.sh --liveness` would rightly call the guess
+# alive while it routed noise. It stays reachable by DECLARATION — `⚠ performance-reviewer` on the task —
+# which required_roles_for_batch already unions in, one-directionally. A real signal (profiling data, a
+# benchmark budget) can add the category later; a fabricated one cannot be improved, only unwound.
+#
+# NOT MAPPED, on purpose — test-designer. Same reason as chaos-engineer: no required field in the schema,
+# so it cannot be confirmed at closure.
+#
 # KNOWN GAP — infra/deploy has no addressee. The classifier emits it, and the natural owner is
 # chaos-engineer, whose schema def declares NO required field. Assigning a role that cannot return a
 # typed verdict would buy a dispatch and no confirmation. Adding the field is a new required handoff
@@ -32,3 +42,4 @@
 security/auth   security-reviewer
 data/schema     data-schema-reviewer
 deps            security-reviewer overengineering-reviewer
+ui              accessibility-reviewer
