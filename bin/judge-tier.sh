@@ -110,6 +110,20 @@ spec="$(printf '%s' "$payload" | grep -oE 'specs/[A-Za-z0-9._-]+' | head -1)"
 [ -n "$spec" ] || exit 0
 [ -f "$spec/spec.md" ] || exit 0
 
+# Idempotence, the same discipline delivery-marker-init.sh applies to the marker. UserPromptExpansion
+# fires on EVERY matching prompt, and a run spans many — without this the model is asked again on each
+# one, at up to the full timeout, to re-derive a judgement that has not changed. Re-judge only when the
+# SPECIFICATION has changed since the judgement was written; otherwise the existing verdict stands.
+run="${spec#specs/}"; run="${run%/}"
+_j=".runs/$run/tier-judgment"
+if [ -f "$_j" ] && [ -z "${TEAM_BOOTSTRAP_TIER_JUDGE_FORCE:-}" ]; then
+  _stale=""
+  for _f in "$spec/spec.md" "$spec/plan.md"; do
+    [ -f "$_f" ] && [ "$_f" -nt "$_j" ] && _stale=1
+  done
+  [ -n "$_stale" ] || exit 0
+fi
+
 prompt="$(_judge_prompt "$spec")"
 [ -n "$prompt" ] || exit 0
 answer="$(_ask "$prompt")"
@@ -117,7 +131,6 @@ tier="$(_tier_of "$answer")"
 [ -n "$tier" ] || exit 0                       # no answer / timeout / unrecognised ⇒ no judgement at all
 reason="$(_reason_of "$answer")"
 
-run="${spec#specs/}"; run="${run%/}"
 mkdir -p ".runs/$run" 2>/dev/null || exit 0
 printf 'tier=%s\nreason=%s\n' "$tier" "${reason:-unstated}" > ".runs/$run/tier-judgment" 2>/dev/null || exit 0
 

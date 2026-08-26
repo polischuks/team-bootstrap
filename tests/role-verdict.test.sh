@@ -69,6 +69,28 @@ _chk "$(grep -c '"role":"security-reviewer"' "$T/.runs/r/verdicts.jsonl" 2>/dev/
 _chk "$(grep -c '"batch":"B1"' "$T/.runs/r/verdicts.jsonl" 2>/dev/null)" 1 "  …and to the in-flight batch"
 rm -rf "$T"
 
+echo "1.3b — a role that CARRIES the verdict hook must have something for it to check:"
+# The hook is only a confirmation if the role's schema requires something. A role that declares
+# `properties` and no `required` gets a hook that finds nothing to demand and exits 0 on every
+# invocation — a check that cannot fail, which is exactly what check-gate-integrity exists to catch.
+# The criterion-6 invariant in roles-alive.test.sh covers only roles the PROFILE MAP names, so it
+# cannot see this: the four mandatory roles come from the tier base set, not the map. Cover them here.
+_inert=""
+for _a in "$here"/agents/*.md; do
+  # frontmatter only: the file's PROSE may name the script (independent-reviewer explains why it has
+  # no hook), and matching that would report a role as carrying a check it does not carry.
+  # Match the DECLARATION (`command: …/check-role-verdict.sh`), not a mention. The prompt handler's own
+  # text names the script, and the prose of a role that has no hook explains why — matching either
+  # would report a role as carrying a check it does not carry.
+  awk '/^---$/{n++; next} n==1' "$_a" | grep -qE '^[[:space:]]*command:.*check-role-verdict\.sh' || continue
+  _slug="${_a##*/}"; _slug="${_slug%.md}"
+  _role="$(awk -F'\t' -v s="$_slug" '$1==s && $2!=""{print $2; exit}' "$here/references/review-types.txt")"
+  [ -n "$_role" ] || _role="$_slug"
+  python3 -c 'import json,sys; d=json.load(open(sys.argv[1]))["$defs"].get(sys.argv[2],{}); sys.exit(0 if any(b.get("required") for b in d.get("allOf",[])) else 1)' \
+    "$here/references/schemas/role-output.schema.json" "$_role" 2>/dev/null || _inert="${_inert:+$_inert }$_slug"
+done
+_chk "${_inert:-none}" none "no role carries a verdict hook that cannot fail"
+
 echo "3.1 — the closure gate reads the recorded verdicts:"
 _chk "$(grep -qE '(^|[^a-z-])check-role-verdict\.sh' "$here/bin/verify-batch.sh" && echo yes || echo no)" yes \
   "check-role-verdict is wired into verify-batch"

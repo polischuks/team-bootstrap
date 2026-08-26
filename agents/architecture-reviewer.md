@@ -5,8 +5,6 @@ tools: Read, Grep, Glob, Bash
 hooks:
   Stop:
     - hooks:
-        - type: command
-          command: "${CLAUDE_PLUGIN_ROOT}/bin/check-role-verdict.sh"
         - type: prompt
           timeout: 30
           prompt: >-
@@ -32,6 +30,23 @@ The orchestrator supplies `references/roles/architecture-reviewer.md` (or the so
 prompt, with the diff/plan and the [architecture baseline](../references/architecture-baseline.md). Execute
 it: in conformance mode run the fitness functions and flag `drift_findings`; in soundness mode judge whether
 the planned architecture is correct and fits the app as a whole.
+
+## KNOWN GAP — this role has no verdict shape to enforce
+
+Every other dedicated review role declares a `Stop` hook running `bin/check-role-verdict.sh`, which
+refuses a verdict missing the fields its role's schema requires. This one does not, and unlike
+`independent-reviewer` that is a GAP rather than a design choice.
+
+`role-output.schema.json` gives `architecture-reviewer` properties — `architecture_sound`,
+`conformance_verified`, `drift_findings` — and marks **none of them required**. So the hook would find
+nothing to demand and exit 0 on every invocation: a check that cannot fail, which is precisely what
+`check-gate-integrity.sh` exists to catch. Carrying it would advertise confirmation this role does not
+have, on one of the four MANDATORY review roles.
+
+Making `conformance_verified` required would close it, and that is a new required handoff field — a
+**major** version bump under `references/versioning.md`, and a decision to take deliberately rather
+than slip into a routing change. Until then: this role's dispatch is observed and its per-role floor is
+enforced, but the SHAPE of what it returns is not checked.
 
 ## Disposition
 
