@@ -66,14 +66,47 @@ PROMPT
 # _ask PROMPT → the model's raw answer (empty on any failure). Portable timeout: `timeout`, else
 # `gtimeout`, else no wrapper at all — the same best-effort idiom guard-git.sh uses, because a host
 # without coreutils must degrade to "no judgement", never to a hang that looks like a gate.
+# _ask PROMPT OUTFILE → the model's answer into OUTFILE. Echoes the FAILURE REASON (empty on success).
+#
+# The reason is returned on stdout rather than through a global, because the caller reads this through
+# command substitution and a subshell cannot write its parent's variables — an earlier draft of this
+# function set `_ASK_RC` and the assignment was silently discarded, which is exactly how the
+# unavailable-reason would have shipped as a constant.
 _ask() {
-  local to=""
-  command -v claude >/dev/null 2>&1 || return 0
+  local to="" rc
+  command -v claude >/dev/null 2>&1 || { printf 'no-model-cli'; return 0; }
   if   command -v timeout  >/dev/null 2>&1; then to="timeout $TIMEOUT_S"
   elif command -v gtimeout >/dev/null 2>&1; then to="gtimeout $TIMEOUT_S"
   fi
   # shellcheck disable=SC2086
-  printf '%s\n' "$1" | $to claude -p 2>/dev/null || true
+  printf '%s\n' "$1" | $to claude -p > "$2" 2>/dev/null
+  rc=$?
+  # 124 is coreutils' timeout signal. Distinguishing it matters: "the model was too slow on a 900-line
+  # spec" is a calibration problem (R5, OQ-4) and "there is no CLI here" is an install problem, and a
+  # single `unavailable` that cannot tell them apart sends the operator looking in the wrong place.
+  case "$rc" in
+    0)   [ -s "$2" ] || { printf 'no-answer'; return 0; } ;;
+    124) printf 'timeout-%ss' "$TIMEOUT_S" ;;
+    *)   printf 'model-call-failed-rc%s' "$rc" ;;
+  esac
+  return 0
+}
+
+# _record_unavailable RUN REASON → the fallback, written down instead of merely happening.
+#
+# AC-21. Every path below already fell back to the deterministic sizing, which is correct; what it did
+# not do is leave a trace. A run where the model was never asked was byte-identical, on disk, to a run
+# where the judge was not registered at all — so "the judgement never fires" was unfalsifiable, and
+# nobody could tell a calibration problem from a wiring one. This is the same rule AC-47 applied to
+# --per-batch: a component that declines to decide states why.
+#
+# It deliberately writes NO `tier=` line. required_roles_for_batch reads `tier=` and ignores everything
+# else, so an unavailable record is inert by construction rather than by promise — the file can never
+# be mistaken for a verdict, whatever a later reader does with it.
+_record_unavailable() {
+  mkdir -p ".runs/$1" 2>/dev/null || return 0
+  printf 'judgment=unavailable\nreason=%s\n' "$2" > ".runs/$1/tier-judgment" 2>/dev/null || return 0
+  emit_hook_context UserPromptExpansion "$(json_esc "team-bootstrap tier judgement for run $1: unavailable (reason: $2). The deterministic path sizing stands alone for this run; no floor was lifted.")"
 }
 
 # _tier_of ANSWER → single-thread|mvp|full, or empty. Anything unrecognised is empty: an unknown word
@@ -116,7 +149,10 @@ spec="$(printf '%s' "$payload" | grep -oE 'specs/[A-Za-z0-9._-]+' | head -1)"
 # SPECIFICATION has changed since the judgement was written; otherwise the existing verdict stands.
 run="${spec#specs/}"; run="${run%/}"
 _j=".runs/$run/tier-judgment"
-if [ -f "$_j" ] && [ -z "${TEAM_BOOTSTRAP_TIER_JUDGE_FORCE:-}" ]; then
+# Only a real VERDICT suppresses a re-ask. An `unavailable` record is a note about a failure, not an
+# answer, and a run that could not reach the model on its first prompt must be free to reach it on the
+# next one — otherwise one transient timeout disables judgement for the whole run.
+if [ -f "$_j" ] && grep -q '^tier=' "$_j" 2>/dev/null && [ -z "${TEAM_BOOTSTRAP_TIER_JUDGE_FORCE:-}" ]; then
   _stale=""
   for _f in "$spec/spec.md" "$spec/plan.md"; do
     [ -f "$_f" ] && [ "$_f" -nt "$_j" ] && _stale=1
@@ -125,10 +161,19 @@ if [ -f "$_j" ] && [ -z "${TEAM_BOOTSTRAP_TIER_JUDGE_FORCE:-}" ]; then
 fi
 
 prompt="$(_judge_prompt "$spec")"
-[ -n "$prompt" ] || exit 0
-answer="$(_ask "$prompt")"
+[ -n "$prompt" ] || { _record_unavailable "$run" "empty-spec"; exit 0; }
+_af="$(mktemp 2>/dev/null)" || { _record_unavailable "$run" "no-tempfile"; exit 0; }
+ask_fail="$(_ask "$prompt" "$_af")"
+answer="$(cat "$_af" 2>/dev/null || true)"; rm -f "$_af"
 tier="$(_tier_of "$answer")"
-[ -n "$tier" ] || exit 0                       # no answer / timeout / unrecognised ⇒ no judgement at all
+if [ -z "$tier" ]; then
+  # The fallback is unchanged — the deterministic path stands alone. What changes is that it is now
+  # visible, and that the reason names the cause: a transport failure when there was one, and
+  # "unparseable-answer" when the model replied with something that is not one of the three known
+  # words. Those are different problems and they are fixed in different places.
+  _record_unavailable "$run" "${ask_fail:-unparseable-answer}"
+  exit 0
+fi
 reason="$(_reason_of "$answer")"
 
 mkdir -p ".runs/$run" 2>/dev/null || exit 0
