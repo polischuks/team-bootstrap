@@ -160,6 +160,13 @@ if [ "${1:-}" = "--self-test" ]; then
 fi
 
 case "${1:-}" in
-  --gate) shift; [ -n "${1:-}" ] && cd "$1" 2>/dev/null; _gate_mode; exit $? ;;
+  # A failed `cd` used to be swallowed: the gate then evaluated the CURRENT directory instead of the
+  # one it was handed, silently answering a different question. Fail loudly — a gate that runs
+  # somewhere else is not a gate that passed.
+  --gate) shift
+          if [ -n "${1:-}" ]; then
+            cd "$1" 2>/dev/null || { echo "check-role-verdict: bad project dir '$1'" >&2; exit 64; }
+          fi
+          _gate_mode; exit $? ;;
   *)      _hook_mode ;;
 esac

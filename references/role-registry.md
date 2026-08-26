@@ -120,7 +120,12 @@ whose own review slugs resolve through it.
 ## Deliberately unmapped categories
 
 - **`api/contract`** — its natural owner is `integration-verifier`, but the category forces the
-  `full` tier, whose base set already contains that role. Already in the tier base set for the tier its category forces, so a profile entry could never change an outcome — `--liveness` reports such a binding dead.
+  `full` tier, whose base set already contains that role. This is the AC-15 answer, verified rather
+  than assumed: adding `api/contract  integration-verifier` to `profiles/default.map` and running
+  `bin/eval-role.sh --liveness` reports the binding **DEAD**, because removing it changes no outcome.
+  A no-op entry inflates the appearance of routing without adding any, and P12 exists to refuse
+  exactly that. It stays unmapped until either the role leaves the `full` base set or a narrower
+  contract-risk category exists that does not force `full`. Already in the tier base set for the tier its category forces, so a profile entry could never change an outcome — `--liveness` reports such a binding dead.
 
 ## Cost
 
