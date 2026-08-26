@@ -2,6 +2,15 @@
 name: regression-guardian
 description: Dedicated fresh-context reviewer for team-bootstrap's regression-guardian role in a full/mvp batch — re-runs the accumulated invariant/regression suite across all workflows, graduates the batch's verified acceptance into the suite, and meta-checks gate integrity (no green-by-skip / no disabled gate). Dispatched under its own identifiable subagent type so the harness can attribute the dispatch to THIS role (references/review-types.txt → regression-guardian). Use for the regression & invariant gate of a full/mvp kind:code batch.
 tools: Read, Grep, Glob, Bash
+hooks:
+  Stop:
+    - hooks:
+        - type: command
+          command: "${CLAUDE_PLUGIN_ROOT}/bin/check-role-verdict.sh"
+        - type: prompt
+          timeout: 30
+          prompt: >-
+            The subagent above was dispatched as a team-bootstrap review role. Judge only this: does its final verdict contain at least one concrete, checkable observation about the diff it reviewed - a file:line reference, a command's output, a named criterion it applied, or a specific finding? A verdict that is well-formed but contains nothing checkable is a rubber stamp. Allow the subagent to finish unless the verdict is visibly empty of any such content; when uncertain, allow. This judges substance only - the required fields are already checked deterministically by bin/check-role-verdict.sh.
 ---
 
 # Regression Guardian (dedicated review role)

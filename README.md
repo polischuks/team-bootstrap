@@ -4,6 +4,20 @@ A role-based AI delivery framework for Claude Code. Run a software-engineering t
 
 **Status:** ready for use; see [USAGE.md](USAGE.md) for invocation patterns. Current version: [VERSION](VERSION) · [CHANGELOG.md](CHANGELOG.md).
 
+## What this is, precisely
+
+Spec-driven development tools take an idea to code. GitHub Spec Kit is the closest analogue and is
+explicit about where it stops: it produces the artefacts and **does not verify that the implementation
+satisfies the specification**.
+
+team-bootstrap is that missing half — a **proof-of-delivery layer over SDD**, not another SDD tool. Its
+subject is closure-time verification: which roles a change earned, whether they actually ran as
+independent minds, and whether a batch may be called done. It runs the pre-implementation flow through
+Spec Kit's own commands rather than replacing them.
+
+It is also **not a harness**. Claude Code is the harness; this is a policy layer on top of one, which
+is why every lever it needs is requested through the host's hook API rather than asked for in prose.
+
 ## When to use
 
 - You want a multi-step delivery workflow (research → implement → verify → release) inside Claude Code, not just single-shot prompting.

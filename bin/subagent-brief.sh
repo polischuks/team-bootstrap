@@ -63,6 +63,7 @@ pipeline="$(field_str "$mk" pipeline)"
 ctx="team-bootstrap brief for $role on batch $bid (pipeline=$pipeline)."
 ctx="$ctx Review roles sized for this batch: ${sized:-unsized}."
 ctx="$ctx Reviewer dispatches recorded so far: ${covered:-none}."
+ctx="$ctx Review depth for this tier: $(review_depth_for_tier "$pipeline") on the /code-review low-medium-high scale."
 ctx="$ctx This batch's diff is the review window; check-role-dispatch reads the recorded set at close."
 
 # json_esc / emit_hook_context live in delivery-lib.sh. delivery-marker-init.sh keeps private copies on

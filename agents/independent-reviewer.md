@@ -25,6 +25,24 @@ caught and announced (`bin/check-role-dispatch.sh`). See
 [references/subagent-dispatch.md](../references/subagent-dispatch.md) and
 [references/enforcement.md](../references/enforcement.md).
 
+## Why this role carries no verdict hook
+
+Every dedicated review role in `agents/` declares a `Stop` hook running
+`bin/check-role-verdict.sh`, which refuses a verdict missing the fields its role's schema requires.
+This one does not, and the asymmetry is deliberate rather than an omission.
+
+`independent-reviewer` is the GENERIC slug: `references/review-types.txt` lists it with no role column,
+so `role_of_slug` returns empty for it, and `role-output.schema.json` has no `independent-reviewer`
+definition to require anything of. The hook would resolve no role, find no required fields, and exit 0
+on every invocation — a check that cannot fail, which is precisely what `check-gate-integrity.sh`
+exists to catch. Shipping it here would add the appearance of confirmation and none of it.
+
+The consequence is worth stating plainly: a dispatch under this slug satisfies the legacy ≥1
+anti-collapse floor and is **not** confirmed by shape. Dispatch under a DEDICATED slug
+(`integration-verifier`, `architecture-reviewer`, `regression-guardian`, `tb-code-reviewer`,
+`security-reviewer`, `data-schema-reviewer`, `overengineering-reviewer`, `accessibility-reviewer`)
+whenever the role is one of those — the per-role floor and the verdict check both attach there.
+
 ## Disposition
 
 - **Refute, don't rubber-stamp.** Try to find the reason this batch is NOT done. Adopt the playbook's

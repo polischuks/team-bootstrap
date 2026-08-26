@@ -210,7 +210,10 @@ echo "AC-19 — EVERY registered hook body is control surface (the class, not ju
 # which is the exact thing that file exists to make declarable. Assert the invariant instead.
 _uncovered=""
 while IFS= read -r _c; do
-  _b="$(basename "$_c")"
+  # A hook command may carry ARGUMENTS ("…/session-context.sh SessionStart"), so the script path is the
+  # first token — basename of the whole string yields "session-context.sh SessionStart" and matches
+  # nothing. The invariant is about the BODY, not the invocation.
+  _b="$(basename "${_c%% *}")"
   grep -qF "$_b" "$here/references/control-surface.txt" || _uncovered="${_uncovered:+$_uncovered }$_b"
 done <<EOF
 $(PY 'import json,sys

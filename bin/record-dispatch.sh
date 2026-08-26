@@ -107,4 +107,31 @@ fi
 # cheap and caps a pathological stdin; the head-of-object fields we parse are always within it.
 payload="$(head -c 1048576 2>/dev/null || true)"
 record_dispatch "$payload"
+
+# updatedInput (hooks reference §"PreToolUse"): rewrite the tool's arguments before it executes. Used
+# here to APPEND the harness's plan facts to a review dispatch's prompt — the role gets its assignment
+# in the argument itself, so it arrives even where SubagentStart context does not.
+#
+# Why appending and never replacing: the orchestrator's prompt is the task. Overwriting it would make a
+# recording hook silently authoritative over what the reviewer was asked to do, which is a far larger
+# power than this hook is entitled to. It also stays NON-blocking — the project already rejected a
+# blocking PreToolUse[Agent|Task] gate because refusing a dispatch pushes review inline (spec-169).
+#
+# Emitted only when there is something true to add, and skipped entirely on anything unexpected.
+if [ "${TEAM_BOOTSTRAP_DISPATCH_BRIEF:-on}" != "off" ]; then
+  _brief="$(printf '%s' "$payload" | "$(dirname "$0")/subagent-brief.sh" 2>/dev/null \
+    | sed -n 's/.*"additionalContext":"\([^"]*\)".*/\1/p' | head -1)"
+  if [ -n "$_brief" ]; then
+    # `VAR=x cmd1 | cmd2` scopes VAR to cmd1 only — export it, or python3 never sees the brief.
+    export TB_BRIEF="$_brief"
+    printf '%s' "$payload" | python3 -c 'import json,os,sys
+try: d=json.load(sys.stdin)
+except Exception: sys.exit(0)
+p=(d.get("tool_input") or {}).get("prompt")
+b=os.environ.get("TB_BRIEF","")
+if not isinstance(p,str) or not p or not b: sys.exit(0)
+print(json.dumps({"hookSpecificOutput":{"hookEventName":"PreToolUse",
+  "updatedInput":{"prompt":p+"\n\n[harness assignment] "+b}}}))' 2>/dev/null || true
+  fi
+fi
 exit 0

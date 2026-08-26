@@ -265,6 +265,58 @@ _batch_paths() {
   fi
 }
 
+# review_depth_for_tier TIER → the /code-review level the tier buys: low | medium | high.
+#
+# ADR-0020 split composition from depth and only delivered the composition half — the tier stopped
+# deciding WHO reviews, and nothing then consumed it as HOW DEEPLY. That left the tier a role list
+# with a smaller list, which is not the split that was claimed. This is the other half: the tier is a
+# number on the /code-review scale, and it is stated to the model and to each dispatched role.
+#
+# `ultra` is deliberately unreachable here: it is user-triggered and billed, and a harness that could
+# spend it without being asked would be exactly the unbounded autonomy P1 rejects.
+review_depth_for_tier() {
+  case "$1" in
+    full) printf 'high' ;;
+    mvp)  printf 'medium' ;;
+    *)    printf 'low' ;;
+  esac
+}
+
+# profile_map_path → the active strictness profile. $TEAM_BOOTSTRAP_PROFILE overrides the shipped one,
+# which is how an organisation supplies its own mapping without touching the core (the Spec Kit preset
+# model: a preset overrides rules, it never adds capability). Empty when neither is readable.
+profile_map_path() {
+  local p
+  if [ -n "${TEAM_BOOTSTRAP_PROFILE:-}" ]; then
+    [ -f "$TEAM_BOOTSTRAP_PROFILE" ] && { printf '%s' "$TEAM_BOOTSTRAP_PROFILE"; return 0; }
+    return 0                                        # named but unreadable ⇒ no map, never a silent default
+  fi
+  p="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/profiles/default.map"
+  [ -f "$p" ] && printf '%s' "$p"
+}
+
+# profile_roles_for_batch BATCH_ID → roles the batch's RISK CATEGORIES earn, per the active profile.
+# The categories come from select-pipeline.sh's own `(reasons: …)` line — the same computation that sizes
+# the tier, so composition and depth cannot disagree about what the diff contains.
+profile_roles_for_batch() {
+  local bid="$1" map here_ reasons cat roles r out="" tok
+  map="$(profile_map_path)"; [ -n "$map" ] && [ -f "$map" ] || return 0
+  here_="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  reasons="$("$here_/select-pipeline.sh" --batch "$bid" 2>/dev/null \
+    | sed -nE 's/.*\(reasons: (.*)\)$/\1/p' | tail -1)"
+  [ -n "$reasons" ] || return 0
+  for tok in $reasons; do
+    while read -r cat roles; do
+      case "$cat" in ''|'#'*) continue ;; esac
+      [ "$cat" = "$tok" ] || continue
+      for r in $roles; do
+        case " $out " in *" $r "*) : ;; *) out="$out $r" ;; esac
+      done
+    done < "$map"
+  done
+  printf '%s' "${out# }"
+}
+
 required_roles_for_batch() {
   local bid="$1" ledger line l kind tier here_
   ledger="$(resolve_ledger)"; [ -n "$ledger" ] && [ -f "$ledger" ] || return 0
@@ -294,11 +346,37 @@ required_roles_for_batch() {
     prank="$(_tier_rank "$ptier")"; drank="$(_tier_rank "$tier")"
     [ -n "$prank" ] && [ "$prank" -gt "${drank:-0}" ] && tier="$ptier"
   fi
+  # Model judgement (bin/judge-tier.sh) applies with the SAME one-directional discipline and for the
+  # same reason: the path classifier is blind to what a milestone DOES, and a judgement that could lower
+  # the tier would turn a blind spot into a bypass. It may raise; it may never lower. Absent, unreadable
+  # or unrecognised ⇒ no effect whatsoever.
+  local jtier jrank jf
+  jf="$(dirname "$(resolve_marker 2>/dev/null || true)")/tier-judgment"
+  if [ -f "$jf" ]; then
+    jtier="$(sed -n 's/^tier=//p' "$jf" 2>/dev/null | head -1)"
+    case "$jtier" in
+      single-thread|mvp|full)
+        jrank="$(_tier_rank "$jtier")"; drank="$(_tier_rank "$tier")"
+        [ -n "$jrank" ] && [ "$jrank" -gt "${drank:-0}" ] && tier="$jtier" ;;
+      *) : ;;                                   # unrecognised ⇒ ignored, never a guess
+    esac
+  fi
   case "$tier" in
     full) base='integration-verifier architecture-reviewer regression-guardian code-reviewer' ;;
     mvp)  base='integration-verifier code-reviewer' ;;
     *)    base='code-reviewer' ;;                     # unknown/lightest ⇒ the invariant floor only
   esac
+  # roles-alive phase 2 — the tier decides DEPTH; the risk CATEGORIES decide composition. The classifier
+  # already computes five (security/auth, data/schema, infra/deploy, api/contract, deps) and used to
+  # discard them into `reasons=`: a ready routing signal with no addressee, which is why 47 of 51 roles
+  # were unreachable. profiles/default.map gives them one. ADD-ONLY by construction — the map is unioned
+  # into $base below, so a profile can never shrink a set the paths already earned, and the >=1
+  # anti-collapse floor is never sized away. Absent/unreadable map ⇒ exactly the previous behaviour.
+  local cats crole
+  cats="$(profile_roles_for_batch "$bid" 2>/dev/null || true)"
+  for crole in $cats; do
+    case " $base " in *" $crole "*) : ;; *) base="$base $crole" ;; esac
+  done
   # ADR-0019 — roles the task author DECLARED with `⚠ <role>` are unioned in, never subtracted. Same
   # trust model as the ledger's self-declared risk_rank (ADR-0006): forgeable, therefore permitted to
   # raise the requirement and never to lower it. Declaring `⚠ code-reviewer` on an auth batch cannot

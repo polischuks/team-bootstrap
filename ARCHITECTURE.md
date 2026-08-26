@@ -21,6 +21,25 @@ Cognition's analysis (and SOTA agent benchmarks through 2025-2026) showed that m
 
 Frameworks that survived 2025 (LangGraph, OpenAI Agents SDK, Claude Agent SDK, AutoGen v0.4) converged on: typed structured outputs + handoff-as-tool-call + checkpoint/resume + isolated subagents for narrow tasks. team-bootstrap follows this convergence rather than the older MetaGPT-style SOP-pipeline pattern.
 
+### Why the parallel reviewer fan-out is not a contradiction
+
+The post above is often read as "do not run agents in parallel", which would put this project's
+four-reviewer fan-out in direct conflict with the doctrine it cites. It does not, and the distinction is
+worth stating rather than leaving to inference.
+
+Cognition's own follow-up narrowed the safe envelope to topologies where **several agents contribute
+intelligence but writes stay single-threaded**. The failure mode being described is *concurrent
+mutation with private context* — two minds editing the same file, each blind to the other's reasoning.
+
+The review fan-out sits inside that envelope by construction: the reviewers read **one already-closed
+diff**, they run with `deny: [Write, Edit]`, and they return typed verdicts. Nothing they do can
+conflict, because none of them writes. Their independence is the entire point — a reviewer that saw the
+builder's reasoning is a rubber stamp — while the single-threaded-writes property that makes
+multi-agent dangerous is never violated.
+
+The same reasoning is why review roles are dispatched as subagents and **builder roles are not**: a
+builder writes, so parallel builders would be exactly the topology the analysis warns about.
+
 ## The four primitives
 
 ### 1. Roles

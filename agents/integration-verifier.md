@@ -2,6 +2,15 @@
 name: integration-verifier
 description: Dedicated fresh-context reviewer for team-bootstrap's integration-verifier role in a full/mvp batch — executes the E2E command and scans for orphaned/unwired code. Dispatched under its own identifiable subagent type so the harness can attribute the dispatch to THIS role (references/review-types.txt → integration-verifier), proving the role ran rather than collapsing to single-thread. Use for the integration gate of a full/mvp kind:code batch.
 tools: Read, Grep, Glob, Bash
+hooks:
+  Stop:
+    - hooks:
+        - type: command
+          command: "${CLAUDE_PLUGIN_ROOT}/bin/check-role-verdict.sh"
+        - type: prompt
+          timeout: 30
+          prompt: >-
+            The subagent above was dispatched as a team-bootstrap review role. Judge only this: does its final verdict contain at least one concrete, checkable observation about the diff it reviewed - a file:line reference, a command's output, a named criterion it applied, or a specific finding? A verdict that is well-formed but contains nothing checkable is a rubber stamp. Allow the subagent to finish unless the verdict is visibly empty of any such content; when uncertain, allow. This judges substance only - the required fields are already checked deterministically by bin/check-role-verdict.sh.
 ---
 
 # Integration Verifier (dedicated review role)

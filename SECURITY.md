@@ -76,6 +76,22 @@ vulnerability. Report a way to reach `eval` that these lines do *not* describe �
 for example a gate executing a string from somewhere other than the declared
 contract, or one that ignores its kill switch.
 
+## Enforcing this centrally
+
+Everything above is repository-local: a user who edits `hooks/hooks.json`, or sets
+`TEAM_BOOTSTRAP_DELIVERY_GATE=off`, turns the gates off for themselves. That is deliberate for an
+open-source dev tool, and it is also the honest limit of what a plugin can guarantee.
+
+Where the guarantee has to hold regardless of the user, Claude Code's **managed policy settings** are
+the mechanism — an administrator-deployed settings file the user cannot override, with
+**`allowManagedHooksOnly`** restricting execution to the hooks that policy defines. That moves
+enforcement from "the repository asks" to "the machine's policy requires", which is the only form of
+it a user cannot opt out of.
+
+This project ships no such policy and cannot: it is org configuration, not plugin content. It is named
+here so the ceiling is explicit — without managed policy, every guarantee in this document is
+contingent on the user not disabling it.
+
 ## Scope and threat model
 
 In scope:

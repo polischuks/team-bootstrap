@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+
+# ROLE IN THE DIVISION OF LABOUR (roles-alive phase 4). This gate is a CANDIDATE GENERATOR, not a
+# judge. It flags shapes cheaply and heuristically; the semantic question — "this implementation does not fit the architecture"
+# — is decided by the architecture-reviewer role, which reads the diff with the whole
+# milestone in view. The gate does not decide, and it is not trying to: what it makes impossible is
+# closing a batch WITHOUT asking the role that does decide (bin/check-role-dispatch.sh, per-role
+# floor). Treat every finding here as a lead for that role, never as a verdict.
 # check-architecture.sh — architecture fitness functions for a target project.
 #
 # Delegates to the project's own arch-lint tool when a config is present
