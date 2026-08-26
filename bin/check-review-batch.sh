@@ -16,10 +16,10 @@
 #
 # Exit: always 0.
 set -uo pipefail
-[ "${TEAM_BOOTSTRAP_DELIVERY_GATE:-on}" = "off" ] && exit 0
+[ "${TEAM_BOOTSTRAP_DELIVERY_GATE:-on}" = "off" ] && exit 0   # gate-integrity: sanctioned — explicit operator kill switch, not a degraded evaluation
 here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=bin/delivery-lib.sh
-. "$here/delivery-lib.sh" 2>/dev/null || exit 0
+. "$here/delivery-lib.sh" 2>/dev/null || { echo "$(basename "$0"): delivery-lib.sh is unreadable — this gate cannot evaluate and is NOT passing; it is absent (AC-48)." >&2; exit 0; }
 
 if [ "${1:-}" = "--self-test" ]; then
   fail=0
@@ -35,26 +35,26 @@ fi
 cat >/dev/null 2>&1 || true
 
 marker="$(resolve_marker 2>/dev/null || true)"
-[ -n "$marker" ] && [ -f "$marker" ] || exit 0
+[ -n "$marker" ] && [ -f "$marker" ] || exit 0   # gate-integrity: sanctioned — no armed run: out of scope, nothing to review
 mk="$(cat "$marker" 2>/dev/null || true)"
-[ "$(field_bool "$mk" intends_code)" = "true" ] || exit 0
-[ "$(field_str "$mk" pipeline)" = "single-thread" ] && exit 0   # P1: inline reviewers by contract
+[ "$(field_bool "$mk" intends_code)" = "true" ] || exit 0   # gate-integrity: sanctioned — a doc run has no review fan-out by design
+[ "$(field_str "$mk" pipeline)" = "single-thread" ] && exit 0   # gate-integrity: sanctioned — P1: single-thread reviews inline by contract
 
 bline="$(inflight_batch 2>/dev/null || true)"
 bid="$(field_str "$bline" id)"
-[ -n "$bid" ] || exit 0
-[ "$(field_str "$bline" kind)" = "code" ] || exit 0
+[ -n "$bid" ] || exit 0   # gate-integrity: sanctioned — no in-flight batch: this fan-out belongs to no batch
+[ "$(field_str "$bline" kind)" = "code" ] || exit 0   # gate-integrity: sanctioned — a doc batch earns no review roles by design
 
 req="$(required_roles_recorded "$bid" 2>/dev/null || true)"
 [ -n "$req" ] || req="$(required_roles_for_batch "$bid" 2>/dev/null || true)"
-[ -n "$req" ] || exit 0
+[ -n "$req" ] || exit 0   # gate-integrity: sanctioned — an empty required set IS the answer for this batch, not a failure to compute one
 covered="$(roles_covered "$bid" 2>/dev/null || true)"
 
 missing=""
 for r in $req; do
   case " $covered " in *" $r "*) : ;; *) missing="${missing:+$missing }$r" ;; esac
 done
-[ -n "$missing" ] || exit 0     # nothing to say is said by saying nothing
+[ -n "$missing" ] || exit 0   # gate-integrity: sanctioned — every required role is covered; the pass is the result
 
 emit_hook_context PostToolBatch "$(json_esc "team-bootstrap: batch $bid requires review roles [$req]; dispatches recorded so far [${covered:-none}]; still missing [$missing]. check-role-dispatch reads this set at closure and fails closed on a missing required role.")"
 exit 0

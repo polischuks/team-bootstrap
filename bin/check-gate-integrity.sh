@@ -5,7 +5,9 @@
 # gating while still reading green:
 #   1. green-by-skip — a gate/invariant/constitutional/contract test that passes
 #      only because it is skipped (@pytest.mark.skip, .skip(, t.Skip, @Disabled…);
-#   2. a gate that can't fail — `continue-on-error: true` on a CI gate job.
+#   2. silent degradation — a `bin/check-*.sh` that exits 0 on an unmet precondition without
+#      stating a reason, so "skipped" and "passed" are the same result to every reader (AC-48);
+#   3. a gate that can't fail — `continue-on-error: true` on a CI gate job.
 # See references/regression-and-invariants.md (section 3).
 #
 # NOT flagged (a conditional skip still RUNS under the right condition, and an
@@ -63,7 +65,38 @@ done < <(grep -rlE "$SKIP" . --include='*test*' --include='*spec*' --include='*_
   --exclude-dir=.mypy_cache --exclude-dir=.ruff_cache --exclude-dir=.pytest_cache \
   2>/dev/null | head -100)
 
-# 2) a gate that can't fail: continue-on-error on a CI job -----------------------
+# 2) SILENT DEGRADATION — a gate that returns emptiness instead of a decision (AC-48) ------------
+#
+# The third way a gate stops gating, and the one no check looked for. `exit 0` on an unmet
+# precondition is correct and necessary — check-tdd skips without a Test: command, check-version-sync
+# skips without a version location — but a skip that says NOTHING is indistinguishable, in a log and
+# in a batch result, from a gate that ran and passed. AC-47 removed exactly this shape from
+# size-from-spec.sh (`--per-batch` returned empty where it now returns `degraded=1 reason=…`), and
+# AC-48 asks for the audit: every path that declines to decide states why.
+#
+# Flagged: a `bin/check-*.sh` line that exits 0 inside a conditional with no output on any stream.
+# Not flagged: an exit 0 that prints first (the reason IS the output), the unconditional final exit 0
+# of a passing gate, and the `--self-test` block (its exits are the test's own results).
+SILENT=0
+for f in bin/check-*.sh; do
+  [ -f "$f" ] || continue
+  # `|| exit 0`, `&& exit 0`, `{ exit 0; }` and `then exit 0` with nothing echoed on the same line.
+  # The shape is a PRECONDITION guard: `<test> || exit 0` / `<test> && exit 0`, optionally braced.
+  # Deliberately NOT the terminal dispatch `if _evaluate; then exit 0; else exit 1; fi` — the function
+  # has already printed its verdict there, so the exit carries no information of its own — and not
+  # `--help`. A pattern that flagged those would report every gate in the tree, and a check that cries
+  # wolf on correct code gets disabled, which is the outcome this whole file exists to prevent.
+  q="$(grep -nE '^[[:space:]]*[^#]*(\|\||&&)[[:space:]]*(\{[[:space:]]*)?exit 0' "$f" 2>/dev/null \
+       | grep -vE 'echo|printf|>&2|self-test|--help|then[[:space:]]+exit[[:space:]]+0|gate-integrity:[[:space:]]*sanctioned' \
+       | head -5)"
+  [ -n "$q" ] || continue
+  echo "check-gate-integrity: SILENT DEGRADATION in '$f' — exits 0 without stating a reason:" >&2
+  printf '%s\n' "$q" | sed 's/^/    /' >&2
+  SILENT=$((SILENT + 1))
+done
+[ "$SILENT" -eq 0 ] || viol=$((viol + SILENT))
+
+# 3) a gate that can't fail: continue-on-error on a CI job -----------------------
 if [ -d .github/workflows ]; then
   ce="$(grep -rnE 'continue-on-error:[[:space:]]*true' .github/workflows 2>/dev/null | head -20)"
   if [ -n "$ce" ]; then

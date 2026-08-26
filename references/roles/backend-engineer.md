@@ -31,81 +31,23 @@ Implement backend behavior that satisfies the accepted contracts and repository 
 - backend notes: implementation details
 - handoff object
 
-## Output Template
+## Output shape
 
-```markdown
-## Role — backend-engineer
+`references/schemas/role-output.schema.json` (`$defs/backend-engineer`) is the authoritative handoff
+shape, and it is validated. This file used to restate it as a filled-in template — a second
+copy of a machine-checked contract, which can only agree at a maintenance cost or drift and
+be wrong where nobody looks. The fields the schema marks `required` are the ones closure
+checks; `verification_evidence` is required whenever `status: completed`.
 
-### Implementation Summary
-- <What was implemented>
-- <Key changes>
+## Verification
 
-### Changed Files
-- `path/to/file.ts`
-- `path/to/another.ts`
+The edit→verify→repair cycle runs through `/build` and `/test`, against the commands
+`AGENTS.md` declares. The cycle is theirs; two acceptance criteria are this role's:
 
-### Validation Results
-- `npm run typecheck` — passed/failed
-- `npm run lint` — passed/failed
-- `npm run test:unit` — passed/failed
-
-### Backend Notes
-- <Implementation details>
-- <Trade-offs made>
-
-### Handoff
-```yaml
-status: completed
-role: backend-engineer
-tests_failed_first: true        # TDD red step: tests were run and seen to FAIL before impl (references/tdd.md)
-verification_evidence: |        # REQUIRED when completed — real command output, not "tests pass"
-  $ npm run typecheck && npm run lint && npm test
-  ... 24 passing (2s)
-summary: <one-line summary>
-artifacts:
-  - kind: code
-    path: src/lib/feature.ts
-    description: <what it does>
-checks:
-  - name: typecheck
-    status: passed
-    details: No type errors
-  - name: lint
-    status: passed
-    details: No lint errors
-  - name: unit_tests
-    status: passed
-    details: All tests pass
-next_role: <determined-by-pipeline>  # mvp/full: integration-verifier
-risks_or_blockers: []
-manual_approval_requested: false
-stop_reason: null
-rollback_recommended: false
-rollback_scope: null
-```
-```
-
-## Verification Loop
-
-Implementation roles run an explicit edit→verify→repair cycle, not a single pass.
-
-After each batch of edits, run all verification commands declared in `AGENTS.md` (`## Test`):
-
-- `npm run typecheck` (or equivalent)
-- `npm run lint`
-- `npm run test:unit`
-
-If any check fails:
-
-1. Read the failure output
-2. Locate the cause in the changed files
-3. Apply a targeted fix (no broad rewrites)
-4. Re-run the failed check
-
-Bounded retry: **max 3 repair cycles per check**. On exhausted budget, the role hands off `status: blocked` with the unresolved failures listed in `risks_or_blockers`. Never silently emit `status: completed` with a failed check.
-
-This is the pattern that distinguishes 2025-2026 SOTA agents from naive ReAct loops; see ARCHITECTURE.md.
-
+- **Bounded retry — at most 3 repair cycles per check.** On an exhausted budget, hand off
+  `status: blocked` with the unresolved failures in `risks_or_blockers`.
+- **Never `status: completed` with a failing check** — a green claim over a red check is
+  the false-complete P6 refuses.
 
 ## Recommended skills (invoke via `Skill` tool)
 

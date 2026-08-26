@@ -96,3 +96,29 @@ Two more hooks make the delivery-occurred gate ([enforcement.md](enforcement.md)
 - Optional hardening (not shipped on by default): a **PreToolUse** hook can block destructive Bash
   ahead of the [irreversibility](irreversibility.md) taxonomy — add it in project
   `.claude/settings.json` if you want belt-and-suspenders on top of `tool_surface`.
+
+## Two vendor facts that bound what a hook can promise
+
+**A `PreToolUse` hook timeout does not block.** The hooks reference states it directly: do not expect a
+hung hook to act as a gate. A timeout is not a refusal — the tool call proceeds. This matters because
+the obvious mental model is the opposite one, and a gate designed around "if my hook hangs, nothing
+happens" would fail open exactly when it is under load or under attack.
+
+Audited against this project: **no gate here relies on a hook hanging.** Every blocking point exits
+with code **2**, which is the only exit code that blocks (`1` is a non-blocking error — the reference
+warns about this separately). `guard-git.sh` is the one blocking `PreToolUse` body, and it refuses by
+exiting 2 or by returning `permissionDecision`; it has no path that blocks by delay. `Stop` hooks
+(`quality-gate.sh`, `delivery-stop-hook.sh`) and `PostToolBatch` (`check-review-batch.sh`) likewise
+refuse by exit code. Re-run the audit with:
+
+```
+grep -rn 'exit 1' bin/guard-git.sh bin/quality-gate.sh bin/delivery-stop-hook.sh
+```
+
+Any blocking decision found on `exit 1` rather than `exit 2` is a gate that does not gate.
+
+**`SubagentStart` cannot block and is command-only.** Its `additionalContext` reaches the **subagent's**
+conversation, not the parent's, and `prompt`/`agent` handlers are not supported on it. So a verdict a
+subagent needs must be *already computed* before the spawn — `UserPromptExpansion` is where this project
+computes it (`judge-tier.sh`), and `SubagentStart` only delivers it (`subagent-brief.sh`). That split is
+not a preference; it is what the event supports.

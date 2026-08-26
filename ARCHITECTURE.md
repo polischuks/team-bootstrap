@@ -40,6 +40,34 @@ multi-agent dangerous is never violated.
 The same reasoning is why review roles are dispatched as subagents and **builder roles are not**: a
 builder writes, so parallel builders would be exactly the topology the analysis warns about.
 
+## Division of labour — which layer does what
+
+team-bootstrap is a **policy layer over someone else's harness**, not a harness. Claude Code owns the
+reasoning loop and the tool interface; this project owns two things, and stating which two is what
+keeps it from re-implementing the rest in prose.
+
+| Layer | Who does it | What it does |
+|---|---|---|
+| Phase A — artefacts | `speckit-specify` / `plan` / `tasks` / `analyze` | Produces and cross-checks spec → plan → tasks |
+| Build | `/build`, `/test` (red-first), skills | Writes the code and the tests |
+| Review | `/code-review <level>`, `/review` | Performs the analysis at the assigned depth |
+| **Assignment** | **team-bootstrap** | **Who reviews, on what, and how deeply — computed from the task's own signals** |
+| **Proof** | **team-bootstrap** | **A batch cannot close without asking the roles it assigned, and confirming they answered** |
+
+Everything in the first three rows is delegated on purpose. A playbook that restated what `/build`
+does would cost maintenance to agree, or drift and be wrong somewhere nobody looks — the same reason
+an `agents/<slug>.md` reads its playbook instead of repeating it.
+
+The two rows that are ours are the two the tools do not do. `/code-review` will review whatever it is
+pointed at, at whatever level it is given; nothing in it decides that *this* diff earned a
+security-reviewer, and nothing in it prevents a batch from closing without one. That decision and that
+refusal are the product.
+
+**The corollary is a design rule, not a preference:** a lever the policy layer does not have is
+requested from the harness through its official API — hooks, permissions, `additionalContext` — never
+substituted with prose. Prose lands about 70% of the time; a hook lands every time
+([references/enforcement.md](references/enforcement.md)).
+
 ## The four primitives
 
 ### 1. Roles

@@ -421,5 +421,65 @@ _chk "$( . "$here/bin/delivery-lib.sh"; role_floor_mode )" enforce \
   "role_floor_mode reports enforce with no env override"
 
 # ---------------------------------------------------------------------------
+# WS-E — the documentation stops disagreeing with the code, and silent degradation gets a gate.
+# ---------------------------------------------------------------------------
+echo "AC-37 — a version literal in README.md cannot drift from VERSION:"
+_chk "$(grep -q 'README' "$here/bin/check-version-sync.sh" && echo yes || echo no)" yes \
+  "check-version-sync.sh covers README.md"
+_chk "$( "$here/bin/check-version-sync.sh" --self-test >/dev/null 2>&1 && echo pass || echo fail )" pass \
+  "check-version-sync --self-test passes (with the README case)"
+_p8=no
+grep -qF 'P1–P8' "$here/README.md" && _p8=yes
+grep -qF 'P1-P8' "$here/README.md" && _p8=yes
+_chk "$_p8" no "README does not still advertise P1-P8 (the constitution reaches P12)"
+
+echo "AC-48 — a script that returns emptiness instead of a decision declares why:"
+_chk "$(grep -q 'silent-degradation\|SILENT DEGRADATION' "$here/bin/check-gate-integrity.sh" && echo yes || echo no)" yes \
+  "check-gate-integrity carries the silent-degradation audit"
+D="$(mktemp -d)"; mkdir -p "$D/bin"
+# A gate that returns 0 with no output and no recorded reason is the shape AC-48 refuses.
+cat > "$D/bin/check-quiet.sh" <<'EOS'
+#!/usr/bin/env bash
+[ -f nothing ] || exit 0
+EOS
+chmod +x "$D/bin/check-quiet.sh"
+_chk "$( "$here/bin/check-gate-integrity.sh" "$D" >/dev/null 2>&1 && echo pass || echo fail )" fail \
+  "a check-*.sh that exits 0 on an unmet precondition without saying so is caught"
+# …and the same script with a stated reason passes.
+cat > "$D/bin/check-quiet.sh" <<'EOS'
+#!/usr/bin/env bash
+[ -f nothing ] || { echo "check-quiet: skipping — no 'nothing' file in this project (reason recorded)."; exit 0; }
+EOS
+_chk "$( "$here/bin/check-gate-integrity.sh" "$D" >/dev/null 2>&1 && echo pass || echo fail )" pass \
+  "  …and the same skip WITH a stated reason passes"
+rm -rf "$D"
+
+echo "AC-32/33 — the docs state what the code does:"
+_chk "$(grep -qiE '^\| *(Layer|Слой) *\|' "$here/ARCHITECTURE.md" && echo yes || echo no)" yes \
+  "ARCHITECTURE.md carries the layer → who → what table"
+_chk "$(grep -q 'four Claude Code hook points' "$here/SECURITY.md" && echo stale || echo current)" current \
+  "SECURITY.md no longer says four hook points"
+_chk "$(python3 -c "
+import json
+n=len(json.load(open('$here/hooks/hooks.json'))['hooks'])
+import re
+t=open('$here/SECURITY.md').read()
+print('yes' if str(n) in t else 'no')")" yes "  …it states the real number of registered events"
+
+echo "AC-34/AC-46 — the two deferred decisions are ADRs, not assumptions:"
+_chk "$(ls "$here/docs/adr/"*containment* >/dev/null 2>&1 && echo yes || echo no)" yes "ADR on the containment posture exists"
+_chk "$(ls "$here/docs/adr/"*task-events* >/dev/null 2>&1 && echo yes || echo no)" yes "ADR on native Task events exists"
+
+echo "AC-44/AC-45 — the vendor facts that change what a gate can promise are written down:"
+_chk "$(grep -qi 'timeout' "$here/references/hooks.md" && grep -qi 'does not block' "$here/references/hooks.md" && echo yes || echo no)" yes \
+  "references/hooks.md records that a PreToolUse hook timeout does not block"
+_chk "$(grep -q 'allowManagedHooksOnly' "$here/INSTALL.md" && echo yes || echo no)" yes \
+  "INSTALL.md documents the managed-policy path"
+
+echo "AC-6 — no step REQUIRES the model to read the marker to learn its assignment:"
+_chk "$(grep -cEi 'read (the )?(run )?marker|read .runs/.*/RUN' "$here/commands/deliver.md" | tr -d ' ')" 0 \
+  "deliver.md carries no obligation to read the marker for the verdict"
+
+# ---------------------------------------------------------------------------
 if [ "$fail" -eq 0 ]; then echo "live-roles-harness-wiring: OK"; exit 0; fi
 echo "live-roles-harness-wiring: $fail check(s) FAILED" >&2; exit 1

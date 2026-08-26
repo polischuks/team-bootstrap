@@ -4,8 +4,6 @@ A 6-step analytical + design sequence to run BEFORE implementation batches fire 
 
 **Applies to any project** that has: (a) a versioned principles/constitution document, (b) a `specs/` (or equivalent) directory convention, (c) a git-backed workflow, (d) some form of subagent or delegated-implementer model.
 
-**Why this flow?** Implementation cycles are expensive. Every wrong assumption caught at planning stage saves N implementation cycles + the cost of reverting bad work. The strongest metric of a milestone's health is the count of drift moments the flow surfaces BEFORE code lands.
-
 ## Where this fits in team-bootstrap
 
 This is the **recommended first step** for any non-trivial team-bootstrap milestone.
@@ -45,13 +43,8 @@ no one looks. The duplication is removed rather than kept in sync.
 | 5 Tasks | `/speckit-tasks` | `tasks.md` | `## ` sections become work-streams; `⚠ <role>` declares a role |
 | — Check | `/speckit-analyze` | spec↔plan↔tasks consistency | nothing |
 
-Two conventions in `tasks.md` ARE ours, because the harness parses them:
-
-- A `## ` heading starts a **work-stream**, sized on its own paths. A `tasks.md` with none makes
-  `size-from-spec.sh --per-batch` report `degraded=1` — no floors are derived and the batch diff sizes
-  each batch alone.
-- `⚠ <role>` on a task **declares** a review role. It is unioned into the required set and can never
-  subtract from what the paths earned.
+The two `tasks.md` conventions the harness parses are ours; they are the first two rows of the
+Phase-A→B contract table below, with what each failure costs.
 
 ## The gate between Phase A and Phase B
 
@@ -68,147 +61,59 @@ sufficient to start implementing.**
 Phase B may not begin while any of these is unmet, and the harness does not take the orchestrator's
 word for it: the gates read the artefacts.
 
-## Step 6 — Team-Bootstrap Dispatch File
+## What Phase B needs from Phase A
 
-**Purpose**: Paste-ready dispatch blocks for orchestrator to fire implementation batches. Each batch is a self-contained subagent prompt.
+Dispatch blocks used to be a seventh step described here in ~60 lines. They are produced by
+[`/team-bootstrap:deliver`](../commands/deliver.md) and shaped by
+[`references/orchestrator.md`](orchestrator.md) and [`references/subagent-dispatch.md`](subagent-dispatch.md);
+restating their shape here could only agree at a maintenance cost, or drift and be wrong in the copy
+nobody opens. What belongs here is the **contract between the phases**, which those files consume:
 
-**Deliverable**: `specs/NNN-milestone-slug/team-bootstrap-dispatches.md` (~600-2000 lines depending on batch count)
-
-### Structure
-
-- **Universal preamble** — pasted for each batch (discipline invariants, cumulative context, precedent files to read, doctrine constraints)
-- **Per-batch blocks** — one paste-ready subagent prompt per batch containing:
-  - Scope (which tasks in this batch)
-  - Precedent files to read
-  - Verification gate (which tests must pass)
-  - Commit format (commit message template)
-  - Final report shape (what the subagent must surface)
-- **Order of execution + push cadence** — table showing batch → phase → track count → risk flag
-- **Notes for orchestrator** — carry-forward items + lockstep risks + threshold verifications
-
-### Batch decomposition patterns
-
-| Milestone shape | Typical batch count | Track count |
+| Phase A produces | Phase B reads it through | Fails how, if absent |
 |---|---|---|
-| Small patch | 1-3 batches (may include parallel tracks) | 3-6 |
-| Focused (single theme) | 6-10 batches | 10-20 |
-| Mega (multi-theme) | 10-15 batches | 20-30 |
+| `tasks.md` `## ` headings | `size-from-spec.sh --per-batch` → work-stream floors | `degraded=1 reason=no-ws-headings`; each batch sized by its diff alone |
+| `file:` lines on each task | the path classifier → risk categories → roles | no signal; the batch sizes to the invariant floor |
+| `⚠ <role>` declarations | `required_roles_for_batch` (union, never subtraction) | the role is simply not added |
+| spec/plan prose | `_prose_reasons` → the tier the paths cannot see | the exactly-once blind spot returns (ADR-0019) |
 
-### Batch structuring rules
+## Discipline invariants
 
-- **Single sequential subagent** — when coherence matters (data-layer coherence, agent skeleton + rubric together, canary helper + smoke tests)
-- **Parallel tracks (2-4)** — when file trees are independent AND tasks are parallel-safe
-- **Cross-batch dependencies** — surface explicitly (Phase 0 gate; ADR before principles PATCH; migration before repository code)
-- **Single-file conflicts** — flag when 2 tracks would touch the same file; either sequence them or explicitly document merge strategy
+Enforced by the harness, not by this document — each line names what enforces it:
 
----
+1. **Red before green, per batch** — `bin/check-tdd.sh` (`--record-red` observes it; the gate verifies
+   the ordering against git).
+2. **Never push without authorisation** — `bin/guard-git.sh` refuses a default-branch write and
+   escalates a history rewrite to a human.
+3. **Every task carries `precedent:`** — a SHA or a memory marker, so a future reader can trace the
+   pattern's lineage. Convention, not gate.
+4. **Typecheck + lint before completion** — `bin/quality-gate.sh` on the `Stop` hook.
+5. **Closure from git state** — `bin/check-delivery.sh`; a batch closes on commits reachable from HEAD
+   and after the run baseline (ADR-0002), never on an assertion.
+6. **Assigned roles actually ran and answered** — `bin/check-role-dispatch.sh` and
+   `bin/check-role-verdict.sh`.
 
+## Autonomy modes
 
-## Implementation Loop Pattern (post-Step 6)
+- **Fully autonomous** — the six steps run back to back. Use when the milestone mirrors precedent.
+- **Step-by-step** — each step is fired manually and reported on. Use for a novel domain, an unfamiliar
+  vendor surface, or anything high-risk (payments, auth, migrations) regardless of similarity.
+- **Hybrid** — autonomous through clarify, human review at the plan, autonomous through tasks.
 
-Not part of pre-impl, but the flow the dispatch file feeds into.
+The tier the harness assigns is a *review-depth* decision and is independent of this choice; do not use
+autonomy mode as a proxy for it.
 
-### Fire-batch cycle
+## Adapting this to another project
 
-```
-Founder/orchestrator: signals "fire Batch N"
-Orchestrator: dispatches subagent(s) per batch definition (parallel if multi-track)
-Subagents: read precedents → verify sources → commit LOCALLY (never push)
-Subagents: return report with commit SHA + drift findings + gate status
-Orchestrator: reviews report → marks tasks.md [x] via chore commit → pushes batch commits after auth
-```
+The flow is not team-bootstrap-specific. Three substitutions cover most of it: your decision-maker role
+for "founder", whatever runs the meta-flow for "orchestrator", and whatever your delegated implementer
+is for "subagent". Semver is assumed but calver and sprint-numbering work unchanged. Without ADRs, the
+plan's decisions section is the equivalent; without a constitution, whichever file records your
+architectural invariants.
 
-### Batch closure commit format
+## Why the flow pays for itself
 
-Every batch closure chore commit includes:
-- Task IDs shipped
-- SHA references for parallel-track commits
-- Numbered new discipline catches (#N-M)
-- Cumulative catches counter update
-- Phase → unblocks-Phase-N+1 dependency note
-
-### Discipline invariants enforced
-
-- **NEVER push to main without explicit auth** — orchestrator commits locally; founder authorizes pushes
-- **Actual contracts > brief** — cumulative discipline catches counter grows each batch
-- **Lockfile regeneration** if dependency file touched (avoid deploy failures)
-- **Type checker + linter + formatter** mandatory before commit
-- **Precedent files read** before drafting (mirror shape from prior work)
-
----
-
-## Autonomy Modes
-
-- **Fully autonomous** (steps 1-6) — orchestrator runs 6 steps back-to-back with push after each step; used when scope is well-understood
-- **Step-by-step review** — founder fires each step manually; orchestrator surfaces report after each; used when scope is unclear or novel
-- **Hybrid** — autonomous steps 1-3 (analysis + spec + clarify); founder reviews at Step 4 plan; autonomous steps 5-6
-
-Choose based on:
-- **Novelty**: Novel domain / vendor / architecture → step-by-step
-- **Similarity to prior work**: If milestone mirrors precedent → fully autonomous
-- **Risk profile**: High-risk (payments, security-critical) → step-by-step regardless of similarity
-- **Founder availability**: Async / long-cycle → autonomous with explicit checkpoints
-
----
-
-## Discipline Invariants (Universal)
-
-Regardless of project domain, the flow enforces:
-
-1. **Actual contracts > brief** — verify vendor claims + registry counts + type shapes against reality before writing prose
-2. **Read-before-editing precedent** — mirror shape from most recent milestone artifacts
-3. **Numbered discipline catches** — every drift finding gets a number + cumulative counter + explanatory prose
-4. **NEVER push without auth** — orchestrator's job is to commit locally + surface state; founder/human authorizes pushes
-5. **Type checker + linter + formatter** — mandatory before every commit
-6. **Lockfile regeneration** — if dependency manifest touched, regenerate lockfile in same commit (prevent deploy drift)
-7. **Precedent citation** — every task carries a `precedent: <SHA OR memory-marker>` reference — enables future readers to trace pattern lineage
-
----
-
-## Adaptation Notes
-
-To adapt this flow to a project different from the source:
-
-### Replace project-specific terminology
-
-- "Founder" → your product owner / lead / decision-maker role
-- "Orchestrator" → whoever runs the meta-flow (could be human, could be primary agent)
-- "Subagent" → whatever your delegated-implementer model is (could be humans, could be AI, could be both)
-
-### Adapt to your version scheme
-
-- Semver works out of the box (PATCH/MINOR/MAJOR)
-- Calver, milestone-numbering, sprint-numbering all work — adapt Step 1 rationale prose
-
-### Adapt to your artifact conventions
-
-- If you don't have ADRs, treat plan.md's Related Decisions section as ADR-equivalent
-- If you don't have a formal constitution, use whichever `principles.md` / `charter.md` / `styleguide.md` documents architectural invariants
-- If you don't have a `feature.json` pointer, use `README.md` in the active spec directory to signal "current milestone"
-
-### Adapt to your review model
-
-- If you have PR-based review, per-track commits become PRs; batch closure = "merge queue"
-- If you have trunk-based development, batch closure = squash-merge to main
-- If you have release trains, batch closure = feature-flag rollout
-
-### Cumulative catches metric
-
-The "discipline catches counter" is the single strongest signal of the flow's value. Track it per-milestone AND cumulative. Falling numbers mean either:
-- Scope is uncharacteristically simple (fine)
-- Or discipline is slipping (investigate)
-
-Rising numbers mean the flow is doing its job — surfacing drift before it becomes expensive.
-
----
-
-## Summary
-
-The flow's core value proposition: **shift verification cost from implementation phase to planning phase**. Each Step 3 web-verification catch saves N implementation cycles. Each Step 4 principles matrix guards against doctrine drift. Each Step 5 task-format invariant reduces reader cost across the milestone lifetime.
-
-The flow assumes:
-- The team values discipline over speed-to-implementation-start
-- Drift is expensive enough to justify pre-verification investment
-- The orchestrator has bandwidth to run analytical steps before firing subagents
-
-If those assumptions hold, this 6-step sequence pays for itself after the first milestone.
+It shifts verification cost from implementation to planning. Every drift caught at Step 3 or Step 4
+saves the implementation cycles that would have gone into building on the wrong assumption, plus the
+cost of unwinding them. The count of drift moments a milestone surfaces **before** code lands is the
+metric worth tracking; rising numbers mean the flow is working, and falling ones mean either an
+unusually simple scope or slipping discipline — the two are distinguishable only by looking.
