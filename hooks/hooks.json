@@ -63,6 +63,11 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/bin/judge-tier.sh"
+          },
+          {
+            "type": "agent",
+            "timeout": 60,
+            "prompt": "Read specs/*/spec.md and specs/*/plan.md for the milestone this prompt names, using Read/Grep/Glob. State, as factual observations and in at most four sentences, the complexity a path-based classifier cannot see: distributed correctness (consensus, exactly-once, idempotency, split-brain), irreversible data or money movement, authentication or authorisation changes, schema migration or backfill, or a public contract other systems depend on. Name what the milestone DOES; file counts are computed separately. If no specification is on disk, say nothing at all. Do not instruct the reader and do not decide the tier \u2014 bin/judge-tier.sh records that decision separately and this observation is context, not a verdict."
           }
         ]
       }

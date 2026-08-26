@@ -65,6 +65,25 @@ for r in $WAVE; do
     "  agent body defers to the playbook (no duplicated criteria)"
 done
 
+echo "1.1 — every agents/*.md frontmatter is VALID YAML (criterion 1 fails invisibly otherwise):"
+# A role is dispatchable only if its agent definition parses. agents/tb-code-reviewer.md shipped on
+# main with `team-bootstrap: prefix` unquoted inside `description` — YAML reads the `: ` as a nested
+# mapping and the whole block is invalid. Nothing caught it: eval-role --all validates
+# references/roles/*.md frontmatter and never looks at agents/. A mandatory review role can therefore
+# stop being registrable without one test going red, which is criterion 1 failing in silence.
+_badfm="$(python3 - <<'PYEOF'
+import yaml, glob, sys
+bad=[]
+for p in sorted(glob.glob("agents/*.md")):
+    try:
+        yaml.safe_load(open(p).read().split("---\n")[1])
+    except Exception:
+        bad.append(p.split("/")[-1])
+print(" ".join(bad))
+PYEOF
+)"
+_chk "${_badfm:-none}" none "every agents/*.md frontmatter parses as YAML"
+
 echo "1.1 — anti-builder invariant (a builder must never satisfy the review floor):"
 _builders=""
 while IFS="$(printf '\t')" read -r slug role _rest; do

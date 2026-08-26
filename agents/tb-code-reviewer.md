@@ -1,12 +1,16 @@
 ---
 name: tb-code-reviewer
-description: Dedicated fresh-context reviewer for team-bootstrap's code-reviewer role in a full/mvp batch — the independent post-code adversarial review of the diff (Refute-or-Promote), closing the semantic class no structural fitness function sees. Named tb-code-reviewer (NOT the bare host code-reviewer) so the harness attributes the dispatch to THIS role even if the team-bootstrap: prefix is stripped from subagent_type (references/review-types.txt → code-reviewer). Use for the code-review gate of a full/mvp kind:code batch.
+description: "Dedicated fresh-context reviewer for team-bootstrap's code-reviewer role in a full/mvp batch — the independent post-code adversarial review of the diff (Refute-or-Promote), closing the semantic class no structural fitness function sees. Named tb-code-reviewer (NOT the bare host code-reviewer) so the harness attributes the dispatch to THIS role even if the team-bootstrap: prefix is stripped from subagent_type (references/review-types.txt → code-reviewer). Use for the code-review gate of a full/mvp kind:code batch."
 tools: Read, Grep, Glob, Bash
 hooks:
   Stop:
     - hooks:
         - type: command
           command: "${CLAUDE_PLUGIN_ROOT}/bin/check-role-verdict.sh"
+        - type: prompt
+          timeout: 30
+          prompt: >-
+            The subagent above was dispatched as a team-bootstrap review role. Judge only this: does its final verdict contain at least one concrete, checkable observation about the diff it reviewed - a file:line reference, a command's output, a named criterion it applied, or a specific finding? A verdict that is well-formed but contains nothing checkable is a rubber stamp. Allow the subagent to finish unless the verdict is visibly empty of any such content; when uncertain, allow. This judges substance only - the required fields are already checked deterministically by bin/check-role-verdict.sh.
 ---
 
 # Code Reviewer (dedicated review role — `tb-code-reviewer`)
