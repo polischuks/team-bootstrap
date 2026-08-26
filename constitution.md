@@ -65,7 +65,7 @@ Implementation follows TDD: tests are written first, **run and seen to fail**, t
 green, and never weakened to pass ([references/tdd.md](references/tdd.md)). A `completed`
 engineering/QA handoff must carry `verification_evidence` — real command output, not a claim —
 and fast checks are harness-enforced by the Stop hook ([references/hooks.md](references/hooks.md)). The
-**red step itself** is harness-enforced, not self-declared: `bin/tdd-red.sh` records a git-anchored red
+**red step itself** is harness-enforced, not self-declared: `bin/check-tdd.sh --record-red` records a git-anchored red
 (`red_sha`), and `bin/check-tdd.sh` (in `verify-batch`) fails a code-shipping run with no valid red record
 ([references/enforcement.md](references/enforcement.md)). Wiring is proven end-to-end by
 [integration-verifier](references/roles/integration-verifier.md), not by self-report. This operationalizes

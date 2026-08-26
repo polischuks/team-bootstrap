@@ -3,7 +3,7 @@
 #
 # Runs every `bin/*.sh --self-test` and every `tests/*.test.sh` under ROOT (default: repo root)
 # and exits non-zero if any fails. This is the runnable suite AGENTS.md declares as `Test:`, so the
-# harness red-first gate (tdd-red.sh → check-tdd.sh) has something real to observe red→green against
+# harness red-first gate (check-tdd.sh --record-red → check-tdd.sh) has something real to observe red→green against
 # on team-bootstrap's own delivery runs — closing the `red-first` enforcement gap the repo carried.
 #
 # It deliberately does NOT back a `Coverage:`/`Mutation:` contract: there is no bash coverage/mutation

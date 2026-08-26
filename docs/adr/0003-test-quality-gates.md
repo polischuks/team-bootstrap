@@ -7,7 +7,7 @@
 ## Context
 
 v2.15.0/v2.16.0 made "a test was written first and *seen to fail*" a git fact — a per-batch red step
-([`bin/tdd-red.sh`](../../bin/tdd-red.sh) + [`bin/check-tdd.sh`](../../bin/check-tdd.sh)). That is a
+([`bin/check-tdd.sh`](../../bin/check-tdd.sh) — see the amendment below). That is a
 **floor**: it proves a red happened, but not that the red was caused by a *test*, nor how much of the
 batch's change the tests cover, nor whether the tests *assert* anything. Three narrow forges remained: a
 red satisfied by an `--allow-empty` commit; "one trivial test for a 200-line change"; and vacuous tests
@@ -65,3 +65,26 @@ per-language parsers baked into the framework (R1). All three are marker-gated �
   passes-with-note rather than dividing by zero (would otherwise false-block under enforce).
 - No constitution bump (implements P9/P10/P6/P1/P7); asset **2.16.0 → 2.17.0** (MINOR — additive, backward-
   compatible; every existing project and non-delivery session is unaffected).
+
+---
+
+## Amendment — 2026-08-26 (milestone 020, AC-29)
+
+`bin/tdd-red.sh` is **deleted**. Nothing about this decision changes: the red step is still
+harness-observed, still anchored to a git sha, still refuses to record a green suite. What changed is
+that the observation no longer lives in a second script.
+
+The finding it answers is Д2 Фаза 4: `/test` already drives the red — writes the failing test and
+iterates — so a second script that *also* drove the suite duplicated it. The observation entry point
+moved into `bin/check-tdd.sh` as `--record-red`, i.e. into the gate that consumes the record. One job
+each: `/test` reaches red, `check-tdd --record-red` observes and records it, `check-tdd` verifies the
+ordering at close.
+
+**A re-run at close time was designed and rejected.** Having the gate locate the red commit in git and
+re-run the suite against it in a detached worktree looks stronger — the gate would observe rather than
+trust a record. It is not: a fresh worktree carries only tracked files, so in any project whose `Test:`
+command needs `node_modules`, `.venv` or a vendor tree the suite cannot start and exits non-zero, which
+the gate would read as a genuine red. That is a **false red**, the precise inversion of what P9 asks,
+and it would fire hardest on mainstream projects. The observation has to happen where the dependencies
+are: the working tree, at the moment the red exists.
+

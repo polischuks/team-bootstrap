@@ -164,6 +164,7 @@ gate "orphans (dead code / not wired)"       "$here/check-orphans.sh"
 gate "architecture (drift vs baseline)"      "$here/check-architecture.sh" .
 gate "gate-integrity (no skip / disabled)"   "$here/check-gate-integrity.sh" .
 gate "role-triples (a dispatchable role is complete)" "$here/check-role-triples.sh" .
+gate "role-liveness (every routed role is load-bearing, P12)" "$here/check-role-liveness.sh" .
 gate "tdd (red→green observed, P9)"          "$here/check-tdd.sh" .
 gate "version-sync (manifests agree)"        "$here/check-version-sync.sh" .
 gate "diff-coverage (changed-line breadth, F2)" "$here/check-diff-coverage.sh" .

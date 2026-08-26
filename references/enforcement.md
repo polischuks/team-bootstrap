@@ -77,7 +77,7 @@ a self-declared `tests_failed_first` boolean — the schema never required it an
 agent could write code and rubber-stamp tests after, or skip them, and still report `completed`. Now the
 red step is git-grounded:
 
-- [`../bin/tdd-red.sh`](../bin/tdd-red.sh), run at the red step, executes the project's `Test:` command,
+- [`../bin/check-tdd.sh --record-red`](../bin/check-tdd.sh), run at the red step, executes the project's `Test:` command,
   **requires** a non-zero (red) result — it refuses to record a green suite — and stamps the observed red
   (`red_sha` = HEAD) into `.runs/<run>/tdd.jsonl`. The record can only exist because the tests actually ran
   red; prose cannot fabricate it.
@@ -100,7 +100,7 @@ Three `verify-batch` gates raise what the harness mechanically guarantees about 
 marker-gated, git-grounded, project-declared-by-command, and **skip+warn when the project declares no
 tooling** (never a false block):
 
-- **F1 red-touches-tests** ([`../bin/tdd-red.sh`](../bin/tdd-red.sh) + [`../bin/check-tdd.sh`](../bin/check-tdd.sh)) —
+- **F1 red-touches-tests** ([`../bin/check-tdd.sh`](../bin/check-tdd.sh) — `--record-red` and the close-time gate) —
   a recorded red must be caused by a **committed test-file change**, not an `--allow-empty` or unrelated
   red. Closes the narrow forge the base red gate left open ([tdd.md](tdd.md)).
 - **F2 diff-coverage** ([`../bin/check-diff-coverage.sh`](../bin/check-diff-coverage.sh)) — after green, the
@@ -195,7 +195,7 @@ treats the single-source glob set in [`control-surface.txt`](control-surface.txt
 `delivery-lib.sh:control_surface_globs()`, BASH_SOURCE-relative like `review_types()`) as an
 **always-present** high-risk seam, unioned in *before* the "no high_risk_seams recorded" early return. So a
 `kind:code` batch (or, since the skip is keyed on the run-level `intends_code`, any batch inside a code run)
-whose git window touches `bin/check-*.sh`, `verify-batch.sh`, `delivery-lib.sh`, `tdd-red.sh`,
+whose git window touches `bin/check-*.sh`, `verify-batch.sh`, `delivery-lib.sh`,
 `record-dispatch.sh`, `hooks/*.json`, `.claude`, `.mcp.json`, `AGENTS.md`, `commands`, `agents`, or the list
 file **must record a `control-surface` seam-ack** (naming the shipped commit + a `file:line` note) or the
 batch cannot close. Two hardening fixes back it: the matcher is now **glob-aware** (an unquoted-`$token`

@@ -22,7 +22,6 @@
 bin/check-*.sh
 bin/verify-batch.sh
 bin/delivery-lib.sh
-bin/tdd-red.sh
 bin/record-dispatch.sh
 
 # registered hook bodies + the pipeline gate (pipeline-integrity-hardening WS-C, finding #2): hooks.json

@@ -261,5 +261,82 @@ _chk "$(awk -F'\t' '!/^#/ && NF && $1!="" {print $1}' "$here/references/review-t
   "no duplicate slug in review-types.txt"
 
 # ---------------------------------------------------------------------------
+# AC-29 — bin/tdd-red.sh is gone; the observation lives in the gate that consumes it.
+#
+# Д2 Фаза 4: "bin/tdd-red.sh удаляется (/test делает то же), check-tdd.sh остаётся, но наблюдает
+# результат, а не воспроизводит его." The duplication is real — `/test` is how you REACH red, and a
+# second script that also drives the suite is the Ф4 finding. What `/test` does NOT do is record the
+# red anchored to a sha, and check-tdd.sh REQUIRES that record: deleting the producer without moving
+# the observation makes every code batch fail closed with no way to satisfy the gate.
+#
+# So the observation moves INTO check-tdd.sh as `--record-red`. The driving is `/test`'s; the
+# recording is the gate's; there is no second script.
+# ---------------------------------------------------------------------------
+echo "AC-29 — the separate driver script is gone and the gate carries the observation:"
+_chk "$([ -e "$here/bin/tdd-red.sh" ] && echo present || echo absent)" absent "bin/tdd-red.sh is deleted"
+_chk "$(grep -q -- '--record-red' "$here/bin/check-tdd.sh" && echo yes || echo no)" yes \
+  "check-tdd.sh carries a --record-red entry point"
+_chk "$( "$here/bin/check-tdd.sh" --self-test >/dev/null 2>&1 && echo pass || echo fail )" pass \
+  "check-tdd --self-test still passes"
+
+echo "AC-29b — --record-red REFUSES to record when the suite is green (no red, no record):"
+R="$(mktemp -d)"
+( cd "$R" || exit 1
+  git init -q; git config user.email a@b.c; git config user.name t
+  printf -- '- Test: `sh ./t.sh`\n' > AGENTS.md
+  printf '#!/bin/sh\nexit 0\n' > t.sh; chmod +x t.sh
+  mkdir -p tests .runs/r
+  printf 'x\n' > tests/a.test.sh
+  git add -A; git commit -q -m base
+  printf '{"run":"r","pipeline":"mvp","intends_code":true,"baseline_sha":"%s"}\n' "$(git rev-parse HEAD)" > .runs/r/RUN
+  TEAM_BOOTSTRAP_RUN=r bash "$here/bin/check-tdd.sh" --record-red --batch B1 >/dev/null 2>&1
+  echo $? > rc; [ -f .runs/r/tdd.jsonl ] && echo yes > wrote || echo no > wrote )
+_chk "$(cat "$R/wrote" 2>/dev/null)" no "a GREEN suite records nothing — you cannot record red when nothing failed"
+_chk "$([ "$(cat "$R/rc" 2>/dev/null)" != "0" ] && echo nonzero || echo zero)" nonzero "  …and it says so with a non-zero exit"
+rm -rf "$R"
+
+echo "AC-29c — a real red IS recorded, anchored to the sha, and only from a committed test change:"
+R="$(mktemp -d)"
+( cd "$R" || exit 1
+  git init -q; git config user.email a@b.c; git config user.name t
+  printf -- '- Test: `sh ./t.sh`\n' > AGENTS.md
+  printf '#!/bin/sh\nexit 0\n' > t.sh; chmod +x t.sh
+  git add -A; git commit -q -m base
+  BASE="$(git rev-parse HEAD)"
+  mkdir -p tests .runs/r
+  printf 'x\n' > tests/a.test.sh
+  printf '#!/bin/sh\nexit 1\n' > t.sh                # the suite is now RED
+  git add -A; git commit -q -m 'red test'
+  printf '{"run":"r","pipeline":"mvp","intends_code":true,"baseline_sha":"%s"}\n' "$BASE" > .runs/r/RUN
+  TEAM_BOOTSTRAP_RUN=r bash "$here/bin/check-tdd.sh" --record-red --batch B1 >/dev/null 2>&1
+  echo $? > rc
+  cat .runs/r/tdd.jsonl 2>/dev/null > rec || : )
+_chk "$(cat "$R/rc" 2>/dev/null)" 0 "a red suite records successfully"
+_chk "$(grep -q '"observed":"red"' "$R/rec" 2>/dev/null && echo yes || echo no)" yes "the record says observed=red"
+_chk "$(grep -q '"red_sha"' "$R/rec" 2>/dev/null && echo yes || echo no)" yes "  …anchored to a git sha"
+_chk "$(grep -q '"batch":"B1"' "$R/rec" 2>/dev/null && echo yes || echo no)" yes "  …and attributed to the batch"
+rm -rf "$R"
+
+echo "AC-29d — the self-test cases tdd-red.sh used to hold are not lost with the file:"
+R="$(mktemp -d)"
+( cd "$R" || exit 1
+  git init -q; git config user.email a@b.c; git config user.name t
+  printf -- '- Test: `sh ./t.sh`\n' > AGENTS.md
+  printf '#!/bin/sh\nexit 1\n' > t.sh; chmod +x t.sh
+  git add -A; git commit -q -m base
+  BASE="$(git rev-parse HEAD)"
+  mkdir -p .runs/r
+  printf '{"run":"r","pipeline":"mvp","intends_code":true,"baseline_sha":"%s"}\n' "$BASE" > .runs/r/RUN
+  # a red that changed NO committed test file
+  printf 'x\n' > src.sh; git add -A; git commit -q -m 'code only'
+  TEAM_BOOTSTRAP_RUN=r bash "$here/bin/check-tdd.sh" --record-red --batch B1 >/dev/null 2>&1; echo $? > rc_nontest
+  # …and no Test: command at all
+  printf -- '- Lint: `true`\n' > AGENTS.md; git add -A; git commit -q -m 'no test cmd'
+  TEAM_BOOTSTRAP_RUN=r bash "$here/bin/check-tdd.sh" --record-red --batch B1 >/dev/null 2>&1; echo $? > rc_nocmd )
+_chk "$(cat "$R/rc_nontest" 2>/dev/null)" 4 "a red that changed no committed test file is refused (F1)"
+_chk "$(cat "$R/rc_nocmd" 2>/dev/null)" 3 "no Test: command ⇒ an honest exit 3, never a silent pass"
+rm -rf "$R"
+
+# ---------------------------------------------------------------------------
 if [ "$fail" -eq 0 ]; then echo "live-roles-harness-wiring: OK"; exit 0; fi
 echo "live-roles-harness-wiring: $fail check(s) FAILED" >&2; exit 1

@@ -53,7 +53,7 @@ The gates read their commands from the **target repository's**
 | Site | Contract read | Reached via |
 | --- | --- | --- |
 | [`quality-gate.sh:39`](bin/quality-gate.sh) | `Lint:`, `Typecheck:` | **`Stop` hook — no prompt** |
-| [`check-tdd.sh:131`](bin/check-tdd.sh), [`tdd-red.sh:88`](bin/tdd-red.sh) | `Test:` | gate run during a batch |
+| [`check-tdd.sh`](bin/check-tdd.sh) — both the close-time gate and its `--record-red` observation step | `Test:` | gate run during a batch |
 | [`check-diff-coverage.sh:106,109`](bin/check-diff-coverage.sh) | `Coverage:` | `verify-batch.sh` |
 | [`check-mutation.sh:60`](bin/check-mutation.sh) | `Mutation:` | `verify-batch.sh` |
 

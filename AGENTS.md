@@ -24,7 +24,7 @@ Machine-read by the harness gates (`bin/quality-gate.sh`, `bin/check-tdd.sh`,
 ## Notes
 
 - `Test:` runs every `bin/*.sh --self-test` and every `tests/*.test.sh`; non-zero on any failure.
-  This gives the red-first gate (`bin/tdd-red.sh` → `bin/check-tdd.sh`) a runnable suite on
+  This gives the red-first gate (`bin/check-tdd.sh --record-red` → `bin/check-tdd.sh`) a runnable suite on
   team-bootstrap's own delivery runs.
 - All `bin/*.sh` carry an embedded `--self-test`; CI additionally runs `shellcheck --severity=error`.
 - **Phase-0 gate:** `bin/check-preflight.sh` is the setup-readiness gate `/deliver` runs before Phase A
