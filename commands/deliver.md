@@ -16,8 +16,11 @@ You are the delivery orchestrator. Input: `$ARGUMENTS`.
 **Do not choose the tier yourself, and do not treat `auto` as "pick `full` to be safe".** The harness
 has already decided by the time you read this: `bin/delivery-marker-init.sh` resolved the argument,
 and — when the milestone is on disk — ran `bin/size-from-spec.sh` over its `tasks.md`/`plan.md` before
-your first tool call. Read the verdict out of the run marker (`pipeline`, `tier_source`, `sizing`,
-`role_plan`); do not recompute it and do not override it. `auto` surviving in the marker means the
+your first tool call. **The verdict is already in your context** — `delivery-marker-init.sh` states it
+on the `UserPromptSubmit` channel: pipeline, `tier_source`, review depth, the risk categories it
+detected, the roles it assigned, and the per-work-stream plan. It is not something to go and read;
+`.runs/<id>/RUN` holds the same fields for the gates, and is a reference if you want the raw record.
+Do not recompute the verdict and do not override it. `auto` surviving in the marker means the
 tier is not yet knowable (a description with no spec on disk); every gate treats it as fail-**closed**,
 so nothing is skipped while it stands.
 
@@ -75,7 +78,8 @@ record different marker keys: `preflight` vs `precond`).
 
 ## Phase A — Pre-implementation (autonomous, in order)
 
-**First: read `spec_present` out of the run marker. It selects which of the two Phase A modes you are in.**
+**`spec_present` selects which of the two Phase A modes you are in**, and it is stated in the harness
+context you already have (the marker carries the same field for the gates).
 
 ### Mode 1 — `spec_present: false` (a description). Produce the milestone.
 
@@ -142,7 +146,8 @@ unless a step reports a hard blocker.
 
 **Gate before Phase B:** print a short summary — spec/plan/tasks paths, task count, version-bump
 verdict, drift catches, any unresolved blocker, and **the harness's sizing verdict**: `pipeline`,
-`tier_source`, `sizing` (the reasons), and the per-work-stream `role_plan`, read from the run marker.
+`tier_source`, `sizing` (the reasons), the detected risk categories, the assigned roles, and the
+per-work-stream `role_plan` — all of it already stated in your context.
 State it even when it is `full` — a sizing decision nobody sees is a sizing decision nobody can
 challenge. If `tier_source: harness`, name the reasons that drove it. **STOP here** if `speckit-analyze` surfaced a
 CRITICAL inconsistency, any question is still open, or `architecture-reviewer` returned

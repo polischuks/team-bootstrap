@@ -127,6 +127,34 @@ whose own review slugs resolve through it.
   exactly that. It stays unmapped until either the role leaves the `full` base set or a narrower
   contract-risk category exists that does not force `full`. Already in the tier base set for the tier its category forces, so a profile entry could never change an outcome — `--liveness` reports such a binding dead.
 
+## Deferred — playbook volume
+
+`references/roles/` is **6992 lines**. Milestone 020 (AC-31) asked for a 30 % reduction and delivered
+**2.9 %**, and the shortfall is recorded here rather than closed by redefining the target.
+
+What was compressed, and why only that: the four builder playbooks, 522 → 309 lines (−41 % on the
+set). Their bulk was a filled-in copy of the handoff template — a prose restatement of
+`role-output.schema.json`, which is machine-validated, so deleting it removes a duplicate rather than
+knowledge — and the edit→verify→repair cycle, which `/build` and `/test` run. The two acceptance
+criteria neither tool carries stayed: bounded retry at three cycles per check, and never
+`status: completed` over a failing check.
+
+Why the number could not be reached from that scope. The builder set is 7 % of the directory. The
+bulk is the business tail — `community-manager` 363, `partnerships-lead` 339,
+`customer-success-manager` 323, `ui-designer` 256, `growth-marketer` 255, `product-marketer` 237 —
+which the milestone's own **Out of scope** section assigns to the `audit-dd` / `l2p` track. Deleting
+the entire builder set would still have yielded 7 %.
+
+**The rule that actually governs this, and it is stricter than the number:** a playbook is compressed
+only after its knowledge is provably in an eval that reddens when it is removed (constitution **P12**,
+and R6 of the milestone). `bin/eval-role.sh --liveness` reports 11 live bindings; the business-tail
+roles have none, so compressing them now would delete knowledge recorded nowhere else. The 30 % was
+an estimate made before that rule existed.
+
+**Reopen when** the business tail gets routing signals and reddening evals of its own — the `audit-dd`
+and `l2p` pipelines are where that work belongs. At that point the volume follows for the same reason
+the builder set's did, and the number stops being the thing anyone has to argue about.
+
 ## Cost
 
 Fan-out is bounded by what the diff trips, not by the size of this table: a batch earns the tier base
