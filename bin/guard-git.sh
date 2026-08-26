@@ -19,6 +19,11 @@
 #     "push_ack" would be orchestrator-self-written in the same turn (hollow). Remote-write authorization
 #     stays P5 prose + check-preconditions advisory; the HARD backstop is the remote's branch-protection
 #     (required PR review) — org config the plugin can't force.
+#   - Registered with `if: "Bash(git *)"` (permission-rule syntax), which filters BEFORE the process is
+#     spawned: the guard used to start on every single Bash call to conclude "not git" in a subshell.
+#     The filter is best-effort and FAIL-OPEN by design, so it is a cost control, never the boundary —
+#     a hard prohibition belongs in permissions, not in a hook. Every check below still runs on whatever
+#     reaches it, so a payload the filter mis-classifies is handled exactly as before.
 #   - Best-effort git-parsing, NOT a security boundary: it catches the default/accidental invocation
 #     (incl. `git -C p`, `ENV=… git`, `&&`/`;`/`|`/newline chains, after JSON-decode); an obfuscated form
 #     (eval, subshell, alias, `cd other && git commit` in another repo) can slip. Branch-detection is

@@ -25,7 +25,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/bin/guard-git.sh"
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/guard-git.sh",
+            "if": "Bash(git *)"
           }
         ]
       }
