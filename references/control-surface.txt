@@ -43,6 +43,10 @@ bin/check-role-verdict.sh
 bin/judge-tier.sh
 # read-only reporter over the ledgers; listed because shrinking a metric hides a regression
 bin/delivery-metrics.sh
+# session / compaction / batch / task hook bodies (roles-alive item 2)
+bin/session-context.sh
+bin/check-review-batch.sh
+bin/record-task.sh
 
 # hook registrations (glob spans '/', so hooks/nested/*.json is covered too)
 hooks/*.json
