@@ -24,7 +24,10 @@ run_suite() {
     [ -e "$f" ] || continue
     base="$(basename "$f")"
     [ "$base" = "run-tests.sh" ] && continue
-    if grep -q -- '--self-test' "$f" 2>/dev/null; then
+    # A script HANDLES --self-test only if it dispatches on the flag. Matching the bare string anywhere
+    # made any mention — a comment, or a call to ANOTHER script's self-test — look like a self-test mode,
+    # and the runner then invoked a flag the script does not accept and reported it as a failing suite.
+    if grep -qE -- '(--self-test\)|= "--self-test" \]|=--self-test)' "$f" 2>/dev/null; then
       if ! bash "$f" --self-test >/dev/null 2>&1; then
         echo "run-tests: FAIL self-test — $base" >&2; fails=$((fails + 1))
       fi

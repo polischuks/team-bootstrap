@@ -19,6 +19,11 @@
 #     AND a required verdict field in references/schemas/role-output.schema.json (or it cannot be
 #     confirmed at closure). Every category key must be one select-pipeline.sh actually emits.
 #
+# NOT MAPPED, on purpose — api/contract. Its natural owner is integration-verifier, but the category
+# itself forces the `full` tier, whose base set ALREADY contains that role. The mapping would therefore
+# never change an outcome: `bin/eval-role.sh --liveness` reports such a binding DEAD, because removing it
+# turns nothing red. A no-op entry inflates the appearance of routing without adding any, so it is gone.
+#
 # KNOWN GAP — infra/deploy has no addressee. The classifier emits it, and the natural owner is
 # chaos-engineer, whose schema def declares NO required field. Assigning a role that cannot return a
 # typed verdict would buy a dispatch and no confirmation. Adding the field is a new required handoff
@@ -26,5 +31,4 @@
 
 security/auth   security-reviewer
 data/schema     data-schema-reviewer
-api/contract    integration-verifier
 deps            security-reviewer overengineering-reviewer

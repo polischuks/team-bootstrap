@@ -11,6 +11,7 @@
 # Usage:
 #   bin/eval-role.sh <role>                      # static-validate one role
 #   bin/eval-role.sh --all                       # static-validate every role (CI gate)
+#   bin/eval-role.sh --liveness                  # MUTATION eval: is each assignable role load-bearing?
 #   bin/eval-role.sh <role> --artifact <file>    # static + print judge prompt for <file>
 #   bin/eval-role.sh <role> --artifact <file> --judge   # also run `claude` if present
 #   bin/eval-role.sh <role> --json               # machine-readable static result
@@ -30,6 +31,7 @@ EVALUATOR="$ROOT/references/evaluator.md"
 
 ROLE=""
 ALL=0
+LIVENESS=0
 JSON=0
 JUDGE=0
 ARTIFACT=""
@@ -37,6 +39,7 @@ ARTIFACT=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --all)      ALL=1 ;;
+    --liveness) LIVENESS=1 ;;
     --json)     JSON=1 ;;
     --judge)    JUDGE=1 ;;
     --artifact) shift; ARTIFACT="${1:-}" ;;
@@ -46,6 +49,88 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+
+# --- --liveness: the only honest metric of "how many roles are alive" --------------------------------
+#
+# A role is ALIVE iff an eval exists that goes RED when the role is removed from the set. That is
+# check-gate-integrity.sh's philosophy — a gate that cannot fail is not a gate — applied to roles: a
+# role whose removal changes nothing is a playbook, not a role, and counting it is self-deception.
+#
+# This is a MUTATION eval. For every role the active profile can assign, it builds a throwaway repo whose
+# diff trips that role's category and asserts BOTH directions:
+#   present ⇒ required_roles_for_batch names the role
+#   removed ⇒ it does not
+# One-directional would pass on a set that names every role unconditionally. It also asserts the role is
+# dispatchable, attributable and typed, because a role that is "required" but cannot be dispatched,
+# attributed or confirmed reddens nothing downstream.
+if [ "${LIVENESS:-0}" -eq 1 ]; then
+  ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+  MAPF="${TEAM_BOOTSTRAP_PROFILE:-$ROOT/profiles/default.map}"
+  [ -f "$MAPF" ] || { echo "eval-role --liveness: no profile map at $MAPF" >&2; exit 1; }
+  # one probe path per category the classifier emits — the same paths select-pipeline.sh classifies
+  _probe_for() {
+    case "$1" in
+      security/auth) printf 'src/auth/login.ts' ;;
+      data/schema)   printf 'db/schema.sql' ;;
+      api/contract)  printf 'src/api/openapi.yaml' ;;
+      infra/deploy)  printf 'infra/Dockerfile' ;;
+      deps)          printf 'package.json' ;;
+      *)             printf '' ;;
+    esac
+  }
+  _required_with() { # $1=profile-map path  $2=touch path → the sized role set
+    local D; D="$(mktemp -d)"
+    ( cd "$D" || exit 1
+      git init -q; git config user.email a@b.c; git config user.name t
+      printf 'x\n' > seed.txt; git add -A; git commit -q -m base
+      B="$(git rev-parse --short HEAD)"
+      mkdir -p "$(dirname "$2")" .runs/r
+      printf 'z\n' > "$2"; git add -A; git commit -q -m work
+      printf '{"run":"r","pipeline":"full","intends_code":true,"baseline_sha":"%s"}\n' "$B" > .runs/r/RUN
+      printf '{"id":"B1","kind":"code","status":"announced"}\n' > .runs/r/batches.jsonl
+      . "$ROOT/bin/delivery-lib.sh"
+      TEAM_BOOTSTRAP_PROFILE="$1" TEAM_BOOTSTRAP_RUN=r required_roles_for_batch B1 ) 2>/dev/null
+    rm -rf "$D"
+  }
+  lfail=0; alive=0; total=0
+  echo "eval-role --liveness — a role is alive iff removing it turns something red:"
+  while read -r cat roles; do
+    case "$cat" in ''|'#'*) continue ;; esac
+    probe="$(_probe_for "$cat")"
+    if [ -z "$probe" ]; then
+      echo "  FAIL $cat — no probe path; the category cannot be exercised, so no role under it can be proven alive" >&2
+      lfail=$((lfail + 1)); continue
+    fi
+    for r in $roles; do
+      total=$((total + 1))
+      with="$(_required_with "$MAPF" "$probe")"
+      tmpmap="$(mktemp)"; grep -v "^$cat[[:space:]]" "$MAPF" > "$tmpmap"
+      without="$(_required_with "$tmpmap" "$probe")"; rm -f "$tmpmap"
+      # the role may still be earned by the TIER (integration-verifier is in the full base set); what
+      # must differ is only the roles the CATEGORY contributes, so compare per-role, not set-equality.
+      inw=no; case " $with " in *" $r "*) inw=yes ;; esac
+      ino=no; case " $without " in *" $r "*) ino=yes ;; esac
+      disp=no;  [ -f "$ROOT/agents/$r.md" ] && disp=yes
+      attr=no;  awk -F'\t' -v s="$r" '$1==s && $2!="" {found=1} END{exit !found}' "$ROOT/references/review-types.txt" && attr=yes
+      typed=no; [ -n "$(python3 -c 'import json,sys
+d=json.load(open(sys.argv[1]))["$defs"].get(sys.argv[2],{})
+print(" ".join(f for b in d.get("allOf",[]) for f in b.get("required",[])))' "$ROOT/references/schemas/role-output.schema.json" "$r" 2>/dev/null)" ] && typed=yes
+      if [ "$inw" = yes ] && [ "$ino" = no ] && [ "$disp" = yes ] && [ "$attr" = yes ] && [ "$typed" = yes ]; then
+        echo "  ALIVE $r  (category $cat: required when present, absent when removed; dispatchable, attributable, typed)"
+        alive=$((alive + 1))
+      elif [ "$inw" = yes ] && [ "$ino" = yes ]; then
+        echo "  DEAD  $r  (category $cat: required even with the mapping REMOVED — the map is not load-bearing for it)" >&2
+        lfail=$((lfail + 1))
+      else
+        echo "  DEAD  $r  (category $cat: required=$inw removed=$ino dispatchable=$disp attributable=$attr typed=$typed)" >&2
+        lfail=$((lfail + 1))
+      fi
+    done
+  done < "$MAPF"
+  echo "eval-role --liveness: $alive/$total assignable role bindings are alive."
+  [ "$lfail" -eq 0 ] && exit 0
+  echo "eval-role --liveness: $lfail binding(s) not alive." >&2; exit 1
+fi
 
 if ! command -v python3 >/dev/null 2>&1; then
   echo "ERROR: python3 required for frontmatter validation" >&2
