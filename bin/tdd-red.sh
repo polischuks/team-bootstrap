@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
+# DIVISION OF LABOUR WITH /test (roles-alive phase 4). `/test` is how you REACH red: it writes the
+# failing test and iterates. This script is how the harness OBSERVES and RECORDS that red, anchored to
+# a git sha, and it is deliberately NOT deleted in favour of the skill. check-tdd.sh REQUIRES a record
+# in .runs/<run>/tdd.jsonl and this is its only producer; `/test` writes nothing there. Removing this
+# script does not delegate the gate, it makes the gate unsatisfiable — every code batch would fail
+# closed with no way to satisfy it. The execution here IS the observation: recording a red that
+# something else claims to have seen would be exactly the self-report P9 exists to refuse.
+#
 # tdd-red.sh — record an OBSERVED red step, making P9 ("tests written first, run and SEEN to
 # fail") a git-grounded fact instead of a self-declared boolean.
 #

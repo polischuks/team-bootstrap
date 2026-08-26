@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+
+# ROLE IN THE DIVISION OF LABOUR (roles-alive phase 4). This gate is a CANDIDATE GENERATOR, not a
+# judge. It flags shapes cheaply and heuristically; the semantic question — "code was written and nothing consumes it"
+# — is decided by the integration-verifier role, which reads the diff with the whole
+# milestone in view. The gate does not decide, and it is not trying to: what it makes impossible is
+# closing a batch WITHOUT asking the role that does decide (bin/check-role-dispatch.sh, per-role
+# floor). Treat every finding here as a lead for that role, never as a verdict.
 # check-orphans.sh — heuristic dead-code / unwired-artifact scan for a batch diff.
 #
 # Advisory input to the `integration-verifier` role: flags producers (exported

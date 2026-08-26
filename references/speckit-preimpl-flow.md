@@ -29,194 +29,44 @@ this manual as the doctrine and quality bar behind them.
 
 ---
 
-## Prerequisites
+## Steps 1–5 are Spec Kit's, not ours
 
-Before running the flow, the project needs:
+This file used to restate, in 180 lines, how to write a constitution, a spec, clarifications, a plan
+and a task list. Spec Kit's own commands do that work, and a second description of it here could only
+do one of two things: agree, and cost maintenance for nothing; or drift, and then be wrong somewhere
+no one looks. The duplication is removed rather than kept in sync.
 
-1. **A principles document** (call it `principles.md` or `constitution.md`) — versioned; documents architectural invariants, sanctioned exceptions, and boundary rules
-2. **A `specs/` directory convention** — one subdirectory per milestone, using stable naming (`NNN-milestone-slug/`)
-3. **An ADR directory** — for architectural decisions that outlive individual milestones
-4. **A stable milestone version scheme** — semver works; PATCH for fixes-only, MINOR for new features, MAJOR for breaking changes
-5. **A feature-pointer file** — something like `feature.json` that points to the current active spec directory
-6. **A precedent chain** — completed milestones you can mirror structure from (bootstrap with first-milestone template from a similar project)
+| Step | Command | Produces | What team-bootstrap adds |
+|---|---|---|---|
+| 1 Principles | `/speckit-constitution` | `constitution.md` | nothing — it is the project's own |
+| 2 Spec | `/speckit-specify` | `spec.md` | the sizing signal (`bin/size-from-spec.sh` reads it) |
+| 3 Clarify | `/speckit-clarify` | resolved open questions | nothing |
+| 4 Plan | `/speckit-plan` | `plan.md` | the work-stream floors (`--per-batch`) |
+| 5 Tasks | `/speckit-tasks` | `tasks.md` | `## ` sections become work-streams; `⚠ <role>` declares a role |
+| — Check | `/speckit-analyze` | spec↔plan↔tasks consistency | nothing |
 
----
+Two conventions in `tasks.md` ARE ours, because the harness parses them:
 
-## Step 1 — Principles / Constitution Analysis
+- A `## ` heading starts a **work-stream**, sized on its own paths. A `tasks.md` with none makes
+  `size-from-spec.sh --per-batch` report `degraded=1` — no floors are derived and the batch diff sizes
+  each batch alone.
+- `⚠ <role>` on a task **declares** a review role. It is unioned into the required set and can never
+  subtract from what the paths earned.
 
-**Purpose**: Determine if the milestone requires principles/constitution evolution BEFORE spec drafting. Pure analytical — no code changes.
+## The gate between Phase A and Phase B
 
-**Deliverable**: `docs/mNN-principles-analysis.md` (~100-200 lines)
+This is the part that is team-bootstrap's and cannot be delegated: **what makes the artefacts
+sufficient to start implementing.**
 
-### Sections
+- The milestone is on disk. `spec_present` on the run marker is the on-disk truth, never the
+  operator's claim — a path that does not resolve is a description, and Phase A runs in full for it.
+- `/speckit-analyze` is clean: spec, plan and tasks agree.
+- Every task carries its target paths. Without them the classifier sees nothing and sizes to the floor.
+- The harness has sized the run. The verdict reaches the model as context
+  (`bin/delivery-marker-init.sh`); it is not something to go and read out of `.runs/<id>/RUN`.
 
-1. **Existing doctrine coverage assessment** — for each scope item, classify impact:
-   - **No impact** (implementation-only; doctrine already sanctions the primitive)
-   - **PATCH bump** (clarification / extension without rule redefinition)
-   - **MINOR bump** (new doctrine section OR new principle)
-   - **MAJOR bump** (breaking change — rare)
-2. **ADR candidates** — enumerate NEW ADRs that should land in Phase 1
-3. **Version bump recommendation** — pick a single option with explicit rationale
-4. **Enumeration invariant checks** — if principles reference specific lists (sanctioned dependencies, allowed vendors, approved patterns), verify current count + expected delta
-5. **Registry impact assessment** — new components add rows to registries (vendor lists, tool taxonomies, sub-processor manifests)
-6. **Verdict + recommended action** — final version target + proceed-or-pause
-
-### Discipline
-
-- Read the existing principles document IN FULL — not summarize from memory
-- Verify claims via grep/rg — if the principles reference N sanctioned instances, count actual instances in codebase before claiming threshold
-- Cross-check against ADRs — some architectural decisions constrain scope
-- Surface hidden invariants — "we've done X 4 times, doing X 5 times triggers doctrine documentation" is a common pattern
-
-### Common outcomes
-
-- **No bump** — hardening/patch milestones typically qualify
-- **PATCH bump** — new sanctioned enumeration entry (new agent type, new tool category)
-- **MINOR bump** — new doctrine section (new action class, new enforcement rule)
-- **MAJOR bump** — restructuring existing invariants (rare)
-
----
-
-## Step 2 — Spec Drafting
-
-**Purpose**: Draft the milestone specification. Bake founder/orchestrator rulings from Step 1 as pre-resolutions.
-
-**Deliverable**: `specs/NNN-milestone-slug/spec.md` (~300-900 lines depending on scope)
-
-### Standard sections
-
-- **Overview + In/Out of scope** — bounded scope; explicit exclusions
-- **User Stories (US1-N)** — one per deliverable + perspective stories (agent/auditor/operator)
-- **Acceptance criteria (AC-1..AC-N)** — each CI-testable OR QA-verifiable; grouped by US
-- **Pre-resolutions (F1-N)** — verbatim from Step 1 rulings (founder/product decisions that constrain scope)
-- **Open questions (OQ-1..OQ-N)** — items for Step 3 to resolve; include RECOMMENDED direction for each
-- **Principles compliance matrix** — every AC → doctrine clause + verification approach
-- **Risks table** (≥8 rows) — vendor uncertainty, scope creep, technical unknowns
-- **Dependencies** — prior milestones + external services + timing constraints
-
-Also updates the feature-pointer file to reference the new spec directory.
-
-### Discipline
-
-- Mirror structure verbatim from most recent spec — consistent shape reduces reader cost
-- OQ prose includes RECOMMENDED direction — makes Step 3 autonomous resolution viable
-- Web-verifiable OQs get explicit flags for Step 3 to check (vendor SDK names, endpoints, auth models)
-- Every AC is testable by an automated check OR named human verification step
-
----
-
-## Step 3 — Clarify (Autonomous OQ Resolution)
-
-**Purpose**: Pre-resolve OQ-1..OQ-N with defaults + web-verify vendor claims. Add F+1 rows if new founder-relevant decisions emerge from verification.
-
-**Deliverable**: modified `spec.md` — OQ section marked `[x] Resolution:` per item
-
-### Pattern
-
-For each OQ:
-1. Read the RECOMMENDED direction from Step 2
-2. WebFetch vendor API docs to verify auth model, endpoint shape, SDK availability
-3. Mark `[x] Resolution: <default>` + 1-2 sentence rationale
-4. If verification surfaces drift (API deprecated, endpoint changed, SDK doesn't exist), **OVERRIDE** default + document the drift inline as a numbered discipline catch
-
-### Drift catch pattern
-
-The strongest value of Step 3 is web-verifying vendor claims that would otherwise become expensive implementation mistakes:
-
-- **SDK availability** — "vendor X has a Python SDK" (verify — sometimes vendor only publishes JS SDK)
-- **API deprecation** — "we'll use API endpoint /v1/foo" (verify — endpoint may have been retired)
-- **Auth model** — "use OAuth" (verify — may be admin-consent-only, not user-OAuth)
-- **Version pins** — "SDK version ^1.0" (verify — actual latest may be 0.3.x)
-- **Feature availability** — "extension supports X-dimension vectors" (verify — real support may have hard caps)
-
-Each drift catch is numbered + logged in commit body — they compound into a milestone-wide discipline signal.
-
-### F+1 flag
-
-If verification surfaces a decision that needs a founder/orchestrator review (e.g., "sub-agent split needed", "vendor choice unclear"), add F+1 row in pre-resolutions with prose explaining trigger. Escalate before Step 4.
-
----
-
-## Step 4 — Plan
-
-**Purpose**: Design architecture + phase decomposition. 6 artifact files ship together for internal coherence.
-
-**Deliverables** in `specs/NNN-milestone-slug/`:
-
-1. **plan.md** (~400-1000 lines) — Principles compliance matrix + architecture diagrams (sequence, dependency) + N-phase plan + dependency DAG + ADR candidates + migration shape (if applicable)
-2. **data-model.md** (~200-600 lines) — Schema changes (migration up + down); access control posture per table; type extensions; constraint changes
-3. **research.md** (~150-300 lines) — Numbered decisions traced to pre-resolutions + resolved OQs + surfaced catches
-4. **contracts/api.md** (~150-400 lines) — External-facing route contracts; endpoints; auth; error envelopes
-5. **contracts/tools.md** OR **contracts/interfaces.md** (~100-500 lines) — Internal component contracts; scope changes; registry impacts
-6. **quickstart.md** (~150-300 lines) — Operator walkthrough (real usage sequence, not test scenarios)
-
-### Critical plan-level decisions to document
-
-- Component scope changes (if size caps constrain — split vs bundle)
-- Migration split vs single (rollback isolation)
-- Doctrine threshold checks (are we approaching invariant limits?)
-- ADR candidates (which land in Phase 1 vs deferred)
-- Failure mode classification (per action class or per critical path)
-- Compliance matrix (doctrine → AC → CI test binding)
-
-### Discipline
-
-- Actual contracts > brief — verify claim counts via `rg -n` before writing
-- Precedent files read fully — mirror structure from most recent plan; preserves reader intuition
-- Phase decomposition includes explicit lockstep risks (e.g., Phase 0 gates Phase 1)
-
----
-
-## Step 5 — Tasks
-
-**Purpose**: Decompose plan into numbered actionable tasks with strict formatting invariants.
-
-**Deliverable**: `specs/NNN-milestone-slug/tasks.md` (~300-800 lines)
-
-### Task entry format
-
-Each task follows this template:
-
-```markdown
-- [ ] Txxx [P?] [USx?] Description
-  - Explicit file path(s) within
-  - (category · principle) suffix — category ∈ {foundation, backend, frontend, data, security, docs, infra}
-  - AC-N pointer (which acceptance criterion this task satisfies)
-  - **precedent: <commit-sha OR memory-marker>** — cite prior milestone precedent
-  - — depends on TyyyTzzz chain
-  - **⚠ {reviewer-type} flag** where applicable (data-schema-reviewer / security-reviewer / etc.)
-```
-
-Where:
-- `[P]` = parallelizable within phase
-- `[USx]` = ties task to user story from spec
-- `category` = which subsystem this touches
-- `principle` = which principle(s) this task upholds
-
-### Structure
-
-- Header (Status / Source plan / Source spec / Principles version pin / Total tasks / Effort estimate)
-- Conventions section (explaining task ID scheme + tags)
-- Dependency diagram (Mermaid or similar)
-- Linear sequence (critical path — what MUST be sequential)
-- Hard front gates (blocks all subsequent work)
-- Per-phase sections (grouped tasks)
-- Dependencies & parallelization (within-phase lanes; critical seams)
-- Story completion order (which US closes when)
-- Out-of-scope / deferred (explicit)
-- Risk register (≥8 rows for focused milestone; ≥12 for large)
-- Risk-flagged tasks (mandatory reviewer types)
-- Final exit criteria (release gate checklist)
-
-### AC mapping coverage
-
-Every AC-N from spec.md MUST map to ≥1 task. Grep-verify before commit. If any AC has no task, either the spec is over-specified or the task list is incomplete.
-
-### Vertical slices, end-to-end acceptance
-
-Group tasks into **vertical slices** — each batch delivers one working user-visible path (e.g. endpoint + the frontend that calls it + the wiring), not a horizontal layer ("all backend" then "all frontend"). Horizontal slicing is what produces an endpoint with no consumer: dead code each builder reports as done. Write acceptance criteria as **end-to-end, user-observable outcomes** ("user clicks X → sees Y"), not layer-local facts ("endpoint returns 200"). The `integration-verifier` gate ([roles/integration-verifier.md](roles/integration-verifier.md)) enforces this at build time — a batch cannot close while any produced artifact has no live consumer.
-
----
+Phase B may not begin while any of these is unmet, and the harness does not take the orchestrator's
+word for it: the gates read the artefacts.
 
 ## Step 6 — Team-Bootstrap Dispatch File
 
@@ -252,6 +102,7 @@ Group tasks into **vertical slices** — each batch delivers one working user-vi
 - **Single-file conflicts** — flag when 2 tracks would touch the same file; either sequence them or explicitly document merge strategy
 
 ---
+
 
 ## Implementation Loop Pattern (post-Step 6)
 
