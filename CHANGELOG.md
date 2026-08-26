@@ -83,6 +83,38 @@ Live role bindings, by the only honest measure (`bin/eval-role.sh --liveness`): 
 - The last two **SC2164** sites: a failed `cd` made two scripts evaluate the current directory
   instead of the one they were handed.
 
+## [3.0.1] — 2026-08-26
+
+Follow-ups from the v3.0.0 implementation audit. No behaviour changes — a doc, a comment, a registry
+section, and a test that now tests something. Cut as a patch because **3.0.0 shipped the defect
+below**: the tag was created before the audit ran, so anyone installing 3.0.0 gets the imperative
+this release removes.
+
+### Fixed
+
+- **`commands/deliver.md` no longer instructs the model to read the run marker for its assignment.**
+  Line 19 said, verbatim, "Read the verdict out of the run marker (`pipeline`, `tier_source`,
+  `sizing`, `role_plan`)" — the exact obligation AC-6 was written to remove. Two more at lines 78 and
+  145. All three are reference now; the verdict is already in the model's context on the
+  `UserPromptSubmit` channel, and `.runs/<id>/RUN` holds the same fields for the gates.
+
+  The assertion guarding this **passed for the whole milestone**. Its pattern,
+  `read (the )?(run )?marker`, requires the words to be adjacent, and the real sentence has "the
+  verdict out of" between them — a test whose pattern cannot match the line it was written to catch.
+  It now carries a poisoned-fixture case proving it can fail.
+
+- **`delivery-lib.sh`'s `record_required_roles` no longer documents a call site that was deleted.**
+  Its comment read "Recorded at announce so the close gate reads a FACT" — precisely the practice
+  AC-25 ended, because at announce the batch window is empty and the computed set collapses to
+  `[code-reviewer]`. The call lives in `verify-batch.sh`; the comment now says so and says why.
+
+### Added
+
+- **`references/role-registry.md` → *Deferred — playbook volume*** records the AC-31 shortfall
+  (2.9 % against a 30 % target) with the reason the number is not the governing rule — constitution
+  P12 is stricter — and the condition for reopening it. Tracked deliberately: `specs/*/` is
+  gitignored, so a debt recorded only in `plan.md` is invisible to whoever could clear it.
+
 ## Earlier releases
 
 Entries for majors that are no longer current are archived one file per major, so this file stays the size of the *live* series:
