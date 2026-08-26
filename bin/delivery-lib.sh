@@ -329,6 +329,21 @@ required_roles_for_batch() {
     prank="$(_tier_rank "$ptier")"; drank="$(_tier_rank "$tier")"
     [ -n "$prank" ] && [ "$prank" -gt "${drank:-0}" ] && tier="$ptier"
   fi
+  # Model judgement (bin/judge-tier.sh) applies with the SAME one-directional discipline and for the
+  # same reason: the path classifier is blind to what a milestone DOES, and a judgement that could lower
+  # the tier would turn a blind spot into a bypass. It may raise; it may never lower. Absent, unreadable
+  # or unrecognised ⇒ no effect whatsoever.
+  local jtier jrank jf
+  jf="$(dirname "$(resolve_marker 2>/dev/null || true)")/tier-judgment"
+  if [ -f "$jf" ]; then
+    jtier="$(sed -n 's/^tier=//p' "$jf" 2>/dev/null | head -1)"
+    case "$jtier" in
+      single-thread|mvp|full)
+        jrank="$(_tier_rank "$jtier")"; drank="$(_tier_rank "$tier")"
+        [ -n "$jrank" ] && [ "$jrank" -gt "${drank:-0}" ] && tier="$jtier" ;;
+      *) : ;;                                   # unrecognised ⇒ ignored, never a guess
+    esac
+  fi
   case "$tier" in
     full) base='integration-verifier architecture-reviewer regression-guardian code-reviewer' ;;
     mvp)  base='integration-verifier code-reviewer' ;;

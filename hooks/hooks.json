@@ -54,6 +54,17 @@
           }
         ]
       }
+    ],
+    "UserPromptExpansion": [
+      {
+        "matcher": "deliver|team-bootstrap",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/judge-tier.sh"
+          }
+        ]
+      }
     ]
   }
 }
