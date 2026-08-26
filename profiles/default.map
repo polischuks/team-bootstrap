@@ -34,12 +34,21 @@
 # NOT MAPPED, on purpose — test-designer. Same reason as chaos-engineer: no required field in the schema,
 # so it cannot be confirmed at closure.
 #
-# KNOWN GAP — infra/deploy has no addressee. The classifier emits it, and the natural owner is
-# chaos-engineer, whose schema def declares NO required field. Assigning a role that cannot return a
-# typed verdict would buy a dispatch and no confirmation. Adding the field is a new required handoff
-# field, i.e. a MAJOR bump (references/versioning.md) — a decision, not a detail. Left honestly unmapped.
+# NOT MAPPED, on purpose — chaos-engineer, test-designer, legal-compliance-checker. None declares a
+# required field in role-output.schema.json, so none can be CONFIRMED at closure: assigning them buys a
+# dispatch and no confirmation, which is the decoy the whole verdict pipeline exists to reject. Giving
+# any of them one is a new required handoff field = a MAJOR bump (references/versioning.md), a decision
+# rather than a detail. infra/deploy is served by devops-platform instead, which IS typed (ci_status)
+# and denies Write/Edit, so it satisfies the anti-builder invariant in review mode.
+#
+# NOT MAPPED, on purpose — ip-contracts-reviewer. It IS typed (ip_verdict) and read-only, but its
+# frontmatter declares `compatible_pipelines: [audit-dd]`, and the orchestrator refuses a pipeline
+# containing an incompatible role. Routing it into a full/mvp code batch would violate the role's own
+# declared contract; widening that list is a role-version decision, not a routing one.
 
 security/auth   security-reviewer
 data/schema     data-schema-reviewer
 deps            security-reviewer overengineering-reviewer
 ui              accessibility-reviewer
+infra/deploy    devops-platform
+perf            performance-reviewer

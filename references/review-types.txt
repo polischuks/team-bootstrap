@@ -75,3 +75,7 @@ team-bootstrap:overengineering-reviewer	overengineering-reviewer
 overengineering-reviewer	overengineering-reviewer
 team-bootstrap:accessibility-reviewer	accessibility-reviewer
 accessibility-reviewer	accessibility-reviewer
+team-bootstrap:devops-platform	devops-platform
+devops-platform	devops-platform
+team-bootstrap:performance-reviewer	performance-reviewer
+performance-reviewer	performance-reviewer

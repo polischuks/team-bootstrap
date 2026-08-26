@@ -54,7 +54,7 @@ _untracked_numstat() {
 #   <rec_rank>\t<files>\t<nondoc_lines>\t<layers>\t<reasons>
 recommend() {
   local add del path files=0 nondoc=0 layers="" lc docpaths=""
-  local sec=0 data=0 infra=0 api=0 deps=0 ui=0
+  local sec=0 data=0 infra=0 api=0 deps=0 ui=0 perf=0
   # NOTE (ADR-0018): every directory pattern must carry BOTH the root form and the nested form.
   # `*/api/*` does not match `api/routes.ts` at the repo root — there is no parent segment to match
   # `*/`. That silently under-escalated root-level api/, models/ and .github/workflows/ changes, in
@@ -79,6 +79,10 @@ recommend() {
     # roles-alive phase 1 (second wave) — a USER-FACING surface. Extension-driven, because that is the
     # one part of "is this UI" a path can actually answer; the both-forms idiom applies here too.
     case "$lc" in *.tsx|*.jsx|*.vue|*.svelte|*.html|*.css|*.scss|*.sass|components/*|*/components/*|ui/*|*/ui/*|views/*|*/views/*|pages/*|*/pages/*) ui=1 ;; esac
+    # A DECLARED performance surface, deliberately narrow. This is not a hot-path detector: no path
+    # pattern answers "is this hot", and a guess would route the role at noise while looking exactly as
+    # load-bearing to eval-role --liveness. Paths the repo itself calls performance work, nothing more.
+    case "$lc" in bench/*|*/bench/*|benchmark*|*/benchmark*|*.bench.*|perf/*|*/perf/*|*loadtest*|*load-test*|*.jmx|*k6*) perf=1 ;; esac
   done
   local nlayers
   nlayers="$(printf '%s' "$layers" | tr ' ' '\n' | grep -ve '^$' | sort -u | grep -c . || true)"
@@ -117,6 +121,8 @@ recommend() {
   # bigger change, so it routes a role (profiles/default.map) without lifting the tier. Recording it in
   # `reasons` is what makes it routable at all — the categories are the routing input.
   [ "$ui" -eq 1 ] && reasons="$reasons ui"
+  # Composition signals, like `ui`: they summon a role without lifting the tier.
+  [ "$perf" -eq 1 ] && reasons="$reasons perf"
   [ "$full" -eq 1 ] && rec=3
 
   printf '%s\t%s\t%s\t%s\t%s\n' "$rec" "$files" "$nondoc" "$nlayers" "${reasons# }"

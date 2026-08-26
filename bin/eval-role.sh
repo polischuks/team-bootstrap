@@ -76,6 +76,8 @@ if [ "${LIVENESS:-0}" -eq 1 ]; then
       infra/deploy)  printf 'infra/Dockerfile' ;;
       deps)          printf 'package.json' ;;
       ui)            printf 'src/components/Button.tsx' ;;
+      infra/deploy)  printf 'infra/Dockerfile' ;;
+      perf)          printf 'bench/throughput.bench.ts' ;;
       *)             printf '' ;;
     esac
   }
