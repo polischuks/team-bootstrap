@@ -532,9 +532,17 @@ inflight_batch() {
 }
 
 # record_required_roles BATCH_ID → compute the batch's role set and splice it into ITS ledger line as
-# a flat "required_roles":[…] array. Recorded at announce so the close gate reads a FACT rather than
-# recomputing against a window that has since moved. Rewrite is temp-file + mv (atomic, #25) and the
-# line is validated as JSON-shaped before it lands, so a bad splice can never corrupt the ledger.
+# a flat "required_roles":[…] array.
+#
+# CALLED FROM verify-batch.sh, AT CLOSE — not at announce (AC-25). This comment used to say "recorded
+# at announce", which is the practice that milestone deliberately ended: at announce the batch window
+# is still EMPTY, so the computed set collapsed to the minimum [code-reviewer] and the whole
+# recorded-set branch of check-role-dispatch was unreachable in production. The set is computed where
+# the diff exists. A comment describing the superseded call site is worse than none — the next reader
+# trusts it.
+#
+# Rewrite is temp-file + mv (atomic, #25) and the line is validated as JSON-shaped before it lands,
+# so a bad splice can never corrupt the ledger.
 record_required_roles() {
   local bid="$1" ledger roles arr tmp line out r
   ledger="$(resolve_ledger)"; [ -n "$ledger" ] && [ -f "$ledger" ] || return 0

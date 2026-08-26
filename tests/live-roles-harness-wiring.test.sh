@@ -477,8 +477,25 @@ _chk "$(grep -q 'allowManagedHooksOnly' "$here/INSTALL.md" && echo yes || echo n
   "INSTALL.md documents the managed-policy path"
 
 echo "AC-6 — no step REQUIRES the model to read the marker to learn its assignment:"
-_chk "$(grep -cEi 'read (the )?(run )?marker|read .runs/.*/RUN' "$here/commands/deliver.md" | tr -d ' ')" 0 \
-  "deliver.md carries no obligation to read the marker for the verdict"
+# This assertion USED TO PASS while deliver.md:19 said, verbatim, "Read the verdict out of the run
+# marker". The pattern was `read (the )?(run )?marker`, which demands the words be adjacent, and the
+# real sentence has "the verdict out of" between them. A test whose pattern cannot match the line it
+# was written to catch is decoration — it certified this AC as met for a whole milestone.
+#
+# Two traps in the correction itself, both hit before this settled:
+#   * `read` without \b matches the middle of "already", so every "already" scored a hit;
+#   * `bin/delivery-marker-init.sh` contains "marker", so naming the script in a sentence that also
+#     contains "read" looked like an instruction to go and read the marker. Code spans are stripped.
+_ac6() { sed 's/`[^`]*`//g' "$1" | grep -cEi '\bread\b[^.]{0,40}\bmarker\b|\bread\b[^.]{0,40}\.runs/[^ ]*/RUN' | tr -d ' '; }
+_chk "$(_ac6 "$here/commands/deliver.md")" 0 "deliver.md carries no obligation to read the marker for the verdict"
+
+echo "AC-6b — that assertion can actually fail (it certified a false pass for a whole milestone):"
+_poison="$(mktemp)"
+printf 'Read the verdict out of the run marker (pipeline, tier_source); do not recompute it.\n' > "$_poison"
+_chk "$(_ac6 "$_poison")" 1 "the real sentence that slipped through is caught now"
+printf 'The harness has already decided by the time you read this.\n' > "$_poison"
+_chk "$(_ac6 "$_poison")" 0 "  …and \"already\" + \"read this\" is not a false positive"
+rm -f "$_poison"
 
 # ---------------------------------------------------------------------------
 if [ "$fail" -eq 0 ]; then echo "live-roles-harness-wiring: OK"; exit 0; fi
