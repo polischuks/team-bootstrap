@@ -110,7 +110,12 @@ if [ "${LIVENESS:-0}" -eq 1 ]; then
   lfail=0; alive=0; total=0
   echo "eval-role --liveness — a role is alive iff removing it turns something red:"
   while read -r cat roles; do
-    case "$cat" in ''|'#'*) continue ;; esac
+    # The profile carries TWO kinds of record: `tier:<name>` (the depth base set, AC-13) and
+    # `<category>` (the roles a risk category adds). Only the second is routable by the classifier, so
+    # only the second can be probed. A tier base is not a binding — removing it does not remove a role
+    # from a batch, it changes how much review the DEPTH buys — and asking whether it "reddens" would
+    # measure the wrong thing while reporting a DEAD binding that is not one.
+    case "$cat" in ''|'#'*|tier:*) continue ;; esac
     probe="$(_probe_for "$cat")"
     if [ -z "$probe" ]; then
       echo "  FAIL $cat — no probe path; the category cannot be exercised, so no role under it can be proven alive" >&2

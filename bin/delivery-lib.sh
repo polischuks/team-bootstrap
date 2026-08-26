@@ -289,12 +289,34 @@ review_depth_for_tier() {
 # "Mirrors delivery-lib's required_roles_for_batch mapping exactly". Two copies of one mapping is a
 # drift waiting to happen, and Д2 §1.1 names this exact pair as the precedent for why an agent file
 # must not restate its playbook. size-from-spec.sh now sources this file and calls this function.
+#
+# The list itself comes from `profiles/default.map` (AC-13), not from a case here: ADR-0020 moved the
+# risk categories to the profile and left the tier base hardcoded, which is the same "the tier decides
+# who reviews" the split was meant to end. `profile_map_path` is defined further down; bash resolves
+# calls at call time, so the ordering is fine.
 tier_base_roles() {
-  case "$1" in
-    full) printf 'integration-verifier architecture-reviewer regression-guardian code-reviewer' ;;
-    mvp)  printf 'integration-verifier code-reviewer' ;;
-    *)    printf 'code-reviewer' ;;                   # unknown/lightest ⇒ the invariant floor only
-  esac
+  local tier="$1" map line roles
+  map="$(profile_map_path)"
+  if [ -n "$map" ] && [ -f "$map" ]; then
+    # `$tier` reaches here from select-pipeline's own `[a-z-]*` capture, so it carries no regex
+    # metacharacters; the anchor and the trailing space class are what keep `tier:mvp` from matching a
+    # hypothetical `tier:mvp-strict`.
+    line="$(grep -E "^tier:${tier}[[:space:]]" "$map" 2>/dev/null | head -1)"
+    if [ -n "$line" ]; then
+      # Squeeze the value before testing it: a `tier:full` line with nothing but whitespace after it is
+      # an ANSWERLESS key, and treating it as an answer would hand back a blank base — the silent empty
+      # set the fallback below exists to prevent. `[ -n "$roles" ]` alone would call "   " an answer.
+      roles="$(printf '%s' "$line" | sed -E 's/^tier:[^[:space:]]*[[:space:]]+//' \
+               | tr '\t' ' ' | sed -E 's/^ +//; s/ +$//; s/  +/ /g')"
+      [ -n "$roles" ] && { printf '%s' "$roles"; return 0; }
+    fi
+  fi
+  # FAIL CLOSED, STRICTEST. No profile, no `tier:` key for this tier, or an empty one: the harness
+  # cannot say what this tier's base is, and the safe answer to "I do not know how much review this
+  # needs" is ALL of it, never the least of it. Same posture delivery-marker-init.sh takes on an
+  # unresolved tier (pipeline=auto: every tier-reading gate fails closed until Phase A resolves it).
+  # Returning the lightest base here would turn a missing config line into a silent bypass.
+  printf 'integration-verifier architecture-reviewer regression-guardian code-reviewer'
 }
 
 # risk_categories_only "REASON..." → just the RISK CATEGORIES out of a select-pipeline `reasons` list.
@@ -336,7 +358,10 @@ roles_for_categories() {
   [ -n "$cats" ] || return 0
   for tok in $cats; do
     while read -r cat roles; do
-      case "$cat" in ''|'#'*) continue ;; esac
+      # `tier:<name>` is the depth base set (AC-13), a different record kind in the same file. It can
+      # never match a classifier token, so skipping it is defensive rather than load-bearing — but the
+      # skip is explicit so a future category named `tier-something` cannot half-match by accident.
+      case "$cat" in ''|'#'*|tier:*) continue ;; esac
       [ "$cat" = "$tok" ] || continue
       for r in $roles; do
         case " $out " in *" $r "*) : ;; *) out="$out $r" ;; esac
@@ -435,6 +460,18 @@ required_roles_for_batch() {
   for r in $base $proles; do
     case " $out " in *" $r "*) : ;; *) out="$out $r" ;; esac
   done
+  # F4 / AC-18 — the >=1 independent-reviewer floor, asserted HERE, after every configurable source has
+  # had its say. It is not negotiable by profile, by judgement or by declaration.
+  #
+  # This became load-bearing the moment AC-13 moved the tier base into profiles/*.map. Until then the
+  # floor held by ACCIDENT: every branch of the hardcoded case happened to contain code-reviewer, so no
+  # code ever had to enforce it. An organisation shipping `tier:full  integration-verifier` would have
+  # sized the anti-collapse floor away — silently, and on the strictest tier. A floor that depends on
+  # every future config file remembering to include it is not a floor.
+  case " $out " in
+    *" code-reviewer "*) : ;;
+    *) out="$out code-reviewer" ;;
+  esac
   printf '%s' "${out# }"
 }
 

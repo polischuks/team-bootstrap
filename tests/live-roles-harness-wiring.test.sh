@@ -247,7 +247,7 @@ done
 echo "AC-10b — each new role is routed by a category the classifier actually emits:"
 VOCAB="$("$here/bin/select-pipeline.sh" --categories 2>/dev/null)"
 while read -r cat _rest; do
-  case "$cat" in ''|'#'*) continue ;; esac
+  case "$cat" in ''|'#'*|tier:*) continue ;; esac   # tier: is the depth base, not a category
   _in=no; case " $VOCAB " in *" $cat "*) _in=yes ;; esac
   _chk "$_in" yes "profile category '$cat' is one select-pipeline emits"
 done < "$here/profiles/default.map"
@@ -336,6 +336,89 @@ R="$(mktemp -d)"
 _chk "$(cat "$R/rc_nontest" 2>/dev/null)" 4 "a red that changed no committed test file is refused (F1)"
 _chk "$(cat "$R/rc_nocmd" 2>/dev/null)" 3 "no Test: command ⇒ an honest exit 3, never a silent pass"
 rm -rf "$R"
+
+# ---------------------------------------------------------------------------
+# WS-D — the tier stops deciding composition anywhere, and the per-role floor stops being advisory.
+#
+# AC-13: composition is read from the profile, not from a `case` in delivery-lib.sh. ADR-0020 split
+# depth from composition and delivered only half of it: the risk categories moved to the profile while
+# the tier's own BASE SET stayed a hardcoded three-branch case, which is the same "tier decides who
+# reviews" the split was supposed to end — just smaller.
+#
+# AC-18/F4: the >=1 independent-reviewer floor is asserted AFTER the map is read, outside any profile's
+# reach. A profile that ships an empty composition must not be able to size the anti-collapse floor away.
+# ---------------------------------------------------------------------------
+echo "AC-13 — no tier→roles case survives in delivery-lib.sh:"
+# Scoped to the WHOLE file, not to required_roles_for_batch: batch 1 moved the case into
+# tier_base_roles, which satisfies "no case in required_roles_for_batch" while leaving the mapping
+# exactly as hardcoded as it was. An assertion that a refactor can satisfy by relocation is not an
+# assertion about the property it names.
+_chk "$(grep -qE "^ *(full|mvp)\)[[:space:]]+printf 'integration-verifier" "$here/bin/delivery-lib.sh" \
+        && echo present || echo absent)" absent \
+  "no hardcoded tier→roles list survives anywhere in delivery-lib.sh"
+_chk "$(grep -qE '^tier:(full|mvp|single-thread)' "$here/profiles/default.map" && echo yes || echo no)" yes \
+  "profiles/default.map carries tier: keys"
+
+echo "AC-13b — changing the profile changes the base set (the mapping is really read from the file):"
+_sized() { # $1=profile  $2=touch path → the sized role set for a code batch
+  local D; D="$(mktemp -d)"
+  ( cd "$D" || exit 1
+    git init -q; git config user.email a@b.c; git config user.name t
+    printf 'x\n' > seed.txt; git add -A; git commit -q -m base
+    B="$(git rev-parse --short HEAD)"
+    mkdir -p "$(dirname "$2")" .runs/r; printf 'z\n' > "$2"; git add -A; git commit -q -m work
+    printf '{"run":"r","pipeline":"full","intends_code":true,"baseline_sha":"%s"}\n' "$B" > .runs/r/RUN
+    printf '{"id":"B1","kind":"code","status":"announced"}\n' > .runs/r/batches.jsonl
+    . "$here/bin/delivery-lib.sh"
+    TEAM_BOOTSTRAP_PROFILE="$1" TEAM_BOOTSTRAP_RUN=r required_roles_for_batch B1 ) 2>/dev/null
+  rm -rf "$D"
+}
+SHIPPED="$here/profiles/default.map"
+_chk "$(printf '%s' "$(_sized "$SHIPPED" src/api/openapi.yaml)" | grep -qw architecture-reviewer && echo yes || echo no)" yes \
+  "the shipped profile gives a full batch its architecture-reviewer"
+
+ALT="$(mktemp)"
+{ grep -v '^tier:' "$SHIPPED"; printf 'tier:full\tintegration-verifier code-reviewer\n'; } > "$ALT"
+_chk "$(printf '%s' "$(_sized "$ALT" src/api/openapi.yaml)" | grep -qw architecture-reviewer && echo yes || echo no)" no \
+  "an org profile that narrows tier:full really narrows it (the file is the source, not a mirror)"
+rm -f "$ALT"
+
+echo "AC-18/F4 — the >=1 floor is outside every profile's reach:"
+EMPTY="$(mktemp)"; printf '# a profile that declares nothing at all\n' > "$EMPTY"
+_chk "$(printf '%s' "$(_sized "$EMPTY" src/api/openapi.yaml)" | grep -qw code-reviewer && echo yes || echo no)" yes \
+  "an EMPTY profile still yields the invariant floor — it cannot be sized away"
+rm -f "$EMPTY"
+
+# The case that matters now that the base list is org-editable. Before AC-13 the floor held only
+# INCIDENTALLY: every branch of the hardcoded case happened to contain code-reviewer. A profile that
+# names a base WITHOUT it would size the anti-collapse floor away — the exact thing F4 forbids — so
+# the floor has to be asserted in code, after the map is read, or moving the list to a file removes it.
+HOSTILE="$(mktemp)"
+{ grep -v '^tier:' "$SHIPPED"; printf 'tier:full\tintegration-verifier\n'; } > "$HOSTILE"
+_chk "$(printf '%s' "$(_sized "$HOSTILE" src/api/openapi.yaml)" | grep -qw code-reviewer && echo yes || echo no)" yes \
+  "a profile that OMITS the floor role from its base still gets it back (F4 is code, not luck)"
+rm -f "$HOSTILE"
+
+echo "AC-17 — a profile that cannot answer fails CLOSED (strictest), never to an empty set:"
+NOTIER="$(mktemp)"; grep -v '^tier:' "$SHIPPED" > "$NOTIER"
+NT="$(_sized "$NOTIER" src/x.ts)"
+_chk "$([ -n "$NT" ] && echo nonempty || echo empty)" nonempty "a profile with no tier: key never yields an empty set"
+_chk "$(printf '%s' "$NT" | grep -qw architecture-reviewer && echo yes || echo no)" yes \
+  "  …it falls back to the STRICTEST base (enforce until we know), not the lightest"
+rm -f "$NOTIER"
+
+# An ANSWERLESS key — `tier:full` with only whitespace after it — is not an answer. Treating it as one
+# would hand back a blank base, which is the silent empty set the fallback exists to prevent.
+BLANK="$(mktemp)"; { grep -v '^tier:' "$SHIPPED"; printf 'tier:full\t   \n'; } > "$BLANK"
+_chk "$(printf '%s' "$(_sized "$BLANK" src/api/openapi.yaml)" | grep -qw architecture-reviewer && echo yes || echo no)" yes \
+  "a tier: key with a whitespace-only value falls back to the strictest base, not to blank"
+rm -f "$BLANK"
+
+echo "AC-26 — the per-role floor enforces by default:"
+_chk "$([ -f "$here/references/role-dispatch-enforce" ] && echo yes || echo no)" yes \
+  "references/role-dispatch-enforce is committed"
+_chk "$( . "$here/bin/delivery-lib.sh"; role_floor_mode )" enforce \
+  "role_floor_mode reports enforce with no env override"
 
 # ---------------------------------------------------------------------------
 if [ "$fail" -eq 0 ]; then echo "live-roles-harness-wiring: OK"; exit 0; fi

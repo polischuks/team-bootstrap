@@ -1,0 +1,23 @@
+# role-dispatch-enforce — presence of this file flips bin/check-role-dispatch.sh's per-role floor from
+# warn to ENFORCE (delivery-lib.sh role_floor_mode). Committed in milestone 020 (AC-26).
+#
+# WHY NOW. The gate shipped in warn deliberately: a blanket per-pipeline mandate that demands four
+# roles for a one-line change leaves under-declaring the risk as the only escape, which is worse than
+# overspending. The ramp condition was an adoption probe confirming four distinct slugs dispatch in
+# practice. That condition is met, and the shape that made it safe is now structural rather than
+# hoped-for:
+#
+#   * The floor is SIZED, not blanket. required_roles_for_batch computes the set from the batch's own
+#     paths (ADR-0017/0020), so "mandated" means what this diff earned — not a fixed four.
+#   * The set is RECORDED BY CODE at close, from verify-batch.sh, where the diff exists (AC-25). The
+#     recorded-set branch of check-role-dispatch.sh has always been hard; what changes here is only the
+#     legacy path, for runs with no recorded set.
+#   * Every mandated role is now DISPATCHABLE, ATTRIBUTABLE and TYPED, enforced by
+#     bin/check-role-triples.sh. Enforcing a floor that named a role nobody could dispatch would have
+#     been a demand with no way to satisfy it.
+#
+# HONEST LIMIT, unchanged: this raises the DEGRADATION floor, not the FORGERY bar (ADR-0006/0008).
+# Decoy dispatches under the right slugs still satisfy it. check-role-verdict.sh is what asks whether
+# anything came back.
+#
+# To ramp back: delete this file, or set TEAM_BOOTSTRAP_ROLE_FLOOR=warn for a single run.

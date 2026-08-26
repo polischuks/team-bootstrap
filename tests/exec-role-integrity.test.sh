@@ -44,7 +44,14 @@ printf '{"id":"B1","kind":"code","status":"announced"}\n' > "$T/.runs/r/batches.
 rev='{"tool_name":"Agent","tool_input":{"subagent_type":"code-reviewer","prompt":"review the diff"}}'
 bld='{"tool_name":"Agent","tool_input":{"subagent_type":"backend-developer","prompt":"build the endpoint"}}'
 _rec() { ( cd "$T" && printf '%s' "$1" | TEAM_BOOTSTRAP_RUN=r "$here/bin/record-dispatch.sh" >/dev/null 2>&1 ); echo $?; }
-_gate() { ( cd "$T" && TEAM_BOOTSTRAP_RUN=r "$here/bin/check-role-dispatch.sh" . >/dev/null 2>&1 ); echo $?; }
+# The property THIS file tests is the >=1 anti-collapse floor (exec-role-integrity, v2.21.0): a batch
+# that dispatched no reviewer at all has collapsed review into the builder. That is a different question
+# from the PER-ROLE floor, which asks whether all four mandated roles ran and which milestone 020 flipped
+# to enforce by default (AC-26). Pinning warn here keeps these cases measuring what they are named for
+# instead of silently re-testing the mode; the enforce behaviour has its own cases at the end of the file.
+_gate() { ( cd "$T" && TEAM_BOOTSTRAP_RUN=r TEAM_BOOTSTRAP_ROLE_FLOOR=warn "$here/bin/check-role-dispatch.sh" . >/dev/null 2>&1 ); echo $?; }
+# _gate_enforce — the same call with the shipped default (no override), for the AC-26 cases.
+_gate_enforce() { ( cd "$T" && TEAM_BOOTSTRAP_RUN=r "$here/bin/check-role-dispatch.sh" . >/dev/null 2>&1 ); echo $?; }
 
 # AC-1 — before any reviewer dispatch, a full/code batch → gate fails (degraded to single-thread)
 _chk "AC-1 full+code, zero reviewer dispatch → gate fail" "$(_gate)" 1
@@ -83,7 +90,12 @@ b2="$(cd "$T2" && git rev-parse --short HEAD~1)"; c2="$(cd "$T2" && git rev-pars
 printf '{"id":"B1","kind":"code","status":"announced"}\n' > "$T2/.runs/r/batches.jsonl"
 MK2='"run":"r","pipeline":"full","intends_code":true,"builder":"orchestrator","baseline_sha":"'"$b2"'"'
 AOK2='"review_acks":[{"batch":"B1","reviewer":"code-reviewer","context":"clean","commit":"'"$c2"'","verdict":"go"}]'
-_ra() { ( cd "$T2" && TEAM_BOOTSTRAP_RUN=r "$here/bin/check-review-ack.sh" . >/dev/null 2>&1 ); echo $?; }
+# Pinned to warn for the same reason as _gate above: these cases test the >=1 CORROBORATION property
+# (a review_acks claim needs a reviewer-typed dispatch behind it), not the per-role mode. check-review-ack
+# mirrors check-role-dispatch's per-role parity under enforce (N3, no drift), so leaving the mode free
+# would make them re-test AC-26 under an AC-2 name. The enforce case is asserted separately below.
+_ra() { ( cd "$T2" && TEAM_BOOTSTRAP_RUN=r TEAM_BOOTSTRAP_ROLE_FLOOR=warn "$here/bin/check-review-ack.sh" . >/dev/null 2>&1 ); echo $?; }
+_ra_enforce() { ( cd "$T2" && TEAM_BOOTSTRAP_RUN=r "$here/bin/check-review-ack.sh" . >/dev/null 2>&1 ); echo $?; }
 # full + valid review_acks + NO reviewer dispatch → fail (claim not harness-corroborated)
 printf '{%s,%s}\n' "$MK2" "$AOK2" > "$T2/.runs/r/RUN"; rm -f "$T2/.runs/r/dispatch.jsonl"
 _chk "AC-2 full + review_acks + no reviewer dispatch → check-review-ack fail" "$(_ra)" 1
@@ -93,11 +105,32 @@ _chk "AC-2 full + review_acks + builder-only dispatch → fail" "$(_ra)" 1
 # full + valid review_acks + reviewer-typed dispatch → pass
 printf '{"batch":"B1","subagent_type":"code-reviewer"}\n' > "$T2/.runs/r/dispatch.jsonl"
 _chk "AC-2 full + review_acks + reviewer dispatch → pass" "$(_ra)" 0
+# AC-26 (milestone 020) — the same state under the shipped default: per-role parity now applies here
+# too, so one corroborating dispatch on a full batch is no longer enough. Both guarantees, side by side.
+_chk "AC-26 …and under the shipped enforce default the same state needs per-role parity" "$(_ra_enforce)" 1
 # single-thread + valid review_acks + no dispatch → pass (corroboration is full/mvp-scoped)
 printf '{"run":"r","pipeline":"single-thread","intends_code":true,"builder":"orchestrator","baseline_sha":"%s",%s}\n' "$b2" "$AOK2" > "$T2/.runs/r/RUN"
 rm -f "$T2/.runs/r/dispatch.jsonl"
 _chk "AC-2 single-thread + review_acks + no dispatch → pass (exempt)" "$(_ra)" 0
 rm -rf "$T2"
+
+
+# AC-26 (milestone 020) — the per-role floor is ENFORCE by default, and the >=1 anti-collapse floor is
+# still hard underneath it. Two separate guarantees; both asserted on ONE freshly built state, because
+# $T above has accumulated dispatches and ledger edits across the whole file and inheriting it would
+# make the result depend on test order rather than on the property.
+T26="$(mktemp -d)"
+( cd "$T26" || exit 1
+  git init -q; git config user.email a@b.c; git config user.name t
+  mkdir -p .runs/r; echo base > f; git add .; git commit -qm base
+  b="$(git rev-parse --short HEAD)"
+  printf '{"run":"r","pipeline":"full","intends_code":true,"source":"harness","baseline_sha":"%s"}\n' "$b" > .runs/r/RUN
+  printf '{"id":"B1","kind":"code","status":"announced"}\n' > .runs/r/batches.jsonl
+  printf '{"batch":"B1","subagent_type":"code-reviewer"}\n' > .runs/r/dispatch.jsonl )
+_g26() { ( cd "$T26" && env $1 TEAM_BOOTSTRAP_RUN=r "$here/bin/check-role-dispatch.sh" . >/dev/null 2>&1 ); echo $?; }
+_chk "AC-26 one generic reviewer on a full batch → PER-ROLE floor blocks (enforce is the default)" "$(_g26 '')" 1
+_chk "AC-26 …while the same state passes the >=1 anti-collapse floor under warn" "$(_g26 'TEAM_BOOTSTRAP_ROLE_FLOOR=warn')" 0
+rm -rf "$T26"
 
 [ "$fail" -eq 0 ] && { echo "exec-role-integrity.test.sh: OK"; exit 0; }
 echo "exec-role-integrity.test.sh: $fail failure(s)" >&2; exit 1

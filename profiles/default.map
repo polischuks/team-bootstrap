@@ -44,6 +44,26 @@
 # never change an outcome. `bin/eval-role.sh --liveness` reports such a binding DEAD, and a no-op entry
 # inflates the appearance of routing without adding any.
 
+# TIER → DEPTH BASE SET. ADR-0020 split composition from depth and shipped only half: the risk
+# categories moved here while the tier's own base set stayed a hardcoded three-branch `case` in
+# delivery-lib.sh — the same "the tier decides who reviews" the split was meant to end, just smaller.
+# The whole mapping now lives in ONE file (AC-13), so an organisation can narrow or widen the base
+# without touching the core, exactly as it already could for the categories.
+#
+# THREE THINGS THIS CANNOT DO, enforced in tests/live-roles-harness-wiring.test.sh:
+#   * It cannot remove the >=1 independent-reviewer floor. That floor is asserted in
+#     required_roles_for_batch AFTER this file is read, outside every profile's reach (F4, AC-18).
+#     A profile declaring nothing at all still yields it.
+#   * It cannot make a batch lighter than the categories earned. The category lines below are unioned
+#     ON TOP of the tier base — add-only in both directions.
+#   * It cannot fail SILENTLY. A profile with no `tier:` key for the resolved tier falls back to the
+#     STRICTEST base, not the lightest: an unresolved tier enforces the strictest posture rather than
+#     opening a bypass, the same "enforce until we know" delivery-marker-init.sh applies to pipeline=auto.
+tier:full           integration-verifier architecture-reviewer regression-guardian code-reviewer
+tier:mvp            integration-verifier code-reviewer
+tier:single-thread  code-reviewer
+
+# RISK CATEGORY → the roles it ADDS to the tier base.
 security/auth   security-reviewer
 data/schema     data-schema-reviewer
 deps            security-reviewer overengineering-reviewer ip-contracts-reviewer
