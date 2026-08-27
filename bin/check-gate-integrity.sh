@@ -30,15 +30,35 @@ cd "$root" 2>/dev/null || { echo "check-gate-integrity: bad dir '$root'" >&2; ex
 
 KEY='invariant|constitution|constitutional|gate|contract|security|guard'
 SKIP='@pytest\.mark\.skip|@unittest\.skip|pytest\.skip\(|\.skip\(|\bxit\(|\bxdescribe\(|it\.skip|describe\.skip|test\.skip|t\.Skip\(|@Disabled|@Ignore'
-# Exclusions applied to matched skip lines: a conditional skipif RUNS under its
-# condition, and a line explicitly sanctioned is a recorded deferral, not a hole.
-EXCLUDE='skipif|gate-integrity:[[:space:]]*sanctioned'
+# Exclusions applied to matched skip lines. Expressed by the PROPERTY, not by a list of frameworks
+# (spec 021 AC-14): a skip that carries a PREDICATE runs under its condition and is therefore not a
+# hole, whichever library spells it. `skipif` used to be the whole rule, so pytest was the only
+# framework whose conditional form was understood and every other one was reported as green-by-skip —
+# a gate that fails on correct code is a gate operators learn to route around (F4).
+#
+# A predicate is one of, and each is anchored to the skip call's FIRST ARGUMENT — never merely
+# present on the line:
+#   - a callback:             .skip(({ browserName }) => …)   .skip(function () …)   .skip(async …)
+#   - a condition-then-label: .skip(cond, "why")  — a first argument that is not a string literal,
+#                             followed by one that is;
+#   - a conditional NAME:     skipif / skipIf / skipUnless / skipWhen / assumeTrue.
+# A LABEL is not a predicate. `test.skip("gate")` and `test.skip(SKIP_REASON)` are both unconditional —
+# the second is why "the first argument is not a string" cannot be the rule on its own — and
+# `it.skip("contract", () => {})` is unconditional too, which is why an unanchored `=>` cannot be
+# either: the arrow there is the test BODY. Both misreads were caught by tests/gate-detector.test.sh
+# before this rule shipped.
+# Anything the regex cannot parse (a first argument containing its own parens or comma) falls through
+# to FLAGGED — a detector in doubt reports, it does not excuse (P10).
+EXCLUDE='skipif|skipIf|skipUnless|skipWhen|assumeTrue|gate-integrity:[[:space:]]*sanctioned'
+EXCLUDE="$EXCLUDE"'|\.skip\([[:space:]]*(\(|function|async|[A-Za-z_$][A-Za-z0-9_$]*[[:space:]]*(=>|->))'
+EXCLUDE="$EXCLUDE"'|\.skip\([[:space:]]*[^"'"'"'[:space:])][^,)]*,[[:space:]]*["'"'"']'
 
 viol=0
 
 # 1) green-by-skip on a gate/invariant/constitutional/contract test -------------
 while IFS= read -r f; do
   [ -n "$f" ] || continue
+  _is_doc_path "${f#./}" && continue     # prose that quotes a skip is not a skipped test (AC-13)
   if printf '%s' "$f" | grep -qiE "$KEY" || grep -qiE "$KEY" "$f" 2>/dev/null; then
     # Candidate skip lines, minus conditional (skipif) and same-line-sanctioned ones.
     # A sanction marker is also honoured on the line IMMEDIATELY ABOVE the skip, so a
@@ -57,6 +77,11 @@ while IFS= read -r f; do
     printf '%s\n' "$sk" | sed 's/^/    /' >&2
     viol=$((viol + 1))
   fi
+# The scan matches by FILENAME, and `--include='*spec*'` matches `spec.md` — so a document that merely
+# QUOTES a skip was scanned as if it were a suite. Measured: this milestone's own spec.md, plan.md and
+# tasks.md turned bin/run-tests.sh red by describing the defect. A skip in prose is not a skipped test,
+# so documentation paths are dropped here, through delivery-lib's ONE definition of a doc path
+# (_is_doc_path — shared with the code-delta counter, so "documentation" means one thing in this tree).
 done < <(grep -rlE "$SKIP" . --include='*test*' --include='*spec*' --include='*_test.go' \
   --exclude='*.pyc' \
   --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=.claude \

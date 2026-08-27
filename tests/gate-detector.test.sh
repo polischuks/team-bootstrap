@@ -33,30 +33,44 @@ _flagged() {
 }
 _c() { if [ "$1" = "$2" ]; then echo "  PASS $3"; else echo "  FAIL $3 (got $1 want $2)" >&2; fail=$((fail + 1)); fi; }
 
+# The fixtures below are DATA for the detector under test, not skipped tests of this suite — the
+# recorded-deferral marker is how this tree already says that (tests/harness-robustness.test.sh:257).
+# Each literal sits on its own line so the marker above it is unambiguous.
+
+# gate-integrity: sanctioned — fixture: conditional callback form (must NOT be flagged)
+cond_cb='test.skip(({ browserName }) => browserName === "webkit", "gate");'
+# gate-integrity: sanctioned — fixture: conditional predicate-argument form (must NOT be flagged)
+cond_arg='test.skip(process.env.CI !== "1", "gate invariant");'
+# gate-integrity: sanctioned — fixture: unconditional, string label (MUST be flagged)
+uncond_str='test.skip("gate invariant holds");'
+# gate-integrity: sanctioned — fixture: unconditional, VARIABLE label (MUST be flagged)
+uncond_var='test.skip(SKIP_REASON);'
+# gate-integrity: sanctioned — fixture: the same token quoted in prose (must NOT be flagged)
+prose='The gate flags `test.skip("gate")` but not the conditional form.'
+# gate-integrity: sanctioned — fixture: unconditional skip whose callback body carries an arrow (MUST be flagged)
+uncond_body='it.skip("security contract", () => {});'
+# gate-integrity: sanctioned — fixture: an unnamed framework, conditional (must NOT be flagged)
+other_cond='bench.skip((ctx) -> ctx.slow, "invariant")'
+# gate-integrity: sanctioned — fixture: the same unnamed framework, unconditional (MUST be flagged)
+other_uncond='bench.skip("invariant")'
+
 # AC-13 — the callback form of a conditional skip: it RUNS under its condition.
-_c "$(_flagged tests/gate.spec.ts 'test.skip(({ browserName }) => browserName === "webkit", "gate");')" \
-   no "AC-13 conditional callback skip in a gate test is not flagged"
+_c "$(_flagged tests/gate.spec.ts "$cond_cb")" no "AC-13 conditional callback skip in a gate test is not flagged"
 # AC-13 — the predicate-argument form.
-_c "$(_flagged tests/gate.spec.ts 'test.skip(process.env.CI !== "1", "gate invariant");')" \
-   no "AC-13 conditional predicate-argument skip is not flagged"
+_c "$(_flagged tests/gate.spec.ts "$cond_arg")" no "AC-13 conditional predicate-argument skip is not flagged"
 # AC-13 — the unconditional form must STILL be caught, or the exclusion swallows the real finding (R4).
-_c "$(_flagged tests/gate.spec.ts 'test.skip("gate invariant holds");')" \
-   yes "AC-13 unconditional skip in a gate test is still flagged"
+_c "$(_flagged tests/gate.spec.ts "$uncond_str")" yes "AC-13 unconditional skip in a gate test is still flagged"
 # AC-13 — unconditional with a VARIABLE label: a label is not a predicate (Step-7 review).
-_c "$(_flagged tests/gate.spec.ts 'test.skip(SKIP_REASON);')" \
-   yes "AC-13 unconditional skip with a variable label is still flagged"
+_c "$(_flagged tests/gate.spec.ts "$uncond_var")" yes "AC-13 unconditional skip with a variable label is still flagged"
 # AC-13 — PROSE. A markdown document that QUOTES a skip is not a test file.
-_c "$(_flagged specs/021-x/spec.md 'The gate flags `test.skip("gate")` but not the conditional form.')" \
-   no "AC-13 a skip quoted in a markdown spec is not scanned as a test"
-# AC-13 — and the same string in a real test file still is, so the exclusion is about the FILE, not the string.
-_c "$(_flagged tests/contract.spec.js 'it.skip("security contract", () => {});')" \
-   yes "AC-13 the same string in a real test file is still flagged"
+_c "$(_flagged specs/021-x/spec.md "$prose")" no "AC-13 a skip quoted in a markdown spec is not scanned as a test"
+# AC-13 — the same construct in a real test file still is, so the rule is about the FILE, not the string;
+# and the arrow in its BODY must not be read as a predicate.
+_c "$(_flagged tests/contract.spec.js "$uncond_body")" yes "AC-13 the same string in a real test file is still flagged"
 # AC-14 — a framework named nowhere in check-gate-integrity.sh, conditional form, no code edit.
-_c "$(_flagged tests/gate_test.exs 'bench.skip((ctx) -> ctx.slow, "invariant")')" \
-   no "AC-14 an unnamed framework's conditional skip is not flagged"
+_c "$(_flagged tests/gate_test.exs "$other_cond")" no "AC-14 an unnamed framework's conditional skip is not flagged"
 # AC-14 — the same unnamed framework, unconditional, is flagged: the rule reads the property, not the name.
-_c "$(_flagged tests/gate_test.exs 'bench.skip("invariant")')" \
-   yes "AC-14 the same unnamed framework's unconditional skip is flagged"
+_c "$(_flagged tests/gate_test.exs "$other_uncond")" yes "AC-14 the same unnamed framework's unconditional skip is flagged"
 
 [ "$fail" -eq 0 ] && { echo "gate-detector.test.sh: OK"; exit 0; }
 echo "gate-detector.test.sh: $fail failure(s)" >&2; exit 1
