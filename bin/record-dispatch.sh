@@ -126,9 +126,12 @@ record_dispatch "$payload"
 # unsettled — DC-1 (specs/021-…/plan.md §7) is OPEN, and deliberately so:
 #   - for MERGE: the hooks reference, verbatim — "only the fields you include are changed; other
 #     fields stay the same";
-#   - for REPLACE: a contemporaneous observation of the harness rejecting every dispatch with a schema
-#     error, which is why the installed plugin cache was hand-patched with this same fix on 2026-08-27
-#     before this milestone began.
+#   - for REPLACE: a comment left BY that cache patch records the harness rejecting every dispatch with
+#     a schema error (observed 2026-08-26..27). Note what that evidence is and is not — a string
+#     hand-written into an untracked plugin-cache file, not a transcript — because weighing it against
+#     a vendor document requires knowing which it is. What is independently checkable is that someone
+#     found it necessary to hand-patch the installed cache with this same fix on 2026-08-27, before
+#     this milestone began.
 # A measurement that claimed to settle it did not: the review roles it watched start were dispatched
 # through that already-patched cache, so they say nothing about the unpatched shape.
 #
@@ -155,8 +158,11 @@ b=os.environ.get("TB_BRIEF","")
 if not isinstance(p,str) or not p or not b: sys.exit(0)
 # The ORIGINAL call, with one field replaced — not a fresh object carrying one field (AC-1, AC-2).
 # dict(ti) is a copy, so nothing that follows can mutate the parsed payload; json.dumps re-encodes
-# every other value exactly as it arrived, which is what keeps quotes and non-ASCII byte-identical
-# where a printf-built object would not.
+# every other value through a conformant codec, which keeps quotes and non-ASCII intact AS VALUES
+# where a printf-built object would corrupt them. Not byte-identical on the wire, and it does not need
+# to be: json.dumps defaults to ensure_ascii=True, so "уровень" ships as an escape sequence and decodes
+# back to itself. The property that matters — and the one the test asserts, after parsing — is that the
+# value handed back is the value handed in.
 ui=dict(ti)
 ui["prompt"]=p+"\n\n[harness assignment] "+b
 print(json.dumps({"hookSpecificOutput":{"hookEventName":"PreToolUse","updatedInput":ui}}))' 2>/dev/null || true

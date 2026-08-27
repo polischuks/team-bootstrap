@@ -7,20 +7,25 @@
 # `subagent_type`, `description` — was absent from the object the hook handed back.
 #
 # Whether that was inert or fatal depends on whether the vendor MERGES `updatedInput` into `tool_input`
-# or REPLACES `tool_input` with it, and **that question is OPEN** (DC-1, plan.md §7). The hooks
-# reference says merge; a contemporaneous observation of the harness rejecting every dispatch with a
-# schema error says replace, and is why the installed plugin cache was hand-patched with this same fix
-# before the milestone began. A measurement that claimed to settle it toward merge watched roles launch
-# through that already-patched cache, so it settled nothing. Do not read this file as evidence either
-# way, and do not let it talk anyone out of running the decisive experiment: one review dispatch
-# through a verifiably UNPATCHED cache.
+# or REPLACES `tool_input` with it, and **that question is OPEN** (DC-1 — recorded in the milestone's
+# plan.md §7, and to be re-homed in docs/adr/0023 when B8 ships it, because specs/ is gitignored and
+# never reaches a clone). The hooks reference says merge. Against it: someone hand-patched the
+# installed plugin cache with this same fix before the milestone began, leaving a comment in it that
+# records the harness rejecting every dispatch with a schema error — a comment, note, not a transcript.
+# A measurement that claimed to settle the question toward merge watched roles launch through that
+# already-patched cache, so it settled nothing. Do not read this file as evidence either way, and do
+# not let it talk anyone out of running the decisive experiment: one review dispatch through a
+# verifiably UNPATCHED cache.
 #
 # Which is exactly why every assertion below is stated over the HOOK'S OWN OUTPUT and never over what
 # the vendor does with it. They hold whichever way DC-1 falls: a hook that augments an input must hand
 # back the input it augmented (F3).
 #
 # AC-1 — updatedInput carries every key of the original tool_input, and only `prompt` differs.
-# AC-2 — subagent_type and description survive byte-for-byte, quotes and non-ASCII included.
+# AC-2 — subagent_type and description survive intact AS VALUES, quotes and non-ASCII included.
+#        (Not byte-for-byte on the wire: json.dumps defaults to ensure_ascii=True, so non-ASCII
+#        ships escaped and decodes back to itself. Every assertion below compares AFTER parsing,
+#        which is the property that matters and the one the tool actually receives.)
 # AC-3 — nothing is emitted at all when there is nothing to add: an empty brief, an unparseable
 #        payload, or the killswitch. A partial object is worse than no object.
 set -uo pipefail
@@ -95,9 +100,9 @@ elif p.startswith(orig): print("appended")
 else: print("replaced")' 2>/dev/null)"
 _chk "$prompt_verdict" appended "AC-1 updatedInput.prompt starts with the original prompt"
 
-# AC-2 — byte-for-byte survival, on values chosen to break naive string splicing: an embedded quote
-# and a non-ASCII character. A hook that rebuilt the object with printf rather than a JSON encoder
-# passes AC-1 and fails here.
+# AC-2 — value survival, on inputs chosen to break naive string splicing: an embedded quote and a
+# non-ASCII character. A hook that rebuilt the object with printf rather than a JSON encoder passes
+# AC-1 and fails here. Compared after parsing — see the ensure_ascii note in the header.
 DESC='code review: "deep" — уровень high'
 STYPE='team-bootstrap:tb-code-reviewer'
 PAYLOAD2="$(DESC="$DESC" STYPE="$STYPE" PROMPT="$PROMPT" python3 -c '
@@ -114,7 +119,7 @@ ui=(out.get("hookSpecificOutput") or {}).get("updatedInput")
 if not isinstance(ui,dict): print("no-updatedInput"); sys.exit(0)
 bad=[k for k,v in (("description",os.environ["DESC"]),("subagent_type",os.environ["STYPE"])) if ui.get(k)!=v]
 print("intact" if not bad else "corrupted:"+",".join(bad))' 2>/dev/null)"
-_chk "$survive_verdict" intact "AC-2 subagent_type and description survive byte-for-byte, quote and non-ASCII included"
+_chk "$survive_verdict" intact "AC-2 subagent_type and description survive intact as values, quote and non-ASCII included"
 
 # AC-1 — "only `prompt` is changed" is about EVERY other key, not only the two this milestone happens to
 # name. Key-set equality plus two named string fields is satisfied by an emitter that keeps every key
@@ -146,8 +151,17 @@ _chk "$(_emit "$PAYLOAD" "$T/doc" | wc -c | tr -d ' ')" 0 \
   "AC-3 an empty brief emits nothing at all"
 
 # (ii) unparseable payload — bytes that are not JSON must not produce a half-built object.
-_chk "$(_emit '{"tool_name":"Agent","tool_input":{"prompt":' | wc -c | tr -d ' ')" 0 \
+TRUNCATED='{"tool_name":"Agent","tool_input":{"prompt":'
+_chk "$(_emit "$TRUNCATED" | wc -c | tr -d ' ')" 0 \
   "AC-3 an unparseable payload emits nothing at all"
+
+# ROT GUARD for the case above. It only tests the DECODER while `subagent-brief.sh` keeps producing a
+# brief for these bytes — the brief gate runs first, and it happens not to require a parseable payload
+# or a subagent_type. If it ever does require either, `_brief` goes empty, python is never invoked, and
+# case (ii) silently becomes a second copy of case (i): still PASS, no longer testing what it names.
+# So pin PARSEABILITY as the only difference — the same bytes, closed into valid JSON, must emit.
+_chk "$(_emit "${TRUNCATED}\"p\"}}" | wc -c | tr -d ' ' | awk '{print ($1>0)?"emits":"silent"}')" emits \
+  "AC-3 the unparseable case is decided by the DECODER, not by an empty brief"
 
 # (iii) the killswitch.
 _chk "$( ( cd "$T/ok" && printf '%s' "$PAYLOAD" \
