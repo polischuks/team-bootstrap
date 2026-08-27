@@ -1112,9 +1112,21 @@ risk_rank_int() {
 
 # _is_doc_path PATH → rc 0 if the path is documentation / non-code.
 # ONE definition of the non-doc boundary, shared by delta + stamp.
-_is_doc_path() {
+# _is_doc_file PATH → rc 0 if the FILE ITSELF is prose, by extension. Split out of _is_doc_path because
+# the two questions differ: "is this line documentation for the code-delta count?" takes the whole
+# docs/ and references/ TREES, while "is this file prose rather than a suite?" must not — a real test
+# living at docs/tests/gate_test.go is a suite, and exempting it from a gate would be a hole
+# (check-gate-integrity, spec 021 AC-13). One definition each, and the tree rule composes the file rule.
+_is_doc_file() {
   case "$1" in
-    *.md|*.mdx|*.txt|docs/*|references/*|LICENSE|CHANGELOG*) return 0 ;;
+    *.md|*.mdx|*.txt|LICENSE|CHANGELOG*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+_is_doc_path() {
+  _is_doc_file "$1" && return 0
+  case "$1" in
+    docs/*|references/*) return 0 ;;
     *) return 1 ;;
   esac
 }

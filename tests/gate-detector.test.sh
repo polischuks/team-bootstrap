@@ -37,7 +37,7 @@ _flagged() {
     *)                            printf 'crashed' ;;
   esac
 }
-_c() { if [ "$1" = "$2" ]; then echo "  PASS $3"; else echo "  FAIL $3 (got $1 want $2)" >&2; fail=$((fail + 1)); fi; }
+_chk() { if [ "$1" = "$2" ]; then echo "  PASS $3"; else echo "  FAIL $3 (got $1 want $2)" >&2; fail=$((fail + 1)); fi; }
 
 # The fixtures below are DATA for the detector under test, not skipped tests of this suite — the
 # recorded-deferral marker is how this tree already says that (tests/harness-robustness.test.sh:257).
@@ -61,22 +61,22 @@ other_cond='bench.skip((ctx) -> ctx.slow, "invariant")'
 other_uncond='bench.skip("invariant")'
 
 # AC-13 — the callback form of a conditional skip: it RUNS under its condition.
-_c "$(_flagged tests/gate.spec.ts "$cond_cb")" no "AC-13 conditional callback skip in a gate test is not flagged"
+_chk "$(_flagged tests/gate.spec.ts "$cond_cb")" no "AC-13 conditional callback skip in a gate test is not flagged"
 # AC-13 — the predicate-argument form.
-_c "$(_flagged tests/gate.spec.ts "$cond_arg")" no "AC-13 conditional predicate-argument skip is not flagged"
+_chk "$(_flagged tests/gate.spec.ts "$cond_arg")" no "AC-13 conditional predicate-argument skip is not flagged"
 # AC-13 — the unconditional form must STILL be caught, or the exclusion swallows the real finding (R4).
-_c "$(_flagged tests/gate.spec.ts "$uncond_str")" yes "AC-13 unconditional skip in a gate test is still flagged"
+_chk "$(_flagged tests/gate.spec.ts "$uncond_str")" yes "AC-13 unconditional skip in a gate test is still flagged"
 # AC-13 — unconditional with a VARIABLE label: a label is not a predicate (Step-7 review).
-_c "$(_flagged tests/gate.spec.ts "$uncond_var")" yes "AC-13 unconditional skip with a variable label is still flagged"
+_chk "$(_flagged tests/gate.spec.ts "$uncond_var")" yes "AC-13 unconditional skip with a variable label is still flagged"
 # AC-13 — PROSE. A markdown document that QUOTES a skip is not a test file.
-_c "$(_flagged specs/021-x/spec.md "$prose")" no "AC-13 a skip quoted in a markdown spec is not scanned as a test"
+_chk "$(_flagged specs/021-x/spec.md "$prose")" no "AC-13 a skip quoted in a markdown spec is not scanned as a test"
 # AC-13 — the same construct in a real test file still is, so the rule is about the FILE, not the string;
 # and the arrow in its BODY must not be read as a predicate.
-_c "$(_flagged tests/contract.spec.js "$uncond_body")" yes "AC-13 the same string in a real test file is still flagged"
+_chk "$(_flagged tests/contract.spec.js "$uncond_body")" yes "AC-13 the same string in a real test file is still flagged"
 # AC-14 — a framework named nowhere in check-gate-integrity.sh, conditional form, no code edit.
-_c "$(_flagged tests/gate_test.exs "$other_cond")" no "AC-14 an unnamed framework's conditional skip is not flagged"
+_chk "$(_flagged tests/gate_test.exs "$other_cond")" no "AC-14 an unnamed framework's conditional skip is not flagged"
 # AC-14 — the same unnamed framework, unconditional, is flagged: the rule reads the property, not the name.
-_c "$(_flagged tests/gate_test.exs "$other_uncond")" yes "AC-14 the same unnamed framework's unconditional skip is flagged"
+_chk "$(_flagged tests/gate_test.exs "$other_uncond")" yes "AC-14 the same unnamed framework's unconditional skip is flagged"
 
 
 # --- Regressions caught by the B1 conformance review (R4: a fix must not swallow real findings) ---
@@ -97,28 +97,49 @@ two_on_a_line='test.skip(isCI, "flaky"); test.skip("gate invariant");'
 # gate-integrity: sanctioned — fixture: a real suite living under docs/ (MUST be flagged)
 docs_suite='it.skip("gate invariant", () => {});'
 
-_c "$(_flagged gate_test.go "$go_two")" yes "AC-13 Go's two-argument skip is unconditional and still flagged"
-_c "$(_flagged gate_test.go "$go_nested")" yes "AC-13 a nested call in the first argument does not excuse the skip"
-_c "$(_flagged tests/gate.spec.ts "$comment_mention")" yes "AC-13 a conditional name in a COMMENT does not excuse the skip"
-_c "$(_flagged tests/gate.spec.ts "$paren_label")" yes "AC-13 a parenthesised label is not a predicate"
-_c "$(_flagged tests/gate.spec.ts "$two_on_a_line")" yes "AC-13 one conditional skip does not excuse another on the same line"
-_c "$(_flagged docs/gate.test.js "$docs_suite")" yes "AC-13 a real test suite under docs/ is still scanned"
+_chk "$(_flagged gate_test.go "$go_two")" yes "AC-13 Go's two-argument skip is unconditional and still flagged"
+_chk "$(_flagged gate_test.go "$go_nested")" yes "AC-13 a nested call in the first argument does not excuse the skip"
+_chk "$(_flagged tests/gate.spec.ts "$comment_mention")" yes "AC-13 a conditional name in a COMMENT does not excuse the skip"
+_chk "$(_flagged tests/gate.spec.ts "$paren_label")" yes "AC-13 a parenthesised label is not a predicate"
+_chk "$(_flagged tests/gate.spec.ts "$two_on_a_line")" yes "AC-13 one conditional skip does not excuse another on the same line"
+_chk "$(_flagged docs/gate.test.js "$docs_suite")" yes "AC-13 a real test suite under docs/ is still scanned"
 
 # gate-integrity: sanctioned — fixture: a hard-coded TRUE condition is a constant, not a predicate (MUST be flagged)
 const_true='test.skip(true, "gate not implemented");'
 # gate-integrity: sanctioned — fixture: an identifier merely STARTING with `async` (MUST be flagged)
 async_prefix='it.skip(asyncCaseLabel);'
 
-_c "$(_flagged tests/gate.spec.ts "$const_true")" yes "AC-13 a hard-coded true condition is not a predicate"
-_c "$(_flagged tests/gate.spec.ts "$async_prefix")" yes "AC-13 an identifier starting with async is a label, not a callback"
+_chk "$(_flagged tests/gate.spec.ts "$const_true")" yes "AC-13 a hard-coded true condition is not a predicate"
+_chk "$(_flagged tests/gate.spec.ts "$async_prefix")" yes "AC-13 an identifier starting with async is a label, not a callback"
 
 # gate-integrity: sanctioned — fixture: a CHAINED receiver with a constant condition (MUST be flagged)
 chained='test.describe.skip(true, "gate");'
 # gate-integrity: sanctioned — fixture: the same chain, genuinely conditional (must NOT be flagged)
 chained_cond='test.describe.skip(process.env.CI !== "1", "gate");'
 
-_c "$(_flagged tests/gate.spec.ts "$chained")" yes "AC-13 a chained receiver does not hide an unconditional skip"
-_c "$(_flagged tests/gate.spec.ts "$chained_cond")" no "AC-13 a chained receiver's conditional form is still excluded"
+_chk "$(_flagged tests/gate.spec.ts "$chained")" yes "AC-13 a chained receiver does not hide an unconditional skip"
+_chk "$(_flagged tests/gate.spec.ts "$chained_cond")" no "AC-13 a chained receiver's conditional form is still excluded"
+
+# gate-integrity: sanctioned — fixture: a genuine conditional whose condition is a plain boolean VARIABLE (must NOT be flagged)
+cond_var='test.skip(isCI, "gate invariant flaky");'
+_chk "$(_flagged tests/gate.spec.ts "$cond_var")" no "AC-13 a bare boolean variable is a condition, not a label"
+
+# gate-integrity: sanctioned — fixture: prose under a `spec/` path segment is still prose (must NOT be flagged)
+_chk "$(_flagged spec/021/spec.md "$prose")" no "AC-13 prose is prose regardless of the directory it sits in"
+
+# AC-8-shaped: a gate that CANNOT classify must not report OK. With python3 unavailable the classifier
+# is blind, and a blind detector that exits 0 is the silent degradation this very file exists to flag.
+_blind() {
+  local d stub out rc blind_fixture
+  d="$(mktemp -d "$T/blindXXXXXX")"; mkdir -p "$d/tests" "$d/stub"
+  # gate-integrity: sanctioned — fixture: the unconditional skip the blind gate must not miss
+  blind_fixture='test.skip("gate invariant holds");'
+  printf '%s\n' "$blind_fixture" > "$d/tests/gate.spec.ts"
+  printf '#!/bin/sh\nexit 127\n' > "$d/stub/python3"; chmod +x "$d/stub/python3"
+  out="$( cd "$d" && PATH="$d/stub:$PATH" "$gate" . 2>&1 )"; rc=$?
+  case "$out" in *"OK — no green-by-skip"*) printf 'green-while-blind' ;; *) [ "$rc" -ne 0 ] && printf 'fails-closed' || printf 'exit0' ;; esac
+}
+_chk "$(_blind)" fails-closed "AC-13 a detector that cannot classify fails closed, never reports OK"
 
 [ "$fail" -eq 0 ] && { echo "gate-detector.test.sh: OK"; exit 0; }
 echo "gate-detector.test.sh: $fail failure(s)" >&2; exit 1

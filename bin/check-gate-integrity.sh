@@ -111,7 +111,6 @@ def split_args(t, k):
 
 LIT  = re.compile(r"^(\"|\x27|`|true$|false$|none$|nil$|null$|-?\d+(\.\d+)?$)", re.I)
 CB   = re.compile(r"^(\(.*\)|[A-Za-z_$][\w$]*)\s*(=>|->)|^(async|function)\b")
-EXPR = re.compile(r"[=!<>&|?+*/%.\[(]")
 # The receiver may be a CHAIN (`test.describe.skip(`): match the whole chain and take its LAST
 # segment as the receiver, or a chained call is not recognised as a skip at all.
 CALL = re.compile(r"(?:^|[^\w$.])((?:[A-Za-z_$][\w$]*\s*\.\s*)*)([A-Za-z_$][\w$]*)\s*\(")
@@ -126,7 +125,12 @@ def conditional(recv, name, args, ok):
     while a0.startswith("(") and a0.endswith(")"): a0 = a0[1:-1].strip()
     if CB.search(a0): return True
     if LIT.match(a0): return False
-    if len(args) >= 2 and (recv or "").lower() in COND_FIRST and EXPR.search(a0): return True
+    # For a runner whose skip signature IS (condition, description), a non-literal first argument in a
+    # 2+-argument call IS the condition — including a plain boolean variable (`test.skip(isCI, "x")`).
+    # Requiring an operator here flagged that genuine conditional, which is the F4 shape this milestone
+    # is fixing. The label hole stays closed by the 2-argument requirement: `test.skip(SKIP_REASON)`
+    # has one argument and remains unconditional.
+    if len(args) >= 2 and (recv or "").lower() in COND_FIRST: return True
     return False
 
 out = []
@@ -148,8 +152,18 @@ for n, raw in enumerate(lines, 1):
         out.append("%d:%s" % (n, raw))
         if len(out) >= mx: break
 print("\n".join(out))
-' "$1" "${2:-20}" 2>/dev/null || true
+' "$1" "${2:-20}" 2>/dev/null
 }
+
+# A classifier that cannot run makes this gate BLIND, and a blind gate that prints OK is precisely the
+# silent degradation clause 2 of this file exists to flag. It used to end `|| true`: with python3 absent
+# the function returned nothing, every file looked clean, and the gate reported OK (found by review, and
+# reproduced with a stub python3 exiting 127). So it fails CLOSED, with the reason stated (P6/P10).
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "check-gate-integrity: CANNOT EVALUATE — python3 is required to classify skip calls and is not on PATH." >&2
+  echo "  This gate is not passing; it is BLIND. Install python3, or record a governed gate_integrity_waiver." >&2
+  exit 1
+fi
 
 viol=0
 
@@ -157,11 +171,11 @@ viol=0
 while IFS= read -r f; do
   [ -n "$f" ] || continue
   # PROSE is not a skipped test: `spec.md` matches the scan glob `--include=*spec*`, so a document that
-  # merely QUOTES a skip was scanned as a suite (measured: this milestone spec.md turned run-tests red).
-  # The two shared definitions are COMPOSED rather than either being re-stated: `_is_doc_path` alone
-  # would exempt the whole `docs/` and `references/` TREES, leaving a real suite at
-  # `docs/tests/gate_test.go` unscanned -- a hole, not a fix.
-  { _is_doc_path "${f#./}" && ! is_test_path "${f#./}"; } && continue   # AC-13
+  # merely QUOTES a skip was scanned as a suite (measured: this milestone's spec.md turned run-tests
+  # red). The predicate is the FILE'S OWN form, not the directory it sits in — `_is_doc_path` would
+  # exempt the whole `docs/` and `references/` trees, leaving a real suite at `docs/tests/gate_test.go`
+  # unscanned, and keying on the directory would also re-scan prose that happens to live under `spec/`.
+  _is_doc_file "${f#./}" && continue   # AC-13
   if printf '%s' "$f" | grep -qiE "$KEY" || grep -qiE "$KEY" "$f" 2>/dev/null; then
     # Candidate skip lines: the UNCONDITIONAL ones (_unconditional_skips classifies each CALL),
     # A sanction marker is also honoured on the line IMMEDIATELY ABOVE the skip, so a
@@ -173,7 +187,7 @@ while IFS= read -r f; do
       printf '%s' "$prev" | grep -qiE 'gate-integrity:[[:space:]]*sanctioned' && continue
       sk="${sk}${ln}:${text}
 "
-    done < <(_unconditional_skips "$f" 20)
+    done < <(_unconditional_skips "$f" 20 || printf '0:CLASSIFIER-FAILED — this gate could not read the file and is NOT passing\n')
     sk="$(printf '%s' "$sk" | grep -vE '^$' | head -5)"
     [ -n "$sk" ] || continue
     echo "check-gate-integrity: GREEN-BY-SKIP in gate/invariant test '$f':" >&2
