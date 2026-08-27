@@ -157,6 +157,18 @@ fi
 cat >/dev/null 2>&1 || true   # drain the Stop payload (unused)
 
 marker="$(resolve_marker)"
+# D4 (spec 021 AC-10) — an AMBIGUOUS resolution is not "no run": two .runs/*/RUN tied on mtime with no
+# .runs/current. It reaches here as the sentinel, for which [ -f ] is false, so the plain no-run check
+# below would exit 0 and let a possibly-unfinished run stop cleanly — a fail-OPEN on exactly the
+# tamper/ambiguity class ADR-0015 exists to close. Fail CLOSED, distinct from a clean no-run allow, and
+# tell the operator how to disambiguate.
+if marker_ambiguous "$marker"; then
+  echo "delivery-stop-hook: BLOCKED — the active run is AMBIGUOUS: two runs under .runs/ share the newest" >&2
+  echo "  timestamp and no .runs/current names the intended one, so which run this Stop belongs to cannot" >&2
+  echo "  be resolved. Failing closed rather than guessing. Pin it with TEAM_BOOTSTRAP_RUN=<id>, or write" >&2
+  echo "  .runs/current with the intended run id, then retry." >&2
+  exit 2
+fi
 [ -n "$marker" ] && [ -f "$marker" ] || exit 0     # not a delivery run → allow
 mk="$(cat "$marker" 2>/dev/null || true)"
 [ "$(field_bool "$mk" intends_code)" = "true" ] || exit 0

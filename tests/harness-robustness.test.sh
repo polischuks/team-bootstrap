@@ -286,6 +286,91 @@ ws8_gate_integrity_waiver
 # earn kind:code delivery credit yet have no natural red) is niche and awaits its own batch.
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# D4 (spec 021) — an mtime TIE is DECLARED, not guessed. Two .runs/*/RUN sharing the newest mtime with
+# no .runs/current is not a run to pick between; picking one is `ls -t` falling back to name order, and
+# the loser's gates then reason about the wrong run silently.
+#
+# The resolution must be distinguishable from BOTH "run-x" and "no run at all" — an empty return would
+# reach all 29 `m="$(resolve_marker)"` sites as "no active run" and DISARM every marker-gated gate
+# (plan §8.2). So a tie yields the sentinel `!ambiguous:mtime-tie`: empty AS A PATH ([ -f ] is false, so
+# ordinary gates skip), non-empty AS A SIGNAL (marker_ambiguous is true, so decision gates fail closed).
+# The branch is reachable ONLY on the legacy fallback — $TEAM_BOOTSTRAP_RUN and .runs/current both win.
+# ---------------------------------------------------------------------------
+ws_d4_ambiguity() {
+  local T; T="$(mktemp -d)"
+  ( cd "$T" || exit 1
+    mkdir -p .runs/run-a .runs/run-b
+    printf '{"run":"run-a","intends_code":true}\n' > .runs/run-a/RUN
+    printf '{"id":"B1","kind":"code","status":"announced"}\n' > .runs/run-a/batches.jsonl
+    printf '{"run":"run-b","intends_code":true}\n' > .runs/run-b/RUN
+    printf '{"id":"B9","kind":"code","status":"announced"}\n' > .runs/run-b/batches.jsonl
+    # IDENTICAL mtime, no .runs/current — the tie the audit reproduced.
+    touch -t 202001010000 .runs/run-a/RUN .runs/run-b/RUN
+    . "$here/bin/delivery-lib.sh"
+    unset TEAM_BOOTSTRAP_RUN
+
+    # AC-9 — no arbitrary pick. resolve_marker must NOT return either run's path.
+    local m verdict; m="$(resolve_marker)"
+    case "$m" in .runs/run-*/RUN) verdict=picked ;; *) verdict=declined ;; esac
+    _chk "$verdict" "declined" \
+      "AC-9 an mtime tie with no .runs/current does not silently pick a run"
+
+    # AC-9 — and it is not a bare empty return either: the signal must be distinguishable from "no run".
+    _chk "$([ -n "$m" ] && echo signal || echo empty)" "signal" \
+      "AC-9 the tie carries a distinguishable sentinel, not a bare empty (29 gates read empty as no-run)"
+
+    # AC-9 — empty AS A PATH: an ordinary marker-gated gate sees [ -f ] false and simply skips.
+    _chk "$([ -f "$m" ] && echo isfile || echo notfile)" "notfile" \
+      "AC-9 the sentinel is not a real file, so marker-gated gates skip rather than act on a guess"
+
+    # AC-9/AC-10 — the predicate a decision gate reads.
+    _chk "$(marker_ambiguous "$m" && echo ambiguous || echo no)" "ambiguous" \
+      "AC-10 marker_ambiguous is true for the sentinel"
+    _chk "$(marker_ambiguous "" && echo ambiguous || echo no)" "no" \
+      "AC-10 marker_ambiguous is false for a bare empty (no run) — the two states are distinct"
+    _chk "$(marker_ambiguous ".runs/run-a/RUN" && echo ambiguous || echo no)" "no" \
+      "AC-10 marker_ambiguous is false for a real resolved marker"
+
+    # AC-9 — precedence: .runs/current resolves the tie, no sentinel.
+    printf 'run-b\n' > .runs/current
+    m="$(resolve_marker)"
+    _chk "$(basename "$(dirname "$m")" 2>/dev/null)" "run-b" \
+      "AC-9 .runs/current takes precedence over the tie — the sentinel is the legacy path only"
+    rm -f .runs/current
+
+    # AC-9 — precedence: an explicit $TEAM_BOOTSTRAP_RUN also wins.
+    m="$(TEAM_BOOTSTRAP_RUN=run-a resolve_marker)"
+    _chk "$(basename "$(dirname "$m")" 2>/dev/null)" "run-a" \
+      "AC-9 an explicit \$TEAM_BOOTSTRAP_RUN wins over the tie"
+  )
+  rm -rf "$T"
+}
+
+# AC-10 — the CONSUMER: the Stop hook must treat ambiguity as fail-closed, DISTINCT from "no run"
+# (which is a clean exit 0). Same two-run tie, driven through the hook itself.
+ws_d4_stop_fail_closed() {
+  local T; T="$(mktemp -d)"
+  ( cd "$T" || exit 1
+    git init -q && git config user.email t@t && git config user.name t
+    mkdir -p src && echo base > src/app.js && git add . && git commit -qm base >/dev/null 2>&1
+    mkdir -p .runs/run-a .runs/run-b
+    for r in run-a run-b; do
+      printf '{"run":"%s","pipeline":"full","intends_code":true,"source":"harness"}\n' "$r" > .runs/$r/RUN
+      printf '{"id":"B1","kind":"code","status":"announced"}\n' > .runs/$r/batches.jsonl
+    done
+    touch -t 202001010000 .runs/run-a/RUN .runs/run-b/RUN
+    # no .runs/current, no $TEAM_BOOTSTRAP_RUN → the legacy tie is what the hook resolves.
+    ( env -u TEAM_BOOTSTRAP_RUN "$here/bin/delivery-stop-hook.sh" </dev/null >/dev/null 2>&1 )
+    _chk "$?" "2" "AC-10 the Stop hook fails CLOSED (exit 2) on an ambiguous run, not open"
+  )
+  rm -rf "$T"
+}
+
+echo "D4 — mtime-tie ambiguity is declared (AC-9/AC-10):"
+ws_d4_ambiguity
+ws_d4_stop_fail_closed
+
 fail="$(cat "$FAILF")"; rm -f "$FAILF"
 if [ "$fail" -eq 0 ]; then echo "harness-robustness.test.sh: OK"; exit 0; fi
 echo "harness-robustness.test.sh: $fail failure(s)"; exit 1

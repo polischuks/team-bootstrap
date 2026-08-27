@@ -21,12 +21,41 @@
 # Stop-hook false-blocks in a loop. Enable globbing locally and restore the caller's prior -f state
 # (all call sites are `$(resolve_*)` command-subs, so this cannot leak — the restore is belt-and-braces).
 # `ls -t` preserves newest-by-mtime selection (a `find`-based scan would return directory order).
+# The sentinel a tie resolves to: EMPTY as a path ([ -f ] is false, so a marker-gated gate skips),
+# NON-EMPTY as a signal (marker_ambiguous is true, so a decision gate fails closed). Spec 021 D4/AC-9.
+TB_AMBIGUOUS_MARKER='!ambiguous:mtime-tie'
+
 _newest_run_file() {
   local _had_noglob=0; case $- in *f*) _had_noglob=1 ;; esac
   set +f
-  ls -t .runs/*/"$1" 2>/dev/null | head -1 || true
+  # `ls -t` orders by mtime but breaks a TIE lexicographically and says nothing about it, so the loser's
+  # gates silently reason about the wrong run (spec 021 D4). Detect the tie instead of inheriting the
+  # guess: take the newest file, then count how many candidates share its exact mtime. Two or more ⇒
+  # ambiguous. `stat` differs across BSD/GNU, so mtime comes from `ls -t --` boundaries: the run of
+  # leading entries with no newer sibling. Simpler and portable: compare the top TWO by mtime for a tie
+  # using `find`-free `ls`. We already have `ls -t`; add `ls -t` newest + an mtime equality probe.
+  local newest rest n1 n2
+  newest="$(ls -t .runs/*/"$1" 2>/dev/null | head -1 || true)"
+  if [ -n "$newest" ]; then
+    # The second-newest by the same ordering. If it shares mtime with the newest, it is a tie.
+    n2="$(ls -t .runs/*/"$1" 2>/dev/null | sed -n '2p' || true)"
+    if [ -n "$n2" ] && [ ! "$newest" -nt "$n2" ] && [ ! "$n2" -nt "$newest" ]; then
+      printf '%s' "$TB_AMBIGUOUS_MARKER"
+      [ "$_had_noglob" -eq 1 ] && set -f
+      return 0
+    fi
+  fi
+  printf '%s' "$newest"
   [ "$_had_noglob" -eq 1 ] && set -f
   return 0
+}
+
+# marker_ambiguous MARKER → rc 0 iff MARKER is the mtime-tie sentinel. A decision-bearing gate calls
+# this and fails CLOSED; an ordinary marker-gated gate needs nothing new, because [ -f "$sentinel" ] is
+# already false. The point of the predicate is to keep "ambiguous" distinct from "no run" (a bare
+# empty), which resolve_marker would otherwise collapse at all 29 call sites (plan §8.2).
+marker_ambiguous() {
+  [ "${1:-}" = "$TB_AMBIGUOUS_MARKER" ]
 }
 # _active_run_id → the id of the ACTIVE run, or empty. ONE selection rule, used by BOTH resolvers so
 # the marker and the ledger can never name two different runs (issue #20: they were resolved
@@ -36,9 +65,13 @@ _newest_run_file() {
 #   2. .runs/current — the pointer delivery-marker-init writes when it arms a run. EXPLICIT BEATS
 #      MTIME: a finished sibling whose RUN merely gets touched can no longer hijack selection.
 #   3. newest .runs/*/RUN by mtime — legacy fallback for runs armed before the pointer existed.
-# Deliberately NOT fail-closed on ambiguity: this is on the hot path of every gate and the Stop hook,
-# so refusing to resolve would manufacture a NEW false-block class — the exact failure mode
-# harness-robustness (ADR-0015) removed. Ambiguity degrades to the legacy rule, never to empty.
+# Ambiguity is handled by SEPARATING the two consumers rather than by one blanket rule (spec 021 D4,
+# superseding the earlier "degrades to the legacy rule, never to empty"). Only the legacy mtime rule (3)
+# can tie — an explicit pin (1) or .runs/current (2) names exactly one run — and on a tie the resolver
+# returns the sentinel TB_AMBIGUOUS_MARKER: empty AS A PATH, so a marker-gated gate on the hot path
+# skips exactly as it did before (no new false-block class — ADR-0015 preserved), and non-empty AS A
+# SIGNAL, so a decision gate that calls marker_ambiguous (the Stop hook) fails CLOSED instead of acting
+# on a guess. The value never silently collapses to "the first name wins".
 # STICKINESS (accepted residual): the pointer is explicit, so it does NOT self-correct the way mtime did
 # — if a stray prompt arms the wrong run mid-flight, that pointer holds for the session. Recovery is
 # re-arming the intended run, `rm .runs/current`, or pinning $TEAM_BOOTSTRAP_RUN. The failure direction
@@ -59,13 +92,18 @@ _active_run_id() {
     # A DANGLING pointer (its run was removed/archived) must not resolve to empty — fall through.
     [ -n "$id" ] && [ -f ".runs/$id/RUN" ] && { printf '%s' "$id"; return 0; }
   fi
-  id="$(_newest_run_file RUN)"        # .runs/<id>/RUN → <id>
+  id="$(_newest_run_file RUN)"        # .runs/<id>/RUN → <id>, or the ambiguity sentinel
+  # The sentinel is not a path and must not be sed-mangled into one — pass it through verbatim so
+  # resolve_marker can propagate it (and marker_ambiguous can recognise it) rather than collapsing it
+  # to a broken path or to empty.
+  if [ "$id" = "$TB_AMBIGUOUS_MARKER" ]; then printf '%s' "$id"; return 0; fi
   id="${id#.runs/}"; id="${id%/RUN}"
   printf '%s' "$id"
 }
 
 resolve_ledger() {
   local id; id="$(_active_run_id)"
+  if [ "$id" = "$TB_AMBIGUOUS_MARKER" ]; then printf '%s' "$id"; return 0; fi
   if [ -n "$id" ]; then
     [ -f ".runs/$id/batches.jsonl" ] && printf '%s' ".runs/$id/batches.jsonl"
     return 0
@@ -79,6 +117,10 @@ resolve_ledger() {
 resolve_marker() {
   local id; id="$(_active_run_id)"
   [ -n "$id" ] || return 0
+  # An ambiguous resolution is returned AS the sentinel: [ -f ] is false for it, so every ordinary
+  # `m="$(resolve_marker)"; [ -n "$m" ] && [ -f "$m" ] || skip` site skips (empty as a path), while a
+  # decision gate that calls marker_ambiguous still sees the signal (non-empty as a value). Spec 021 D4.
+  if [ "$id" = "$TB_AMBIGUOUS_MARKER" ]; then printf '%s' "$id"; return 0; fi
   [ -f ".runs/$id/RUN" ] && printf '%s' ".runs/$id/RUN"
   return 0
 }
