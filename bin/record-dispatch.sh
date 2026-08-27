@@ -117,6 +117,27 @@ record_dispatch "$payload"
 # power than this hook is entitled to. It also stays NON-blocking — the project already rejected a
 # blocking PreToolUse[Agent|Task] gate because refusing a dispatch pushes review inline (spec-169).
 #
+# TWO DIFFERENT OBJECTS, and this comment used to conflate them (spec 021 D1, AC-1). "Append, never
+# replace" is true of the PROMPT TEXT. It was NOT true of the returned OBJECT: the emitter below used
+# to build `updatedInput` from scratch with a single key, so the object handed back was not the call it
+# was given — `subagent_type` and `description` were simply absent from it.
+#
+# Whether that is FATAL or merely wrong depends on a vendor contract, and the contract is genuinely
+# unsettled — DC-1 (specs/021-…/plan.md §7) is OPEN, and deliberately so:
+#   - for MERGE: the hooks reference, verbatim — "only the fields you include are changed; other
+#     fields stay the same";
+#   - for REPLACE: a contemporaneous observation of the harness rejecting every dispatch with a schema
+#     error, which is why the installed plugin cache was hand-patched with this same fix on 2026-08-27
+#     before this milestone began.
+# A measurement that claimed to settle it did not: the review roles it watched start were dispatched
+# through that already-patched cache, so they say nothing about the unpatched shape.
+#
+# So this code does not depend on the answer, and that is the point. Returning the ORIGINAL tool_input
+# with `prompt` replaced is a no-op under merge, is what keeps the call valid under replace, and is
+# correct under F3 either way: a hook that augments an input must preserve the input. Correctness that
+# rested on the merge being true would be one vendor release away from dropping `subagent_type` off
+# every review dispatch in the tree.
+#
 # Emitted only when there is something true to add, and skipped entirely on anything unexpected.
 if [ "${TEAM_BOOTSTRAP_DISPATCH_BRIEF:-on}" != "off" ]; then
   _brief="$(printf '%s' "$payload" | "$(dirname "$0")/subagent-brief.sh" 2>/dev/null \
@@ -127,11 +148,18 @@ if [ "${TEAM_BOOTSTRAP_DISPATCH_BRIEF:-on}" != "off" ]; then
     printf '%s' "$payload" | python3 -c 'import json,os,sys
 try: d=json.load(sys.stdin)
 except Exception: sys.exit(0)
-p=(d.get("tool_input") or {}).get("prompt")
+ti=d.get("tool_input")
+if not isinstance(ti,dict): sys.exit(0)
+p=ti.get("prompt")
 b=os.environ.get("TB_BRIEF","")
 if not isinstance(p,str) or not p or not b: sys.exit(0)
-print(json.dumps({"hookSpecificOutput":{"hookEventName":"PreToolUse",
-  "updatedInput":{"prompt":p+"\n\n[harness assignment] "+b}}}))' 2>/dev/null || true
+# The ORIGINAL call, with one field replaced — not a fresh object carrying one field (AC-1, AC-2).
+# dict(ti) is a copy, so nothing that follows can mutate the parsed payload; json.dumps re-encodes
+# every other value exactly as it arrived, which is what keeps quotes and non-ASCII byte-identical
+# where a printf-built object would not.
+ui=dict(ti)
+ui["prompt"]=p+"\n\n[harness assignment] "+b
+print(json.dumps({"hookSpecificOutput":{"hookEventName":"PreToolUse","updatedInput":ui}}))' 2>/dev/null || true
   fi
 fi
 exit 0
