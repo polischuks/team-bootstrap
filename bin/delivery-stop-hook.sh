@@ -85,6 +85,69 @@ if [ "${1:-}" = "--self-test" ]; then
   mkdir -p ".runs/${d}_empty"
   printf '%s\n' "{\"run\":\"e\",\"pipeline\":\"full\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$(git rev-parse --short HEAD 2>/dev/null)\"}" > ".runs/${d}_empty/RUN"
   _expect "${d}_empty" 2 "block — armed run, no ledger, no code since baseline → exit 2"
+
+  # --- D7: waiting for the operator is not skipping Phase B (spec 021, B5) -----------------------
+  #
+  # An announced-unclosed kind:code batch blocked unconditionally. That state is ALSO the normal one
+  # while the flow legitimately waits for an operator decision before Phase B, and nothing in the hook
+  # told the two apart (measured: zero fields distinguish them).
+  #
+  # The distinguishing signal is OBSERVABLE, never declared (R3): an announced_sha the orchestrator
+  # writes into the ledger is forgeable by the same mind this gate exists to check. The anchor is
+  # current_batch_base — the window definition closure already uses — and the question asked of it is
+  # "has any non-doc code moved that no closure covers?".
+  #
+  # These run in their OWN repo, not this one: fixture A asserts on a CLEAN non-doc working tree, and
+  # asserting that against the live checkout would make the case pass or fail on whatever the developer
+  # happens to have uncommitted.
+  _d7="$(mktemp -d)"
+  ( cd "$_d7" && git init -q && git config user.email t@t && git config user.name t \
+      && mkdir -p .runs/w src && echo base > src/app.js && git add . && git commit -qm base ) >/dev/null 2>&1
+  _d7_head() { ( cd "$_d7" && git rev-parse --short HEAD ); }
+  _d7_marker() { printf '%s\n' "{\"run\":\"w\",\"pipeline\":\"full\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$1\"}" > "$_d7/.runs/w/RUN"; }
+  _d7_expect() { # expected desc
+    local exp="$1" desc="$2" got
+    # $0 is relative when this suite is invoked as `bin/delivery-stop-hook.sh`, and these cases run
+    # from another directory — resolve through $here or the subshell finds nothing (exit 127).
+    ( cd "$_d7" && TEAM_BOOTSTRAP_RUN=w "$here/$(basename "$0")" </dev/null >/dev/null 2>&1 ); got=$?
+    if [ "$got" -eq "$exp" ]; then echo "  PASS (exit $got) $desc"
+    else echo "  FAIL (exit $got, want $exp) $desc" >&2; fail=$((fail + 1)); fi
+  }
+  printf '%s\n' '{"id":"B1","kind":"code","status":"announced"}' > "$_d7/.runs/w/batches.jsonl"
+
+  # AC-15 — announced-unclosed, nothing has moved since the anchor, clean tree ⇒ WAITING. Do not block.
+  _d7_marker "$(_d7_head)"
+  _d7_expect 0 "AC-15 announced-unclosed with no code since the anchor → waiting, not blocked"
+
+  # AC-16 — the paired fixture, differing by ONE COMMIT. Code exists that no closure covers ⇒ Phase B
+  # was skipped. Block, exactly as before.
+  # `src/app.js`, not `code.txt`: `.txt` is a DOC extension to _is_doc_path, so a fixture built on it
+  # would assert "code exists" with no code in it and pass for the wrong reason.
+  ( cd "$_d7" && echo more >> src/app.js && git commit -qam work ) >/dev/null 2>&1
+  _d7_expect 2 "AC-16 announced-unclosed WITH a commit after the anchor → still blocked"
+
+  # AC-16 — commits are not the whole observable. Real, UNCOMMITTED non-doc edits under an announced
+  # batch are the spec's own "код есть, батч не закрыт" fixture, and a commit-only anchor would let
+  # this stop cleanly (plan §8.1).
+  _d7_marker "$(_d7_head)"
+  ( cd "$_d7" && echo dirty >> src/app.js )
+  _d7_expect 2 "AC-16 uncommitted non-doc edits under an announced batch → still blocked"
+
+  # AC-15 — and the working-tree read must be scoped to NON-doc paths, or committing tasks.md while
+  # waiting flips waiting into skipping and the relaxation delivers nothing.
+  ( cd "$_d7" && git checkout -q -- src/app.js && mkdir -p docs && echo note >> docs/notes.md )
+  _d7_expect 0 "AC-15 an uncommitted DOC edit does not turn waiting into skipping"
+  ( cd "$_d7" && rm -rf docs )
+
+  # AC-16 — an UNRESOLVABLE anchor is not "no code". code_since_baseline returns rc 1 for no-code, for
+  # an unresolvable sha AND for git failing, and mapping that one rc to "allow" would let an amended
+  # history or a shallow clone stop cleanly with an announced batch open (plan §8.1). Three-valued:
+  # cannot-determine blocks.
+  _d7_marker "0000000"
+  _d7_expect 2 "AC-16 an unresolvable anchor blocks — cannot-determine is not no-code"
+
+  rm -rf "$_d7"
+
   rm -rf ".runs/${d}_block" ".runs/${d}_closed" ".runs/${d}_nomarker" ".runs/${d}_direct" ".runs/${d}_dfull" ".runs/${d}_dnopipe" ".runs/${d}_frev" ".runs/${d}_fnorev" ".runs/${d}_unkclosed" ".runs/${d}_empty"
   if [ "$fail" -eq 0 ]; then echo "delivery-stop-hook --self-test: OK"; exit 0; fi
   echo "delivery-stop-hook --self-test: $fail case(s) FAILED" >&2; exit 1
@@ -163,9 +226,43 @@ case "$pipeline" in
     fi ;;
 esac
 
-# BLOCK when: an announced code batch is still unclosed; OR no earned closure exists and the csb
-# allowance does not apply (prong 1); OR the run-close reviewer floor is unmet (prong 2).
-if [ "$announced_code" -gt 0 ] || { [ "$closed_code" -eq 0 ] && [ "$csb_ok" -eq 0 ]; } || [ "$role_floor_ok" -eq 0 ]; then
+# D7 — WAITING IS NOT SKIPPING (spec 021 AC-15/AC-16).
+#
+# An announced-unclosed kind:code batch blocked unconditionally. That is also the NORMAL state while
+# the flow legitimately waits for an operator decision before Phase B, and nothing here told the two
+# apart — so the harness blocked the operator for taking the time it asked them to take.
+#
+# The signal is OBSERVABLE, never declared (R3): an `announced_sha` written into the ledger by the
+# orchestrator is forgeable by the same mind this gate exists to check. The anchor is `closure_anchor`
+# - the last closure's sha, else the run's own harness-stamped baseline - sharing `last_closure_sha`
+# with `current_batch_base`, so the closure boundary has one definition and not two.
+#
+# It is deliberately NOT current_batch_base itself. That helper answers "what should this batch's diff
+# be measured against" and, to always answer, guesses: origin/main, then HEAD~1. Measured - with no
+# closed batch and baseline_sha == HEAD it returns HEAD~1, dragging the run's own last commit into the
+# window and reporting `code` for a run that shipped nothing. A guess is serviceable for a diff window
+# and disqualifying here, where the whole requirement is a stamped observable.
+#
+# Then, with an announced-unclosed batch present:
+#   no-code           → nothing has moved that no closure covers → WAITING. Do not block.
+#   code              → code exists outside any closure → Phase B was skipped. Block, as before.
+#   cannot-determine  → block, as before. An unresolvable anchor is not evidence of nothing (§8.1).
+#
+# The relaxation is deliberately narrow. It suppresses TWO conjuncts and only when `waiting` holds:
+# its own, and prong 1 — which asks that a run WHICH SHIPPED CODE show an earned closure, a question
+# with no content when nothing has shipped. Prong 2 (the reviewer floor) is untouched, and a run with
+# no ledger at all still blocks, because `announced_code` is 0 for it and `waiting` never arms.
+waiting=0
+if [ "$announced_code" -gt 0 ]; then
+  [ "$(code_state_since "$(closure_anchor 2>/dev/null || true)")" = "no-code" ] && waiting=1
+fi
+
+# BLOCK when: an announced code batch is still unclosed AND the run is not merely waiting; OR no earned
+# closure exists, the csb allowance does not apply (prong 1), and the run is not waiting; OR the
+# run-close reviewer floor is unmet (prong 2).
+if { [ "$announced_code" -gt 0 ] && [ "$waiting" -eq 0 ]; } \
+   || { [ "$closed_code" -eq 0 ] && [ "$csb_ok" -eq 0 ] && [ "$waiting" -eq 0 ]; } \
+   || [ "$role_floor_ok" -eq 0 ]; then
   run="$(field_str "$mk" run)"
   # WS-2 (T021) — de-dup an identical REPEAT block to one terse line, ALWAYS preserving exit 2.
   # The retro's biggest token sink was a repeated block re-emitting the full explanation every Stop

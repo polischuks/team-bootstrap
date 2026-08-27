@@ -1198,6 +1198,55 @@ code_since_baseline() {
   [ "$d" -gt 0 ]
 }
 
+# code_state_since ANCHOR → echoes exactly one of `code` | `no-code` | `cannot-determine`. rc always 0.
+#
+# THREE-VALUED ON PURPOSE (spec 021 D7, plan §8.1). code_since_baseline returns rc 1 for *no code*, for
+# an *unresolvable anchor*, and for *git producing nothing* — three different facts behind one value.
+# At its existing call site rc 1 pushes toward BLOCK, so the overload is harmless there. D7 needs the
+# opposite mapping for one of them ("no code since the anchor" ⇒ the flow is waiting, do not block),
+# and reusing rc 1 would have made an amended history, a shallow clone, or a Stop firing outside the
+# repo read as "nothing to deliver" — letting an announced-unclosed code batch stop cleanly. So the
+# three facts get three answers, and `cannot-determine` blocks exactly as today.
+#
+# COMMITS ARE NOT THE WHOLE OBSERVABLE. An announced batch with real but UNCOMMITTED non-doc edits is
+# the spec's own "code exists, batch not closed" fixture; a commit-only anchor would let it stop
+# cleanly. So the dirty working tree is read too, through the same `git status --porcelain` +
+# _is_doc_path pair gate_cache_key already uses. A doc-only edit is not code — committing tasks.md
+# while waiting must not flip waiting into skipping, or the relaxation delivers nothing.
+code_state_since() {
+  local anchor="${1:-}" bfull shas d line path
+  bfull="$(resolve_sha "$anchor")" || bfull=""
+  [ -n "$bfull" ] || { printf 'cannot-determine'; return 0; }
+
+  # 1) committed code since the anchor.
+  shas="$(git log --format=%h "${bfull}..HEAD" 2>/dev/null | head -200 | tr '\n' ' ')" \
+    || { printf 'cannot-determine'; return 0; }
+  if [ -n "$shas" ]; then
+    d="$(nondoc_delta_of_shas "$shas")"; case "$d" in ''|*[!0-9]*) d=0 ;; esac
+    [ "$d" -gt 0 ] && { printf 'code'; return 0; }
+  fi
+
+  # 2) uncommitted non-doc edits. A `git status` ERROR must not read as a clean tree: the loop would
+  # produce nothing and the caller would see `no-code`, which is a fail-OPEN on exactly the state this
+  # predicate exists to catch. Probe the exit first (same posture as _dirty_control_surface).
+  git status --porcelain >/dev/null 2>&1 || { printf 'cannot-determine'; return 0; }
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    path="${line:3}"
+    # A rename record is "XY orig -> new"; the destination is what now exists.
+    case "$line" in [RC]*|" "[RC]*) path="${path##* -> }" ;; esac
+    [ -n "$path" ] || continue
+    # The harness's OWN run directory is never the code under delivery. This repo gitignores `.runs/`,
+    # so it would not appear here — but a project that has not is one `git status` away from every Stop
+    # reading its own ledger as uncommitted code and blocking forever. Excluded on what the path IS,
+    # not on whether someone remembered to ignore it.
+    case "$path" in .runs/*|.runs) continue ;; esac
+    _is_doc_path "$path" || { printf 'code'; return 0; }
+  done < <(git status --porcelain 2>/dev/null)
+
+  printf 'no-code'
+}
+
 # --- F1 (red-touches-tests) test-path detection --------------------------------
 # is_test_path PATH [EXTRA_GLOBS] → rc 0 if PATH is a test file, else rc 1.
 # Default set (OQ-1): basename matches *_test.* *.test.* test_*.* *.spec.* *Test.* *_spec.rb,
@@ -1304,6 +1353,42 @@ nondoc_delta_of_shas() {
   done
   printf '%s' "$total"
 }
+# last_closure_sha → the first commit_sha of the LAST closed ledger entry, if git can resolve it; empty
+# otherwise. The one definition of "where the previous closure ended", read by current_batch_base (the
+# batch window) and by closure_anchor (D7). It used to be inline in current_batch_base only.
+last_closure_sha() {
+  local ledger since
+  ledger="$(resolve_ledger)"
+  [ -n "$ledger" ] && [ -f "$ledger" ] || return 0
+  since="$(grep '"status":"closed"' "$ledger" 2>/dev/null | tail -1 \
+    | sed -nE 's/.*"commit_shas":\[[[:space:]]*"([0-9a-fA-F]+)".*/\1/p')"
+  [ -n "$since" ] && git rev-parse --verify -q "$since^{commit}" >/dev/null 2>&1 || return 0
+  printf '%s' "$since"
+}
+
+# closure_anchor → the sha past which code is NOT covered by any closure: the last closure if there is
+# one, else the run's own harness-stamped baseline. Empty when neither exists.
+#
+# WHY NOT current_batch_base (correcting plan §8.1, which said to reuse it). That helper answers a
+# different question — "what should this batch's diff be measured against" — and to answer it always,
+# it falls back to origin/main, then to HEAD~1. Measured: with no closed batch and baseline_sha == HEAD
+# it returns `HEAD~1`, which drags the run's own last commit into the window and reports `code` for a
+# run that has shipped nothing.
+#
+# For the batch window a guess is serviceable. For D7 it is not: the whole requirement (R3) is that the
+# waiting/skipping signal rest on a HARNESS-STAMPED observable, and neither origin/main nor HEAD~1 is
+# evidence about what a closure covers. So this anchor uses only the two stamped facts and returns
+# empty rather than guessing — and an empty anchor is `cannot-determine`, which blocks.
+closure_anchor() {
+  local marker mk sha
+  sha="$(last_closure_sha)"
+  [ -n "$sha" ] && { printf '%s' "$sha"; return 0; }
+  marker="$(resolve_marker)"
+  [ -n "$marker" ] && [ -f "$marker" ] || return 0
+  mk="$(cat "$marker" 2>/dev/null || true)"
+  printf '%s' "$(field_str "$mk" baseline_sha)"
+}
+
 
 # --- F2 (diff-coverage) batch window ------------------------------------------
 # current_batch_base — echo the base ref/sha for the IN-FLIGHT batch's diff, using the EXACT
@@ -1313,14 +1398,8 @@ nondoc_delta_of_shas() {
 # and cannot drift (spec R1). Echoes a usable base (empty only in a repo with no HEAD~1).
 current_batch_base() {
   local ledger since base b marker mk bsha
-  ledger="$(resolve_ledger)"
-  if [ -n "$ledger" ] && [ -f "$ledger" ]; then
-    since="$(grep '"status":"closed"' "$ledger" 2>/dev/null | tail -1 \
-      | sed -nE 's/.*"commit_shas":\[[[:space:]]*"([0-9a-fA-F]+)".*/\1/p')"
-    if [ -n "$since" ] && git rev-parse --verify -q "$since^{commit}" >/dev/null 2>&1; then
-      printf '%s' "$since"; return 0
-    fi
-  fi
+  since="$(last_closure_sha)"
+  [ -n "$since" ] && { printf '%s' "$since"; return 0; }
   # first batch (no closed batch yet): the window starts at the RUN's OWN baseline_sha, not
   # origin/main. Using origin/main here can drag pre-run commits (even the run baseline itself)
   # into commit_shas, which check-delivery then flags as predate/forged and check-tdd's oldest-
