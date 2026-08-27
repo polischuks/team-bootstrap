@@ -43,6 +43,11 @@ mk="$(cat "$marker" 2>/dev/null || true)"
 bline="$(inflight_batch 2>/dev/null || true)"
 bid="$(field_str "$bline" id)"
 [ -n "$bid" ] || exit 0   # gate-integrity: sanctioned — no in-flight batch: this fan-out belongs to no batch
+# inflight_batch FALLS BACK to the last ledger line when nothing is announced — so without this check,
+# every session after a batch closed kept re-announcing that batch's role gap as "still missing … fails
+# closed at closure": a duty closure already discharged, re-stated as pending (P6). A closed batch is a
+# record, not an obligation; its floor was read once, at its own closure.
+[ "$(field_str "$bline" status)" = "announced" ] || exit 0   # gate-integrity: sanctioned — no open batch: nothing left to owe
 [ "$(field_str "$bline" kind)" = "code" ] || exit 0   # gate-integrity: sanctioned — a doc batch earns no review roles by design
 
 req="$(required_roles_recorded "$bid" 2>/dev/null || true)"

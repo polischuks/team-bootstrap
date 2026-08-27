@@ -183,6 +183,41 @@ marker had been edited by hand.
   could not classify: `<reason>`" are different problems fixed in different places; they had collapsed
   into one sentence.
 
+## [3.2.1] — 2026-08-27
+
+Findings from auditing the code against the two founder docs (Д1 «Как оживить роли», Д2 «Харнесс:
+бест-практис»), plus one defect the audit session then observed live in its own hook stream.
+
+### Fixed
+
+- **The red step names a script that exists.** `commands/deliver.md` still instructed
+  `bin/tdd-red.sh`, deleted when its observation step moved into `bin/check-tdd.sh --record-red` —
+  every code batch's P9 instruction pointed at nothing. The command now names the real entry point,
+  and AC-29e pins the class: no command playbook may reference the deleted driver.
+
+- **The pre-dispatch brief reaches every role.** The `SubagentStart` matcher covered
+  `team-bootstrap:.*` plus the `-reviewer`/`-verifier`/`-guardian` suffix families — so when the host
+  strips the plugin prefix (the documented failure `review-types.txt` keeps two slug forms for),
+  `chaos-engineer`, `devops-platform`, `test-designer` and `legal-compliance-checker` matched nothing
+  and silently lost their brief. The four bare slugs are explicit now; AC-11b pins the class for any
+  agent added later.
+
+- **A closed batch is a record, not an obligation.** `inflight_batch` falls back to the *last* ledger
+  line when nothing is announced, and two consumers took the fallback at face value:
+  `check-review-batch.sh` re-announced a closed batch's role gap as "still missing … fails closed at
+  closure" on every PostToolBatch of every later session, and `session-context.sh` opened each
+  session with the oxymoron "In-flight batch … (status=closed)". Both now treat only an `announced`
+  batch as in flight (P6: a duty closure already discharged is not re-stated as pending).
+
+### Added
+
+- **`tests/hook-behaviour.test.sh`** — behaviour tests for the three hooks the spec-020 audit found
+  wired but never exercised: `check-review-batch.sh` (a1–a6), `session-context.sh` (b1–b5),
+  `guard-git.sh` (c1–c7). The suite also records the AC-43 divergence: the spec asked for a blocking
+  PostToolBatch gate; the shipped inform-only contract is correct (blocking the fan-out pushes review
+  inline — the spec-169 collapse), and a3 pins it so a well-meaning "fix" toward the spec's letter
+  goes red instead of shipping.
+
 ## Earlier releases
 
 Entries for majors that are no longer current are archived one file per major, so this file stays the size of the *live* series:
