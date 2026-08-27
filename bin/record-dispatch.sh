@@ -23,7 +23,11 @@
 #     dispatch, foreground and background. So the signal is dispatch OCCURRENCE of a review type.
 #
 # HONEST LIMIT (ADR-0008): subagent_type is model-authored → degradation-proof, NOT forgery-proof; and
-# recording at dispatch proves the reviewer was LAUNCHED, not that it completed or was good (NF1).
+# recording at dispatch proves an INVOCATION WAS REQUESTED — not that it launched, not that it
+# completed, not that it was good (NF1). This hook is PreToolUse: it runs BEFORE the tool does, and
+# returns before anything is known about the outcome. The word used to be "LAUNCHED", which is one
+# claim further than the mechanism reaches (spec 021 D2, AC-4) — the record now says `attempted` in
+# the line itself, and this comment says the same thing.
 #
 # Safety: this hook must never disrupt a dispatch. It ALWAYS exits 0 (recording only — no deadlock, per
 # references/hooks.md). Marker-gated: no active run ⇒ no-op. Disable with TEAM_BOOTSTRAP_DELIVERY_GATE=off.
@@ -57,7 +61,20 @@ record_dispatch() {
   [ -n "$marker" ] && [ -f "$marker" ] || return 0
   rundir="$(dirname "$marker")"
   bid="$(_inflight_batch_id)"
-  printf '{"batch":"%s","subagent_type":"%s"}\n' "$bid" "$stype" >> "$rundir/dispatch.jsonl" 2>/dev/null || true
+  # outcome:"attempted" — the record says what this hook actually SAW (spec 021 D2, AC-4). PreToolUse
+  # fires BEFORE the tool runs, so the only observable here is that a dispatch was requested: not that
+  # it launched, not that the reviewer ran, not that anything came back. The field is the record's own
+  # semantics, carried in the line rather than left to references/review-types.txt — a reader holding
+  # one line must be able to see what it is worth without opening a second file.
+  #
+  # It is ADDITIVE and no reader may require it (AC-4 back-compat): every consumer reads named fields
+  # through field_str and ignores the rest, so pre-3.3.0 records with no `outcome` keep counting toward
+  # the anti-collapse floor. Requiring it would empty that floor of a long-lived ledger's whole history
+  # on the day the field appeared.
+  #
+  # There is no second value. If a later change ever learns an outcome, it belongs in a record written
+  # by whatever observed it — not by this hook, which by construction cannot.
+  printf '{"batch":"%s","subagent_type":"%s","outcome":"attempted"}\n' "$bid" "$stype" >> "$rundir/dispatch.jsonl" 2>/dev/null || true
   return 0
 }
 

@@ -168,5 +168,86 @@ _chk "$( ( cd "$T/ok" && printf '%s' "$PAYLOAD" \
     | TEAM_BOOTSTRAP_RUN=r TEAM_BOOTSTRAP_DISPATCH_BRIEF=off "$hook" 2>/dev/null ) | wc -c | tr -d ' ')" 0 \
   "AC-3 the TEAM_BOOTSTRAP_DISPATCH_BRIEF killswitch emits nothing at all"
 
+
+# =============================================================================
+# D2 — a dispatch record is an ATTEMPT, never a completed review (spec 021, B3)
+#
+# The hook fires at PreToolUse. It observes a dispatch REQUEST and cannot observe what became of it —
+# not the launch, not the run, not the result. `dispatch.jsonl` is therefore a record of attempts, and
+# the defect is that nothing in the record said so, leaving every reader free to spend it as evidence
+# that a review happened.
+#
+# AC-4 — the record carries its own semantics: `"outcome":"attempted"` sits in the line, not only in a
+#        reference file a reader may never open.
+# AC-5 — no gate concludes "reviewed" from the ledger alone. Dispatches for every required role plus
+#        zero verdicts must not close the batch.
+# =============================================================================
+
+# _ledger_fixture DIR → an armed intends_code run with one in-flight kind:code batch that RECORDS the
+# roles it requires, so `required_roles_recorded` has something to return and the AC-5 gate reaches its
+# verdict check instead of skipping on "requires no review roles" (which would pass vacuously).
+_ledger_fixture() {
+  local d="$1" base
+  mkdir -p "$d/.runs/r"
+  ( cd "$d" && git init -q && git config user.email t@t && git config user.name t \
+    && echo base > f && git add . && git commit -qm base ) >/dev/null 2>&1
+  base="$( cd "$d" && git rev-parse --short HEAD )"
+  printf '{"run":"r","pipeline":"full","intends_code":true,"source":"harness","baseline_sha":"%s"}\n' \
+    "$base" > "$d/.runs/r/RUN"
+  # The recorded role and the dispatch slug must be a REAL pair from references/review-types.txt:
+  # `role_of_slug` maps only the dedicated plugin-scoped types, so a plausible-looking `code-reviewer`
+  # dispatch attributes to no role at all and the per-role floor would fail for a reason that has
+  # nothing to do with AC-5. tb-code-reviewer → code-reviewer is such a pair.
+  printf '{"id":"B1","kind":"code","status":"announced","required_roles":["code-reviewer"]}\n' \
+    > "$d/.runs/r/batches.jsonl"
+  rm -f "$d/.runs/r/dispatch.jsonl" "$d/.runs/r/verdicts.jsonl"
+}
+
+mkdir -p "$T/led"; _ledger_fixture "$T/led"
+
+# AC-4 — drive the real hook and read back what it appended. Asserted over EVERY line rather than the
+# first, so a future second write path that omits the field is caught here and not in production.
+( cd "$T/led" && printf '%s' "$PAYLOAD" | TEAM_BOOTSTRAP_RUN=r "$hook" >/dev/null 2>&1 )
+( cd "$T/led" && printf '{"tool_name":"Agent","tool_input":{"description":"d","prompt":"p","subagent_type":"independent-reviewer"}}' \
+    | TEAM_BOOTSTRAP_RUN=r "$hook" >/dev/null 2>&1 )
+_disp_file="$T/led/.runs/r/dispatch.jsonl"
+_chk "$([ -s "$_disp_file" ] && echo recorded || echo empty)" recorded \
+  "AC-4 precondition: the hook appended dispatch records to drive the assertion against"
+outcome_verdict="$(python3 -c '
+import json,sys
+bad=0; n=0
+for line in open(sys.argv[1]):
+    line=line.strip()
+    if not line: continue
+    n+=1
+    try: rec=json.loads(line)
+    except Exception: bad+=1; continue
+    if rec.get("outcome")!="attempted": bad+=1
+print("all-attempted" if n and not bad else "missing:%d/%d"%(bad,n))' "$_disp_file" 2>/dev/null)"
+_chk "$outcome_verdict" all-attempted \
+  "AC-4 every appended dispatch record declares outcome:attempted — the ledger says what it saw"
+
+# AC-5 — the phantom, stated end to end. Every role the batch requires has a dispatch record; not one
+# verdict was captured. The anti-collapse floor is SATISFIED and must stay satisfied (that count is an
+# honest count of attempts), and the batch must still not close.
+printf '{"batch":"B1","subagent_type":"tb-code-reviewer","outcome":"attempted"}\n' > "$_disp_file"
+_dispatch_rc="$( ( cd "$T/led" && TEAM_BOOTSTRAP_RUN=r "$here/bin/check-role-dispatch.sh" . ) >/dev/null 2>&1; echo $?)"
+_chk "$_dispatch_rc" 0 \
+  "AC-5 the anti-collapse floor still passes on attempts alone — counting dispatches is not the defect"
+_verdict_rc="$( ( cd "$T/led" && TEAM_BOOTSTRAP_RUN=r "$here/bin/check-role-verdict.sh" --gate . ) >/dev/null 2>&1; echo $?)"
+_chk "$([ "$_verdict_rc" -ne 0 ] && echo refused || echo closed)" refused \
+  "AC-5 dispatches for every required role and ZERO verdicts does not close the batch"
+
+# AC-4/AC-5 back-compat — a `dispatch.jsonl` written by a pre-3.3.0 plugin has no `outcome` field. No
+# consumer may REQUIRE the new field: a long-lived ledger would otherwise stop counting its own history
+# the day the field appeared, silently emptying the anti-collapse floor it exists to hold.
+printf '{"batch":"B1","subagent_type":"tb-code-reviewer"}\n' > "$_disp_file"
+_legacy_rc="$( ( cd "$T/led" && TEAM_BOOTSTRAP_RUN=r "$here/bin/check-role-dispatch.sh" . ) >/dev/null 2>&1; echo $?)"
+_chk "$_legacy_rc" 0 \
+  "AC-4 a pre-3.3.0 record with no outcome field still counts toward the anti-collapse floor"
+_legacy_count="$( cd "$T/led" && TEAM_BOOTSTRAP_RUN=r bash -c '. "'"$here"'/bin/delivery-lib.sh"; reviewer_dispatch_count B1' 2>/dev/null )"
+_chk "$_legacy_count" 1 \
+  "AC-5 reviewer_dispatch_count reads a legacy record as one attempt — the shared definition is unchanged"
+
 [ "$fail" -eq 0 ] && { echo "dispatch-integrity.test.sh: OK"; exit 0; }
 echo "dispatch-integrity.test.sh: $fail failure(s)" >&2; exit 1
