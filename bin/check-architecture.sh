@@ -56,7 +56,10 @@ while IFS= read -r line; do
   token="$(printf '%s' "$rest" | sed -n 's/^[[:space:]]*\([^[:space:]][^[:space:]]*\)[[:space:]][[:space:]]*imports[[:space:]][[:space:]]*\([^[:space:]][^[:space:]]*\).*/\2/p')"
   [ -n "$prefix" ] && [ -n "$token" ] || continue
   [ -d "$prefix" ] || continue
-  hits="$(grep -rnE "(import|require|use|from).*${token}" "$prefix" 2>/dev/null | head -20)"
+  # pipefail-safe (spec 021 D5): grep -r STREAMS and head -20 exits early, so under pipefail this
+  # pipeline can end 141 on a large tree. The decision below is on the VALUE ($hits), never this
+  # status, so || true strips the spurious failure and leaves the captured lines intact.
+  hits="$(grep -rnE "(import|require|use|from).*${token}" "$prefix" 2>/dev/null | head -20 || true)"
   if [ -n "$hits" ]; then
     echo "check-architecture: FORBIDDEN — '$prefix' must not import '$token':" >&2
     printf '%s\n' "$hits" | sed 's/^/    /' >&2

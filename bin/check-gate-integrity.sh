@@ -407,6 +407,52 @@ if [ -d .github/workflows ]; then
   fi
 fi
 
+# 5) SIGPIPE UNDER pipefail — a streaming producer feeding an early-exit consumer (spec 021 D5) ------
+#
+# In a file that declares `pipefail`, a pipeline whose last stage exits early (`head`, `grep -q`,
+# `grep -m`, a `sed -n …q`) makes its producer take SIGPIPE once the consumer is satisfied. When that
+# producer STREAMS — keeps writing after the consumer leaves — the pipeline status becomes 141, and
+# every reader of that status reads a failure that never happened (fail-closed), or, for
+# `producer | grep -q X`, reads "not found" for an X that matched (fail-OPEN, nondeterministic on
+# buffering — passes in the small, fails at scale).
+#
+# SCOPED BY HAZARD, NOT SYNTAX (plan §8.4). The producer must be one that outlives its consumer —
+# git log/diff/show/rev-list, grep -r, find, ls, seq, or `cat FILE`. A `printf`/`echo` of a short
+# in-memory string CANNOT SIGPIPE and its `grep -q` status is usually the decision itself (a `|| true`
+# on check-role-verdict:90 would delete its missing-field detection), so it is deliberately NOT
+# flagged. Neutralised (`|| true`, `|| :`) or `pipefail-safe:`-sanctioned pipelines are cleared.
+PFPIPE=0
+for f in bin/*.sh; do
+  [ -f "$f" ] || continue
+  grep -qE 'set -[a-zA-Z]*o?[[:space:]]|pipefail' "$f" 2>/dev/null || continue
+  grep -qE 'pipefail' "$f" 2>/dev/null || continue
+  h="$(python3 -c '
+import re,sys
+STREAM = re.compile(r"(git\s+(log|diff|show|rev-list)|grep\s+-[a-zA-Z]*r|grep\s+-r|find\s|(^|[|(=$\s])ls\s|(^|[|(=$\s])seq\s|(^|[|(=$\s])cat\s+[\"\x27]?[\w./$-])")
+EARLY  = re.compile(r"\|\s*(head\b|grep\s+-[a-zA-Z]*q|grep\s+-[a-zA-Z]*m|sed\s+-n[^|]*q\b)")
+NEUT   = re.compile(r"\|\|\s*(true|:)\b|pipefail-safe:")
+try: lines=open(sys.argv[1],encoding="utf-8",errors="replace").read().split("\n")
+except Exception:
+    print("0:UNREADABLE - this clause could not read the file and is NOT passing it"); sys.exit(0)
+st = next((i for i,l in enumerate(lines) if "--self-test" in l and "1:-" in l), len(lines))
+out=[]
+for i,line in enumerate(lines[:st]):
+    code=line.split("#",1)[0]
+    if not EARLY.search(code): continue          # last stage must be an early-exit consumer
+    if not STREAM.search(code): continue          # ...fed by a streaming producer
+    if NEUT.search(line): continue                # neutralised or sanctioned (comment counts)
+    if i and "pipefail-safe:" in lines[i-1]: continue
+    out.append("%d:%s" % (i+1, line.strip()))
+    if len(out)>=5: break
+print("\n".join(out))
+' "$f" 2>/dev/null)"
+  [ -n "$h" ] || continue
+  echo "check-gate-integrity: SIGPIPE HAZARD in '$f' — a streaming producer feeds an early-exit consumer under pipefail (rc 141 / fail-open):" >&2
+  printf '%s\n' "$h" | sed 's/^/    /' >&2
+  PFPIPE=$((PFPIPE + 1))
+done
+[ "$PFPIPE" -eq 0 ] || viol=$((viol + PFPIPE))
+
 if [ "$viol" -gt 0 ]; then
   echo "check-gate-integrity: $viol integrity issue(s) — a gate that doesn't run is a failure, not a pass." >&2
   # WS-8 (harness-robustness): a GOVERNED run-level waiver clears pre-existing findings the batch did not
