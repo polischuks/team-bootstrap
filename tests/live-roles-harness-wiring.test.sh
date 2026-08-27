@@ -542,5 +542,110 @@ _chk "$(printf '%s' "$CTXD2" | grep -qF 'Review depth: high' && echo yes || echo
 rm -rf "$G"
 
 # ---------------------------------------------------------------------------
+# Observed on run 176-withgauge-platform-integration (2026-08-27), Phase A onward.
+# ---------------------------------------------------------------------------
+echo "AC-19b — a declared role is VALIDATED; an unknown word is ignored with a record:"
+# `⚠ <word>` was unioned into the required set unvalidated. The observed tasks.md carried, in its
+# CONVENTIONS legend, "`⚠ reviewer` where a review lens is load-bearing" — the harness read the
+# documentation OF the notation as a USE of it and assigned a role called `reviewer`: no playbook, no
+# agent, no slug, nothing that can dispatch it. Same discipline judge-tier already applies to a tier
+# word it does not recognise: no guess, and say so.
+V="$(mktemp -d)"; mkdir -p "$V/specs/decl"
+printf '# Spec\n\nA change.\n' > "$V/specs/decl/spec.md"
+printf '# Tasks\n\n## Conventions\n\n- `\xe2\x9a\xa0 reviewer` where a review lens is load-bearing.\n\n## WS-A\n\n- [ ] T1 a `src/auth/x.ts` \xe2\x9a\xa0 security-reviewer\n- [ ] T2 b `src/auth/y.ts` \xe2\x9a\xa0 not-a-role\n' \
+  > "$V/specs/decl/tasks.md"
+( cd "$V" || exit 1; git init -q; git config user.email a@b.c; git config user.name t
+  printf 'x\n' > seed.txt; git add -A; git commit -q -m base ) >/dev/null 2>&1
+ROUT="$( cd "$V" || exit 1; bash "$here/bin/size-from-spec.sh" specs/decl 2>/dev/null | sed -n 's/^roles=//p' )"
+_chk "$(printf '%s' "$ROUT" | grep -qw security-reviewer && echo yes || echo no)" yes \
+  "a REAL declared role is still honoured"
+# NOT `grep -w reviewer`: `-` is a word boundary, so that matches code-reviewer and data-schema-reviewer
+# and would pass whatever the code did. Compare whole tokens.
+_has_token() { printf '%s' "$1" | tr ' ' '\n' | grep -qx "$2"; }
+_chk "$(_has_token "$ROUT" reviewer && echo yes || echo no)" no \
+  "the legend's '⚠ reviewer' does not become an assignment"
+_chk "$(_has_token "$ROUT" not-a-role && echo yes || echo no)" no \
+  "an unknown word after ⚠ is not assigned"
+_chk "$(_has_token "$ROUT" code-reviewer && echo yes || echo no)" yes \
+  "  …and the token check can still SEE a real role (it is not vacuously false)"
+RSN="$( cd "$V" || exit 1; bash "$here/bin/size-from-spec.sh" specs/decl 2>/dev/null | sed -n 's/^reasons=//p' )"
+_chk "$(printf '%s' "$RSN" | grep -qF 'declared-unknown' && echo yes || echo no)" yes \
+  "  …and the rejection is RECORDED, not silent"
+
+echo "AC-47b — a task id wrapped in markdown emphasis still counts:"
+printf '# Tasks\n\n## WS-A\n\n' > "$V/specs/decl/tasks.md"
+for i in 1 2 3 4 5 6 7 8 9 10 11 12 13; do
+  printf -- '- [ ] **T%03d** `[B0]` work on `src/a%s.ts`\n' "$i" "$i" >> "$V/specs/decl/tasks.md"
+done
+_chk "$( cd "$V" || exit 1; bash "$here/bin/size-from-spec.sh" specs/decl 2>/dev/null | sed -n 's/^tasks=//p' )" 13 \
+  "bold-wrapped task ids are counted (the observed tasks.md reported 0 of 30+)"
+rm -rf "$V"
+
+echo "AC-1i — the 'not computed' reason distinguishes NOT CONSULTED from DEGRADED:"
+G2="$(mktemp -d)"; mkdir -p "$G2/specs/dg"
+printf '# Spec\n\nA change.\n' > "$G2/specs/dg/spec.md"
+( cd "$G2" || exit 1; git init -q; git config user.email a@b.c; git config user.name t
+  printf 'x\n' > seed.txt; git add -A; git commit -q -m base ) >/dev/null 2>&1
+CTXG="$( cd "$G2" || exit 1; printf '%s' '/team-bootstrap:deliver specs/dg' \
+        | "$here/bin/delivery-marker-init.sh" 2>/dev/null | _ctx_of )"
+_chk "$(printf '%s' "$CTXG" | grep -qiF 'could not classify' && echo yes || echo no)" yes \
+  "a classifier that RAN and degraded says so, not 'was not consulted'"
+rm -rf "$G2"
+
+echo "AC-25b — a DEGRADED sizing is recomputed when the artefacts arrive:"
+# The root defect, observed on run 176-withgauge-platform-integration. The marker is written ONCE, on
+# the first arm — and for a description-form run that moment is always BEFORE Phase A produces
+# tasks.md, so the sizing degrades. Re-arms then take the `[ -f "$marker" ]` branch, re-state the
+# stored context and exit, so the degraded verdict never recovers: the run stays `pipeline=auto`
+# forever while a perfectly sizable tasks.md sits on disk beside it. That is why the observed run had
+# its marker hand-edited — the orchestrator was doing the harness's job because the harness had
+# stopped doing it.
+E="$(mktemp -d)"; mkdir -p "$E/specs/ed"
+printf '# Spec\n\nAn auth change.\n' > "$E/specs/ed/spec.md"
+( cd "$E" || exit 1; git init -q; git config user.email a@b.c; git config user.name t
+  printf 'x\n' > seed.txt; git add -A; git commit -q -m base ) >/dev/null 2>&1
+# First arm: no tasks.md yet — exactly Phase A's starting state.
+( cd "$E" || exit 1; printf '%s' '/team-bootstrap:deliver specs/ed' | "$here/bin/delivery-marker-init.sh" >/dev/null 2>&1 )
+_chk "$(python3 -c "import json;print(json.load(open('$E/.runs/ed/RUN'))['pipeline'])")" auto \
+  "first arm with no tasks.md ⇒ pipeline=auto (unchanged)"
+_chk "$(python3 -c "import json;print(json.load(open('$E/.runs/ed/RUN')).get('sizing_degraded',''))")" no-tasks-md \
+  "  …and the degradation is recorded"
+
+# Phase A produces the artefacts, and some OTHER gate has meanwhile written to the marker.
+printf '# Tasks\n\n## WS-A\n\n- [ ] T1 a `src/auth/x.ts`\n' > "$E/specs/ed/tasks.md"
+python3 - "$E/.runs/ed/RUN" <<'PYE'
+import json,sys
+p=sys.argv[1]; m=json.load(open(p))
+m['preflight']={'exit':0,'gaps':[],'ack':True}; m['repro_env']=['container:docker']
+json.dump(m, open(p,'w'))
+PYE
+CTXR="$( cd "$E" || exit 1; printf '%s' '/team-bootstrap:deliver specs/ed' \
+        | "$here/bin/delivery-marker-init.sh" 2>/dev/null | _ctx_of )"
+_chk "$(python3 -c "import json;print(json.load(open('$E/.runs/ed/RUN'))['pipeline'])")" full \
+  "a re-arm RESIZES once the artefacts exist — the run stops being stuck at auto"
+_chk "$(python3 -c "import json;print(json.load(open('$E/.runs/ed/RUN')).get('sizing_degraded',''))")" "" \
+  "  …and the degradation is cleared"
+_chk "$(printf '%s' "$CTXR" | grep -qiF 're-sized' && echo yes || echo no)" yes \
+  "  …and the context says the run was re-sized, rather than silently changing under the reader"
+
+echo "AC-25c — the re-size preserves every field the hook does not own:"
+_chk "$(python3 -c "import json;print(json.load(open('$E/.runs/ed/RUN')).get('preflight',{}).get('ack'))")" True \
+  "another gate's preflight ack survives"
+_chk "$(python3 -c "import json;print(','.join(json.load(open('$E/.runs/ed/RUN')).get('repro_env',[])))")" "container:docker" \
+  "another gate's repro_env survives"
+_chk "$(python3 -c "import json;m=json.load(open('$E/.runs/ed/RUN'));print(m.get('baseline_sha','')!='')")" True \
+  "baseline_sha survives (the standing never-clobber invariant)"
+
+echo "AC-25d — an already-sized run is not re-sized on every prompt:"
+B1="$(python3 -c "import json;print(json.load(open('$E/.runs/ed/RUN'))['baseline_sha'])")"
+CTXQ="$( cd "$E" || exit 1; printf '%s' '/team-bootstrap:deliver specs/ed' \
+        | "$here/bin/delivery-marker-init.sh" 2>/dev/null | _ctx_of )"
+_chk "$(printf '%s' "$CTXQ" | grep -qiF 're-sized' && echo yes || echo no)" no \
+  "a run whose sizing already succeeded says nothing about re-sizing"
+_chk "$(python3 -c "import json;print(json.load(open('$E/.runs/ed/RUN'))['baseline_sha'])")" "$B1" \
+  "  …and its baseline is untouched"
+rm -rf "$E"
+
+# ---------------------------------------------------------------------------
 if [ "$fail" -eq 0 ]; then echo "live-roles-harness-wiring: OK"; exit 0; fi
 echo "live-roles-harness-wiring: $fail check(s) FAILED" >&2; exit 1

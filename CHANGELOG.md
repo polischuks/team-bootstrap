@@ -143,6 +143,46 @@ now buys a deeper review than it did, which is a behaviour change, though a stri
   became one; there was a fourth, of a different mapping, and it went unfound until a live run showed
   the two disagreeing.
 
+## [3.2.0] — 2026-08-27
+
+Four defects found by **watching a real delivery run** (`176-withgauge-platform-integration`), none of
+which any test had asked about. The root one explains the other three and explains why that run's
+marker had been edited by hand.
+
+### Fixed
+
+- **A degraded sizing is recomputed when the artefacts arrive.** The marker is written once, on the
+  first arm — and for a description-form run that moment is always *before* Phase A produces
+  `tasks.md`, so the sizing degrades. Every later arm took the `[ -f "$marker" ]` branch, re-stated
+  the stored context and exited, so the degraded verdict never recovered: the run stayed
+  `pipeline=auto` for its whole life with a perfectly sizable `tasks.md` on disk beside it.
+
+  That is why the observed run's marker had `pipeline`, `sizing_degraded` and `risk_categories`
+  hand-written into it — the orchestrator was doing the harness's job because the harness had stopped
+  doing it, while `tier_source` went on claiming `harness`.
+
+  A re-arm now re-sizes a degraded run and says so, once. The scope is narrow: only degraded runs,
+  only the fields the hook owns. New `splice_marker_fields` (atomic, JSON-validated) preserves
+  `precond`, `preflight`, `repro_env`, the acks and `baseline_sha` — which is why the hook refused to
+  rewrite an existing marker at all, and the reason the fix is a field-level splice rather than a
+  rewrite. A run that sized successfully is left alone: re-deciding a settled tier every prompt would
+  make the verdict a moving target for the gates that read it.
+
+- **A declared role is validated against the roles that exist.** `⚠ <word>` was unioned into the
+  required set unvalidated. The observed `tasks.md` carried, in its **conventions legend**,
+  ``- `⚠ reviewer` where a review lens is load-bearing.`` — and the harness read the documentation
+  *of* the notation as a *use* of it, assigning a role called `reviewer`: no playbook, no agent, no
+  slug, nothing that could ever satisfy it. Under the enforce default that is a requirement with no
+  action that meets it. Unknown words are now dropped and recorded as `declared-unknown:<word>`.
+
+- **A task id wrapped in markdown emphasis counts as a task.** `- [ ] **T001**` did not match the
+  counter, so the observed `tasks.md` reported 0 tasks of thirty-odd and the `tasks>=12` tier signal
+  silently read zero.
+
+- **`not computed` names which kind.** "The classifier was not consulted" and "the classifier ran and
+  could not classify: `<reason>`" are different problems fixed in different places; they had collapsed
+  into one sentence.
+
 ## Earlier releases
 
 Entries for majors that are no longer current are archived one file per major, so this file stays the size of the *live* series:

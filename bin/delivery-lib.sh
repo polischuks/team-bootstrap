@@ -538,6 +538,38 @@ inflight_batch() {
   printf '%s' "$line"
 }
 
+# splice_marker_fields MARKER "key=value" … → replace those top-level STRING fields in MARKER,
+# preserving every field the caller did not name.
+#
+# The marker accumulates state from gates that are not the sizing hook — precond, preflight, repro_env,
+# reported_blocks, the acks — which is exactly why delivery-marker-init.sh refuses to rewrite an
+# existing marker wholesale. But refusing to rewrite ANYTHING froze the sizing at first-arm, when a
+# description-form run has no tasks.md yet and therefore always degrades. A field-level splice is the
+# missing middle: the hook updates what it owns and cannot touch what it does not.
+#
+# Same durability discipline as record_required_roles: temp file + mv (atomic), and the result must
+# parse as JSON-shaped before it lands, so a bad splice can never corrupt a run.
+splice_marker_fields() {
+  local mk="$1"; shift
+  [ -n "$mk" ] && [ -f "$mk" ] || return 1
+  local body kv k v tmp
+  body="$(cat "$mk" 2>/dev/null || true)"
+  [ -n "$body" ] || return 1
+  for kv in "$@"; do
+    k="${kv%%=*}"; v="${kv#*=}"
+    if printf '%s' "$body" | grep -q "\"$k\"[[:space:]]*:"; then
+      body="$(printf '%s' "$body" | sed "s/\"$k\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"$k\":\"$(printf '%s' "$v" | sed 's/[&/\\]/\\&/g')\"/")"
+    else
+      body="$(printf '%s' "$body" | sed "s/^{/{\"$k\":\"$(printf '%s' "$v" | sed 's/[&/\\]/\\&/g')\",/")"
+    fi
+  done
+  case "$body" in \{*\}) : ;; *) return 1 ;; esac
+  tmp="$mk.tmp.$$"
+  printf '%s\n' "$body" > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
+  mv "$tmp" "$mk" 2>/dev/null || { rm -f "$tmp"; return 1; }
+  return 0
+}
+
 # record_required_roles BATCH_ID → compute the batch's role set and splice it into ITS ledger line as
 # a flat "required_roles":[…] array.
 #
