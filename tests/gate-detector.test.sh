@@ -26,10 +26,16 @@ trap 'rm -rf "$T"' EXIT
 # an earlier case would attribute another case's finding to this one.
 _flagged() {
   local rel="$1" content="$2" d out
-  d="$T/case$RANDOM$RANDOM"; mkdir -p "$d/$(dirname "$rel")"
+  d="$(mktemp -d "$T/caseXXXXXX")"; mkdir -p "$d/$(dirname "$rel")"
   printf '%s\n' "$content" > "$d/$rel"
   out="$( cd "$d" && "$gate" . 2>&1 )"
-  case "$out" in *GREEN-BY-SKIP*) printf 'yes' ;; *) printf 'no' ;; esac
+  case "$out" in
+    *GREEN-BY-SKIP*)              printf 'yes' ;;
+    *"OK — no green-by-skip"*)    printf 'no'  ;;
+    # Neither line means the gate did not reach a verdict — a crash, a bad-dir exit, an unreadable
+    # library. Reporting that as "no" would make every negative assertion pass against a broken gate.
+    *)                            printf 'crashed' ;;
+  esac
 }
 _c() { if [ "$1" = "$2" ]; then echo "  PASS $3"; else echo "  FAIL $3 (got $1 want $2)" >&2; fail=$((fail + 1)); fi; }
 
@@ -71,6 +77,48 @@ _c "$(_flagged tests/contract.spec.js "$uncond_body")" yes "AC-13 the same strin
 _c "$(_flagged tests/gate_test.exs "$other_cond")" no "AC-14 an unnamed framework's conditional skip is not flagged"
 # AC-14 — the same unnamed framework, unconditional, is flagged: the rule reads the property, not the name.
 _c "$(_flagged tests/gate_test.exs "$other_uncond")" yes "AC-14 the same unnamed framework's unconditional skip is flagged"
+
+
+# --- Regressions caught by the B1 conformance review (R4: a fix must not swallow real findings) ---
+# The rule that decides conditional-vs-unconditional is framework-aware where it has to be: the
+# CALLBACK form is universal, but "first argument is the condition" is a JS test-runner signature.
+# Applying it language-agnostically excused Go, whose t.Skip(args ...any) has no conditional form.
+
+# gate-integrity: sanctioned — fixture: Go's two-argument skip is UNCONDITIONAL (MUST be flagged)
+go_two='	t.Skip(reason, "temporarily disabled while we refactor")'
+# gate-integrity: sanctioned — fixture: nested call inside the first argument (MUST be flagged)
+go_nested='	t.Skip(fmt.Sprintf("%s", "gate invariant"))'
+# gate-integrity: sanctioned — fixture: a conditional NAME merely mentioned in a comment (MUST be flagged)
+comment_mention='test.skip("gate invariant"); // was skipUnless(CI)'
+# gate-integrity: sanctioned — fixture: a merely parenthesised label (MUST be flagged)
+paren_label='test.skip(("gate invariant"));'
+# gate-integrity: sanctioned — fixture: two skips on one line, one conditional, one not (MUST be flagged)
+two_on_a_line='test.skip(isCI, "flaky"); test.skip("gate invariant");'
+# gate-integrity: sanctioned — fixture: a real suite living under docs/ (MUST be flagged)
+docs_suite='it.skip("gate invariant", () => {});'
+
+_c "$(_flagged gate_test.go "$go_two")" yes "AC-13 Go's two-argument skip is unconditional and still flagged"
+_c "$(_flagged gate_test.go "$go_nested")" yes "AC-13 a nested call in the first argument does not excuse the skip"
+_c "$(_flagged tests/gate.spec.ts "$comment_mention")" yes "AC-13 a conditional name in a COMMENT does not excuse the skip"
+_c "$(_flagged tests/gate.spec.ts "$paren_label")" yes "AC-13 a parenthesised label is not a predicate"
+_c "$(_flagged tests/gate.spec.ts "$two_on_a_line")" yes "AC-13 one conditional skip does not excuse another on the same line"
+_c "$(_flagged docs/gate.test.js "$docs_suite")" yes "AC-13 a real test suite under docs/ is still scanned"
+
+# gate-integrity: sanctioned — fixture: a hard-coded TRUE condition is a constant, not a predicate (MUST be flagged)
+const_true='test.skip(true, "gate not implemented");'
+# gate-integrity: sanctioned — fixture: an identifier merely STARTING with `async` (MUST be flagged)
+async_prefix='it.skip(asyncCaseLabel);'
+
+_c "$(_flagged tests/gate.spec.ts "$const_true")" yes "AC-13 a hard-coded true condition is not a predicate"
+_c "$(_flagged tests/gate.spec.ts "$async_prefix")" yes "AC-13 an identifier starting with async is a label, not a callback"
+
+# gate-integrity: sanctioned — fixture: a CHAINED receiver with a constant condition (MUST be flagged)
+chained='test.describe.skip(true, "gate");'
+# gate-integrity: sanctioned — fixture: the same chain, genuinely conditional (must NOT be flagged)
+chained_cond='test.describe.skip(process.env.CI !== "1", "gate");'
+
+_c "$(_flagged tests/gate.spec.ts "$chained")" yes "AC-13 a chained receiver does not hide an unconditional skip"
+_c "$(_flagged tests/gate.spec.ts "$chained_cond")" no "AC-13 a chained receiver's conditional form is still excluded"
 
 [ "$fail" -eq 0 ] && { echo "gate-detector.test.sh: OK"; exit 0; }
 echo "gate-detector.test.sh: $fail failure(s)" >&2; exit 1

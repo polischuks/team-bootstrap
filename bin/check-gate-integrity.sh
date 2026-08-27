@@ -12,10 +12,22 @@
 #
 # NOT flagged (a conditional skip still RUNS under the right condition, and an
 # explicitly-justified deferral is a decision, not a silent hole):
-#   - conditional skips: @pytest.mark.skipif / lines containing `skipif`;
+#   - CONDITIONAL skips, judged per CALL by the shape of the call rather than by a list of
+#     frameworks (_unconditional_skips, below): a callback argument (`() => …`, `function …`,
+#     `x -> …`), a genuine expression as the first argument of a runner whose skip signature is
+#     (condition, description), or a conditional name (skipif / skipIf / skipUnless / skipWhen /
+#     assumeTrue). A LABEL is not a condition — `test.skip(SKIP_REASON)` is flagged — and neither is
+#     a hard-coded constant: `test.skip(true, "…")` is the usual way to make a conditional-form skip
+#     permanent, and it is flagged.
 #   - sanctioned skips: any skip line carrying an inline `gate-integrity:
 #     sanctioned` marker (add `# gate-integrity: sanctioned — <reason>` on the
 #     skip line to record WHY the deferral does not hide a gate).
+#   - DOCUMENTATION that merely quotes a skip (`*.md`, `*.txt`, …) — but never a real test file, even
+#     under `docs/`: the two shared predicates are composed, `_is_doc_path && ! is_test_path`.
+#
+# KNOWN PLATFORM DIVERGENCE (pre-existing, not introduced here): the file scan uses `grep -r --include`,
+# which matches the BASENAME on GNU grep and the WHOLE PATH on BSD/darwin. The set of files scanned
+# therefore differs between a darwin dev machine and ubuntu CI. Worth knowing before tuning the scan.
 #
 # Usage: bin/check-gate-integrity.sh [project-dir]   # default: current dir
 # Exit:  0 clean / not machine-checkable · 1 integrity violation · 64 bad usage
@@ -30,37 +42,128 @@ cd "$root" 2>/dev/null || { echo "check-gate-integrity: bad dir '$root'" >&2; ex
 
 KEY='invariant|constitution|constitutional|gate|contract|security|guard'
 SKIP='@pytest\.mark\.skip|@unittest\.skip|pytest\.skip\(|\.skip\(|\bxit\(|\bxdescribe\(|it\.skip|describe\.skip|test\.skip|t\.Skip\(|@Disabled|@Ignore'
-# Exclusions applied to matched skip lines. Expressed by the PROPERTY, not by a list of frameworks
-# (spec 021 AC-14): a skip that carries a PREDICATE runs under its condition and is therefore not a
-# hole, whichever library spells it. `skipif` used to be the whole rule, so pytest was the only
-# framework whose conditional form was understood and every other one was reported as green-by-skip —
-# a gate that fails on correct code is a gate operators learn to route around (F4).
+
+# _unconditional_skips FILE [MAX] -> `LINENO:text` for each line carrying at least one UNCONDITIONAL
+# skip. A CONDITIONAL skip RUNS under its condition and is not a hole, so it is not a finding.
 #
-# A predicate is one of, and each is anchored to the skip call's FIRST ARGUMENT — never merely
-# present on the line:
-#   - a callback:             .skip(({ browserName }) => …)   .skip(function () …)   .skip(async …)
-#   - a condition-then-label: .skip(cond, "why")  — a first argument that is not a string literal,
-#                             followed by one that is;
-#   - a conditional NAME:     skipif / skipIf / skipUnless / skipWhen / assumeTrue.
-# A LABEL is not a predicate. `test.skip("gate")` and `test.skip(SKIP_REASON)` are both unconditional —
-# the second is why "the first argument is not a string" cannot be the rule on its own — and
-# `it.skip("contract", () => {})` is unconditional too, which is why an unanchored `=>` cannot be
-# either: the arrow there is the test BODY. Both misreads were caught by tests/gate-detector.test.sh
-# before this rule shipped.
-# Anything the regex cannot parse (a first argument containing its own parens or comma) falls through
-# to FLAGGED — a detector in doubt reports, it does not excuse (P10).
-EXCLUDE='skipif|skipIf|skipUnless|skipWhen|assumeTrue|gate-integrity:[[:space:]]*sanctioned'
-EXCLUDE="$EXCLUDE"'|\.skip\([[:space:]]*(\(|function|async|[A-Za-z_$][A-Za-z0-9_$]*[[:space:]]*(=>|->))'
-EXCLUDE="$EXCLUDE"'|\.skip\([[:space:]]*[^"'"'"'[:space:])][^,)]*,[[:space:]]*["'"'"']'
+# This was `grep -vE '<exclusions>'`, and a regex cannot answer the question. Three independent reviews
+# of that version found seven real green-by-skips it excused: Go's `t.Skip(reason, "why")` (Go has no
+# conditional skip form at all, but case-insensitive matching folded a JavaScript signature onto it),
+# `test.skip(true, "...")` (the standard way to make a conditional-form skip permanent -- a constant is
+# not a predicate), a nested call in the first argument, a conditional NAME merely mentioned in a
+# trailing comment, `it.skip(asyncCaseLabel)` (matched `async` as a PREFIX), a parenthesised label, and
+# a second skip sharing a line with a conditional one (the filter dropped whole LINES, not calls).
+#
+# So each skip CALL is classified on its own:
+#   conditional   - a callback first argument (`() => ...`, `function ...`, `x -> ...`); a genuine
+#                   EXPRESSION first argument in a runner whose skip takes a condition first
+#                   (test/it/describe/suite/context/this); or a conditional NAME (skipif / skipIf /
+#                   skipUnless / skipWhen / assumeTrue).
+#   unconditional - everything else: no argument, a string or backtick label, a boolean/numeric
+#                   constant, or a bare identifier used as a label.
+# Comments are stripped before classification, and anything unparseable is REPORTED, not excused (P10).
+_unconditional_skips() {
+  python3 -c '
+import re, sys
+path, mx = sys.argv[1], int(sys.argv[2])
+COND_NAMES = ("skipif", "skipunless", "skipwhen", "assumetrue")
+# The one place a framework name is load-bearing: these runners spell skip as (condition, description).
+# Everywhere else the rule is the SHAPE of the argument, so an unnamed framework behaves correctly.
+COND_FIRST = ("test", "it", "describe", "suite", "context", "this")
+Q = "\"" + "\x27" + "`"
+
+def strip_comments(t):
+    out, q, i = [], None, 0
+    while i < len(t):
+        c = t[i]
+        if q:
+            out.append(c)
+            if c == "\\\\" and i + 1 < len(t): out.append(t[i+1]); i += 2; continue
+            if c == q: q = None
+        elif c in Q: q = c; out.append(c)
+        elif c == "#" or t[i:i+2] in ("//", "--"): break
+        else: out.append(c)
+        i += 1
+    return "".join(out)
+
+def split_args(t, k):
+    # t[k] is the opening paren. -> (top-level args, parsed_ok)
+    depth, q, cur, args, i = 0, None, "", [], k
+    while i < len(t):
+        c = t[i]
+        if q:
+            cur += c
+            if c == "\\\\" and i + 1 < len(t): cur += t[i+1]; i += 2; continue
+            if c == q: q = None
+        elif c in Q: q = c; cur += c
+        elif c in "([{":
+            depth += 1
+            if depth > 1: cur += c
+        elif c in ")]}":
+            depth -= 1
+            if depth == 0:
+                args.append(cur); return [a.strip() for a in args], True
+            cur += c
+        elif c == "," and depth == 1: args.append(cur); cur = ""
+        else: cur += c
+        i += 1
+    return [], False
+
+LIT  = re.compile(r"^(\"|\x27|`|true$|false$|none$|nil$|null$|-?\d+(\.\d+)?$)", re.I)
+CB   = re.compile(r"^(\(.*\)|[A-Za-z_$][\w$]*)\s*(=>|->)|^(async|function)\b")
+EXPR = re.compile(r"[=!<>&|?+*/%.\[(]")
+# The receiver may be a CHAIN (`test.describe.skip(`): match the whole chain and take its LAST
+# segment as the receiver, or a chained call is not recognised as a skip at all.
+CALL = re.compile(r"(?:^|[^\w$.])((?:[A-Za-z_$][\w$]*\s*\.\s*)*)([A-Za-z_$][\w$]*)\s*\(")
+NAMES = ("skip", "skipif", "skipunless", "skipwhen", "assumetrue", "xit", "xdescribe")
+DECOR = re.compile(r"@(Disabled|Ignore)\b|@pytest\.mark\.skip(?!if)\b|@unittest\.skip(?!If|Unless)\b")
+
+def conditional(recv, name, args, ok):
+    if not ok: return False
+    if name.lower() in COND_NAMES: return True
+    if not args or args[0] == "": return False
+    a0 = args[0]
+    while a0.startswith("(") and a0.endswith(")"): a0 = a0[1:-1].strip()
+    if CB.search(a0): return True
+    if LIT.match(a0): return False
+    if len(args) >= 2 and (recv or "").lower() in COND_FIRST and EXPR.search(a0): return True
+    return False
+
+out = []
+try: lines = open(path, errors="replace").read().splitlines()
+except Exception: sys.exit(0)
+for n, raw in enumerate(lines, 1):
+    if re.search(r"gate-integrity:\s*sanctioned", raw, re.I): continue
+    code = strip_comments(raw)
+    hit = False
+    for m in CALL.finditer(code):
+        chain, name = m.group(1), m.group(2)
+        recv = [x for x in re.split(r"\s*\.\s*", chain) if x]
+        recv = recv[-1] if recv else None
+        if name.lower() not in NAMES: continue
+        args, ok = split_args(code, m.end() - 1)
+        if not conditional(recv, name, args, ok): hit = True; break
+    if not hit and DECOR.search(code): hit = True
+    if hit:
+        out.append("%d:%s" % (n, raw))
+        if len(out) >= mx: break
+print("\n".join(out))
+' "$1" "${2:-20}" 2>/dev/null || true
+}
 
 viol=0
 
 # 1) green-by-skip on a gate/invariant/constitutional/contract test -------------
 while IFS= read -r f; do
   [ -n "$f" ] || continue
-  _is_doc_path "${f#./}" && continue     # prose that quotes a skip is not a skipped test (AC-13)
+  # PROSE is not a skipped test: `spec.md` matches the scan glob `--include=*spec*`, so a document that
+  # merely QUOTES a skip was scanned as a suite (measured: this milestone spec.md turned run-tests red).
+  # The two shared definitions are COMPOSED rather than either being re-stated: `_is_doc_path` alone
+  # would exempt the whole `docs/` and `references/` TREES, leaving a real suite at
+  # `docs/tests/gate_test.go` unscanned -- a hole, not a fix.
+  { _is_doc_path "${f#./}" && ! is_test_path "${f#./}"; } && continue   # AC-13
   if printf '%s' "$f" | grep -qiE "$KEY" || grep -qiE "$KEY" "$f" 2>/dev/null; then
-    # Candidate skip lines, minus conditional (skipif) and same-line-sanctioned ones.
+    # Candidate skip lines: the UNCONDITIONAL ones (_unconditional_skips classifies each CALL),
     # A sanction marker is also honoured on the line IMMEDIATELY ABOVE the skip, so a
     # long skip line need not carry an over-length trailing comment.
     sk=""
@@ -70,18 +173,13 @@ while IFS= read -r f; do
       printf '%s' "$prev" | grep -qiE 'gate-integrity:[[:space:]]*sanctioned' && continue
       sk="${sk}${ln}:${text}
 "
-    done < <(grep -nEi "$SKIP" "$f" 2>/dev/null | grep -vEi "$EXCLUDE" | head -20)
+    done < <(_unconditional_skips "$f" 20)
     sk="$(printf '%s' "$sk" | grep -vE '^$' | head -5)"
     [ -n "$sk" ] || continue
     echo "check-gate-integrity: GREEN-BY-SKIP in gate/invariant test '$f':" >&2
     printf '%s\n' "$sk" | sed 's/^/    /' >&2
     viol=$((viol + 1))
   fi
-# The scan matches by FILENAME, and `--include='*spec*'` matches `spec.md` — so a document that merely
-# QUOTES a skip was scanned as if it were a suite. Measured: this milestone's own spec.md, plan.md and
-# tasks.md turned bin/run-tests.sh red by describing the defect. A skip in prose is not a skipped test,
-# so documentation paths are dropped here, through delivery-lib's ONE definition of a doc path
-# (_is_doc_path — shared with the code-delta counter, so "documentation" means one thing in this tree).
 done < <(grep -rlE "$SKIP" . --include='*test*' --include='*spec*' --include='*_test.go' \
   --exclude='*.pyc' \
   --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=.claude \
