@@ -187,7 +187,15 @@ if [ "$tier_source" = "harness" ]; then
     # never shrink it. It also covers the degraded case for free, where --per-batch reports nothing.
     _uniq_into all_cats "$(risk_categories_only "$(printf '%s\n' "$_out" | sed -n 's/^reasons=//p' | head -1)")"
     _uniq_into all_roles "$(printf '%s\n' "$_out" | sed -n 's/^roles=//p' | head -1)"
-    [ -n "$_out" ] && sel_ran=1
+    # sel_ran means the classifier CLASSIFIED, not that it produced bytes. `degraded=1
+    # reason=no-tasks-md` is non-empty output and no classification at all; treating it as a run turned
+    # "there was nothing to classify" into "Risk categories detected: none" — a computed result that
+    # was never computed. AC-1g fixed this for the branch where the classifier is never consulted; the
+    # degraded branch walked straight through it. Observed live on run 176-withgauge-platform-integration.
+    case "$_out" in
+      *degraded=1*) : ;;
+      *) [ -n "$_out" ] && sel_ran=1 ;;
+    esac
     _t="$(printf '%s\n' "$_out" | sed -n 's/^tier=//p' | head -1)"
     case "$_t" in
       single-thread|mvp|full)
@@ -201,7 +209,9 @@ fi
 # predate check (R-3); omitting it is honest — reachable-from-HEAD (R-2) still anchors closure.
 # The tier is a DEPTH as well as a role list (the other half of ADR-0020): derive it once, here,
 # where the tier has just resolved, so the marker field and the context sentence cannot disagree.
-case "$pipeline" in full) _depth=high ;; mvp) _depth=medium ;; *) _depth=low ;; esac
+# ONE definition of the depth mapping, in delivery-lib.sh. This line used to be a second copy, and it
+# drifted the moment the library learned that an unresolved tier must buy the STRICTEST depth.
+_depth="$(review_depth_for_tier "$pipeline")"
 
 _base_f=""; [ -n "$base" ] && _base_f="\"baseline_sha\":\"$base\","
 _spec_f="\"spec_present\":$spec_present,\"tier_source\":\"$tier_source\","

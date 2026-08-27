@@ -115,6 +115,34 @@ this release removes.
   P12 is stricter — and the condition for reopening it. Tracked deliberately: `specs/*/` is
   gitignored, so a debt recorded only in `plan.md` is invisible to whoever could clear it.
 
+## [3.1.0] — 2026-08-27
+
+Two defects observed on a live run (`176-withgauge-platform-integration`), both the same shape: **the
+harness stated a weaker fact than the one it acted on.** Minor rather than patch — an unresolved tier
+now buys a deeper review than it did, which is a behaviour change, though a strictly stricter one.
+
+### Fixed
+
+- **A degraded sizing is reported as `not computed`, never as `none`.** `size-from-spec.sh` returns
+  `degraded=1 reason=no-tasks-md` — non-empty output and no classification at all. The marker treated
+  any non-empty output as "the classifier ran", so a spec with no `tasks.md` produced *"Risk
+  categories detected: none"*: a computed result that was never computed, told to the model about a
+  diff nobody had classified. AC-1g fixed exactly this for the branch where the classifier is never
+  consulted; the degraded branch walked straight through it.
+
+- **An unresolved tier buys the STRICTEST review depth, not the shallowest.** The same marker said, in
+  one breath, *"every tier-reading gate fails closed until Phase A resolves it"* and *"Review depth:
+  low"* — telling the gates to enforce maximally and the model to review minimally.
+  `review_depth_for_tier` answered `low` from its catch-all branch, which covered `single-thread`
+  (legitimately light) together with `auto`, empty and unrecognised (not light — unknown).
+  `single-thread` is now matched explicitly and everything unresolved answers `high`, the rule
+  `tier_base_roles` has followed since 3.0.0.
+
+- **One depth mapping, not two.** `delivery-marker-init.sh` carried its own copy, and it drifted the
+  moment the library learned the stricter answer. v3.0.0's changelog claimed three copies of a mapping
+  became one; there was a fourth, of a different mapping, and it went unfound until a live run showed
+  the two disagreeing.
+
 ## Earlier releases
 
 Entries for majors that are no longer current are archived one file per major, so this file stays the size of the *live* series:
