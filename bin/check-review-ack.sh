@@ -114,7 +114,8 @@ _evaluate() {
   # reviewer_dispatch_count) — not merely a marker string. This upgrades the v2.20.0 forgeable-marker
   # residual (ADR-0006): a review that never dispatched an independent subagent cannot close. single-
   # thread is EXEMPT — P1 sanctions inline reviewers there, which dispatch nothing. Honest limit (N2/
-  # ADR-0006): this proves *a* reviewer subagent of the right type ran, not that it is byte-identical
+  # ADR-0006): this proves *a* reviewer subagent of the right type was DISPATCHED — the record is a
+  # PreToolUse attempt (spec 021 D2, AC-5), so "ran" was already one step beyond it — not that it is byte-identical
   # to `reviewer` nor that the review was substantive.
   local pipeline
   pipeline="$(field_str "$mk" pipeline)"

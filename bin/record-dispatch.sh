@@ -23,7 +23,11 @@
 #     dispatch, foreground and background. So the signal is dispatch OCCURRENCE of a review type.
 #
 # HONEST LIMIT (ADR-0008): subagent_type is model-authored → degradation-proof, NOT forgery-proof; and
-# recording at dispatch proves the reviewer was LAUNCHED, not that it completed or was good (NF1).
+# recording at dispatch proves an INVOCATION WAS REQUESTED — not that it launched, not that it
+# completed, not that it was good (NF1). This hook is PreToolUse: it runs BEFORE the tool does, and
+# returns before anything is known about the outcome. The word used to be "LAUNCHED", which is one
+# claim further than the mechanism reaches (spec 021 D2, AC-4) — the record now says `attempted` in
+# the line itself, and this comment says the same thing.
 #
 # Safety: this hook must never disrupt a dispatch. It ALWAYS exits 0 (recording only — no deadlock, per
 # references/hooks.md). Marker-gated: no active run ⇒ no-op. Disable with TEAM_BOOTSTRAP_DELIVERY_GATE=off.
@@ -57,7 +61,20 @@ record_dispatch() {
   [ -n "$marker" ] && [ -f "$marker" ] || return 0
   rundir="$(dirname "$marker")"
   bid="$(_inflight_batch_id)"
-  printf '{"batch":"%s","subagent_type":"%s"}\n' "$bid" "$stype" >> "$rundir/dispatch.jsonl" 2>/dev/null || true
+  # outcome:"attempted" — the record says what this hook actually SAW (spec 021 D2, AC-4). PreToolUse
+  # fires BEFORE the tool runs, so the only observable here is that a dispatch was requested: not that
+  # it launched, not that the reviewer ran, not that anything came back. The field is the record's own
+  # semantics, carried in the line rather than left to references/review-types.txt — a reader holding
+  # one line must be able to see what it is worth without opening a second file.
+  #
+  # It is ADDITIVE and no reader may require it (AC-4 back-compat): every consumer reads named fields
+  # through field_str and ignores the rest, so pre-3.3.0 records with no `outcome` keep counting toward
+  # the anti-collapse floor. Requiring it would empty that floor of a long-lived ledger's whole history
+  # on the day the field appeared.
+  #
+  # There is no second value. If a later change ever learns an outcome, it belongs in a record written
+  # by whatever observed it — not by this hook, which by construction cannot.
+  printf '{"batch":"%s","subagent_type":"%s","outcome":"attempted"}\n' "$bid" "$stype" >> "$rundir/dispatch.jsonl" 2>/dev/null || true
   return 0
 }
 
@@ -117,6 +134,30 @@ record_dispatch "$payload"
 # power than this hook is entitled to. It also stays NON-blocking — the project already rejected a
 # blocking PreToolUse[Agent|Task] gate because refusing a dispatch pushes review inline (spec-169).
 #
+# TWO DIFFERENT OBJECTS, and this comment used to conflate them (spec 021 D1, AC-1). "Append, never
+# replace" is true of the PROMPT TEXT. It was NOT true of the returned OBJECT: the emitter below used
+# to build `updatedInput` from scratch with a single key, so the object handed back was not the call it
+# was given — `subagent_type` and `description` were simply absent from it.
+#
+# Whether that is FATAL or merely wrong depends on a vendor contract, and the contract is genuinely
+# unsettled — DC-1 (specs/021-…/plan.md §7) is OPEN, and deliberately so:
+#   - for MERGE: the hooks reference, verbatim — "only the fields you include are changed; other
+#     fields stay the same";
+#   - for REPLACE: a comment left BY that cache patch records the harness rejecting every dispatch with
+#     a schema error (observed 2026-08-26..27). Note what that evidence is and is not — a string
+#     hand-written into an untracked plugin-cache file, not a transcript — because weighing it against
+#     a vendor document requires knowing which it is. What is independently checkable is that someone
+#     found it necessary to hand-patch the installed cache with this same fix on 2026-08-27, before
+#     this milestone began.
+# A measurement that claimed to settle it did not: the review roles it watched start were dispatched
+# through that already-patched cache, so they say nothing about the unpatched shape.
+#
+# So this code does not depend on the answer, and that is the point. Returning the ORIGINAL tool_input
+# with `prompt` replaced is a no-op under merge, is what keeps the call valid under replace, and is
+# correct under F3 either way: a hook that augments an input must preserve the input. Correctness that
+# rested on the merge being true would be one vendor release away from dropping `subagent_type` off
+# every review dispatch in the tree.
+#
 # Emitted only when there is something true to add, and skipped entirely on anything unexpected.
 if [ "${TEAM_BOOTSTRAP_DISPATCH_BRIEF:-on}" != "off" ]; then
   _brief="$(printf '%s' "$payload" | "$(dirname "$0")/subagent-brief.sh" 2>/dev/null \
@@ -127,11 +168,21 @@ if [ "${TEAM_BOOTSTRAP_DISPATCH_BRIEF:-on}" != "off" ]; then
     printf '%s' "$payload" | python3 -c 'import json,os,sys
 try: d=json.load(sys.stdin)
 except Exception: sys.exit(0)
-p=(d.get("tool_input") or {}).get("prompt")
+ti=d.get("tool_input")
+if not isinstance(ti,dict): sys.exit(0)
+p=ti.get("prompt")
 b=os.environ.get("TB_BRIEF","")
 if not isinstance(p,str) or not p or not b: sys.exit(0)
-print(json.dumps({"hookSpecificOutput":{"hookEventName":"PreToolUse",
-  "updatedInput":{"prompt":p+"\n\n[harness assignment] "+b}}}))' 2>/dev/null || true
+# The ORIGINAL call, with one field replaced — not a fresh object carrying one field (AC-1, AC-2).
+# dict(ti) is a copy, so nothing that follows can mutate the parsed payload; json.dumps re-encodes
+# every other value through a conformant codec, which keeps quotes and non-ASCII intact AS VALUES
+# where a printf-built object would corrupt them. Not byte-identical on the wire, and it does not need
+# to be: json.dumps defaults to ensure_ascii=True, so "уровень" ships as an escape sequence and decodes
+# back to itself. The property that matters — and the one the test asserts, after parsing — is that the
+# value handed back is the value handed in.
+ui=dict(ti)
+ui["prompt"]=p+"\n\n[harness assignment] "+b
+print(json.dumps({"hookSpecificOutput":{"hookEventName":"PreToolUse","updatedInput":ui}}))' 2>/dev/null || true
   fi
 fi
 exit 0

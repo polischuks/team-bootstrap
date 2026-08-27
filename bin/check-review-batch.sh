@@ -19,6 +19,15 @@ set -uo pipefail
 [ "${TEAM_BOOTSTRAP_DELIVERY_GATE:-on}" = "off" ] && exit 0   # gate-integrity: sanctioned — explicit operator kill switch, not a degraded evaluation
 here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=bin/delivery-lib.sh
+# gate-integrity: sanctioned — THE SEPARATING PRINCIPLE (spec 021 AC-8, plan §8.5, ADR-0023). Clause 4
+# of check-gate-integrity flags "declares blindness, then passes", and this line is that shape on
+# purpose. The difference from the `seen == 0` branch B4 just made fail-closed is not severity, it is
+# WAIVABILITY: a gate that cannot load delivery-lib.sh cannot evaluate ANYTHING, including its own
+# governed waiver — governed_waiver_ok lives in the file that failed to load. Blocking here would
+# therefore be unconditional and un-waivable, a gate no operator can ever clear by any means, which is
+# a worse failure than the one it prevents. `seen == 0`, by contrast, is an evaluable state with a
+# working escape, so it refuses. Absent (exit 0) and stating so is the honest report of a gate that
+# could not start; a gate that CAN start and cannot confirm must refuse.
 . "$here/delivery-lib.sh" 2>/dev/null || { echo "$(basename "$0"): delivery-lib.sh is unreadable — this gate cannot evaluate and is NOT passing; it is absent (AC-48)." >&2; exit 0; }
 
 if [ "${1:-}" = "--self-test" ]; then

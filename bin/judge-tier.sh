@@ -42,7 +42,10 @@ TIMEOUT_S="${TEAM_BOOTSTRAP_TIER_JUDGE_TIMEOUT:-60}"
 # _judge_prompt SPEC_DIR → the strict-contract prompt, or empty when there is nothing to read.
 _judge_prompt() {
   local d="$1" body
-  body="$( { cat "$d/spec.md" "$d/plan.md"; } 2>/dev/null | head -c 24000 )"
+  # pipefail-safe (spec 021 D5): cat STREAMS both files and head -c stops at 24000 bytes, so a
+  # large spec makes this pipeline 141 under pipefail. Only the captured prefix ($body) is used; the
+  # status is not, so || true removes the spurious failure.
+  body="$( { cat "$d/spec.md" "$d/plan.md"; } 2>/dev/null | head -c 24000 || true )"
   [ -n "$body" ] || return 0
   cat <<PROMPT
 You are sizing a software milestone for review depth. Read the specification below and answer with a

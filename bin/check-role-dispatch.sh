@@ -15,7 +15,11 @@
 #
 # HONEST LIMITS (ADR-0008): subagent_type is model-authored ⇒ DEGRADATION-proof, NOT forgery-proof (a decoy
 # review-typed no-op dispatch satisfies it — the ADR-0006 quality/willingness limit); and a dispatch proves
-# the reviewer was LAUNCHED, not that it completed or was good (NF1 — completion rests on check-review-ack).
+# a reviewer invocation was REQUESTED, not that it launched, completed, or was good (NF1). The
+# recorder is a PreToolUse hook and returns before the tool runs, so `attempted` is the whole of what
+# this gate's input asserts (spec 021 D2). Confirmation that a review HAPPENED is a typed verdict —
+# check-role-verdict — and this gate's >=1 floor is an anti-collapse count of attempts, which is a
+# useful and honest thing to count and is not evidence of a completed review.
 #
 # Graceful skips (exit 0): no active marker / not intends_code (AC-3); pipeline is not full|mvp — e.g.
 # single-thread, where P1 sanctions inline roles (AC-3); in-flight batch not kind:code (AC-3).

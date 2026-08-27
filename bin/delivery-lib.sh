@@ -21,12 +21,41 @@
 # Stop-hook false-blocks in a loop. Enable globbing locally and restore the caller's prior -f state
 # (all call sites are `$(resolve_*)` command-subs, so this cannot leak — the restore is belt-and-braces).
 # `ls -t` preserves newest-by-mtime selection (a `find`-based scan would return directory order).
+# The sentinel a tie resolves to: EMPTY as a path ([ -f ] is false, so a marker-gated gate skips),
+# NON-EMPTY as a signal (marker_ambiguous is true, so a decision gate fails closed). Spec 021 D4/AC-9.
+TB_AMBIGUOUS_MARKER='!ambiguous:mtime-tie'
+
 _newest_run_file() {
   local _had_noglob=0; case $- in *f*) _had_noglob=1 ;; esac
   set +f
-  ls -t .runs/*/"$1" 2>/dev/null | head -1 || true
+  # `ls -t` orders by mtime but breaks a TIE lexicographically and says nothing about it, so the loser's
+  # gates silently reason about the wrong run (spec 021 D4). Detect the tie instead of inheriting the
+  # guess: take the newest file, then count how many candidates share its exact mtime. Two or more ⇒
+  # ambiguous. `stat` differs across BSD/GNU, so mtime comes from `ls -t --` boundaries: the run of
+  # leading entries with no newer sibling. Simpler and portable: compare the top TWO by mtime for a tie
+  # using `find`-free `ls`. We already have `ls -t`; add `ls -t` newest + an mtime equality probe.
+  local newest n2
+  newest="$(ls -t .runs/*/"$1" 2>/dev/null | head -1 || true)"
+  if [ -n "$newest" ]; then
+    # The second-newest by the same ordering. If it shares mtime with the newest, it is a tie.
+    n2="$(ls -t .runs/*/"$1" 2>/dev/null | sed -n '2p' || true)"
+    if [ -n "$n2" ] && [ ! "$newest" -nt "$n2" ] && [ ! "$n2" -nt "$newest" ]; then
+      printf '%s' "$TB_AMBIGUOUS_MARKER"
+      [ "$_had_noglob" -eq 1 ] && set -f
+      return 0
+    fi
+  fi
+  printf '%s' "$newest"
   [ "$_had_noglob" -eq 1 ] && set -f
   return 0
+}
+
+# marker_ambiguous MARKER → rc 0 iff MARKER is the mtime-tie sentinel. A decision-bearing gate calls
+# this and fails CLOSED; an ordinary marker-gated gate needs nothing new, because [ -f "$sentinel" ] is
+# already false. The point of the predicate is to keep "ambiguous" distinct from "no run" (a bare
+# empty), which resolve_marker would otherwise collapse at all 29 call sites (plan §8.2).
+marker_ambiguous() {
+  [ "${1:-}" = "$TB_AMBIGUOUS_MARKER" ]
 }
 # _active_run_id → the id of the ACTIVE run, or empty. ONE selection rule, used by BOTH resolvers so
 # the marker and the ledger can never name two different runs (issue #20: they were resolved
@@ -36,9 +65,13 @@ _newest_run_file() {
 #   2. .runs/current — the pointer delivery-marker-init writes when it arms a run. EXPLICIT BEATS
 #      MTIME: a finished sibling whose RUN merely gets touched can no longer hijack selection.
 #   3. newest .runs/*/RUN by mtime — legacy fallback for runs armed before the pointer existed.
-# Deliberately NOT fail-closed on ambiguity: this is on the hot path of every gate and the Stop hook,
-# so refusing to resolve would manufacture a NEW false-block class — the exact failure mode
-# harness-robustness (ADR-0015) removed. Ambiguity degrades to the legacy rule, never to empty.
+# Ambiguity is handled by SEPARATING the two consumers rather than by one blanket rule (spec 021 D4,
+# superseding the earlier "degrades to the legacy rule, never to empty"). Only the legacy mtime rule (3)
+# can tie — an explicit pin (1) or .runs/current (2) names exactly one run — and on a tie the resolver
+# returns the sentinel TB_AMBIGUOUS_MARKER: empty AS A PATH, so a marker-gated gate on the hot path
+# skips exactly as it did before (no new false-block class — ADR-0015 preserved), and non-empty AS A
+# SIGNAL, so a decision gate that calls marker_ambiguous (the Stop hook) fails CLOSED instead of acting
+# on a guess. The value never silently collapses to "the first name wins".
 # STICKINESS (accepted residual): the pointer is explicit, so it does NOT self-correct the way mtime did
 # — if a stray prompt arms the wrong run mid-flight, that pointer holds for the session. Recovery is
 # re-arming the intended run, `rm .runs/current`, or pinning $TEAM_BOOTSTRAP_RUN. The failure direction
@@ -59,26 +92,37 @@ _active_run_id() {
     # A DANGLING pointer (its run was removed/archived) must not resolve to empty — fall through.
     [ -n "$id" ] && [ -f ".runs/$id/RUN" ] && { printf '%s' "$id"; return 0; }
   fi
-  id="$(_newest_run_file RUN)"        # .runs/<id>/RUN → <id>
+  id="$(_newest_run_file RUN)"        # .runs/<id>/RUN → <id>, or the ambiguity sentinel
+  # The sentinel is not a path and must not be sed-mangled into one — pass it through verbatim so
+  # resolve_marker can propagate it (and marker_ambiguous can recognise it) rather than collapsing it
+  # to a broken path or to empty.
+  if [ "$id" = "$TB_AMBIGUOUS_MARKER" ]; then printf '%s' "$id"; return 0; fi
   id="${id#.runs/}"; id="${id%/RUN}"
   printf '%s' "$id"
 }
 
 resolve_ledger() {
   local id; id="$(_active_run_id)"
+  if [ "$id" = "$TB_AMBIGUOUS_MARKER" ]; then printf '%s' "$id"; return 0; fi
   if [ -n "$id" ]; then
     [ -f ".runs/$id/batches.jsonl" ] && printf '%s' ".runs/$id/batches.jsonl"
     return 0
   fi
   # No run resolves at all (no RUN anywhere) — legacy behaviour: a ledger left behind by a run whose
-  # marker was removed is still findable. Nothing is gated on it (every gate is marker-gated).
-  _newest_run_file batches.jsonl
+  # marker was removed is still findable. Nothing is gated on it (every gate is marker-gated). A tie
+  # here yields the sentinel, which is not a ledger path — suppress it, matching the id path above.
+  local legacy; legacy="$(_newest_run_file batches.jsonl)"
+  marker_ambiguous "$legacy" || printf '%s' "$legacy"
 }
 
 # resolve_marker — echo the active RUN marker path (or empty). Same run-scoping rule.
 resolve_marker() {
   local id; id="$(_active_run_id)"
   [ -n "$id" ] || return 0
+  # An ambiguous resolution is returned AS the sentinel: [ -f ] is false for it, so every ordinary
+  # `m="$(resolve_marker)"; [ -n "$m" ] && [ -f "$m" ] || skip` site skips (empty as a path), while a
+  # decision gate that calls marker_ambiguous still sees the signal (non-empty as a value). Spec 021 D4.
+  if [ "$id" = "$TB_AMBIGUOUS_MARKER" ]; then printf '%s' "$id"; return 0; fi
   [ -f ".runs/$id/RUN" ] && printf '%s' ".runs/$id/RUN"
   return 0
 }
@@ -929,6 +973,54 @@ record_precond() {
   esac
 }
 
+# record_governed_waiver KEY BY REASON EXPIRES → insert/replace the top-level governed waiver object
+# "KEY":{"ack":true,"by":…,"reason":…,"expires":…} in the active run marker. rc 0 on success.
+#
+# WHY THIS EXISTS (spec 021 AC-7, plan §8.3). `gate_integrity_waiver` has been a supported escape since
+# harness-robustness and had NO writer anywhere in the tree: its only occurrence outside the gate that
+# reads it was a hand-written fixture in a test. A waiver whose only operator path is "hand-edit JSON
+# inside the run marker" is not a governed escape — it is an undocumented one that happens to be
+# spelled in JSON, and the difference matters precisely when someone is under pressure to get a batch
+# closed. B4 adds a second such waiver (`role_verdict_waiver`), and measured capture in this repo is 0
+# for 7 (plan §8.3), so that one will be reached on the first post-reinstall run. It gets a door.
+#
+# The writer refuses to record anything governed_waiver_ok would reject — an empty `by`/`reason`, a
+# missing or malformed `expires`, an already-expired date. A waiver that records but does not work is
+# worse than none: the operator believes the escape is armed and finds out at the gate.
+#
+# `ack` is always written true. A waiver object with ack:false is not a lesser waiver, it is an absent
+# one, and offering to write it would only create a shape that looks armed and is not.
+record_governed_waiver() {
+  local key="$1" by="$2" reason="$3" expires="$4" marker mk newmk
+  case "$key" in *[!a-z_]*|"") return 1 ;; esac      # a key is a bare identifier, never JSON
+  # Validate through the SAME predicate the gates read with, so the writer and the reader cannot
+  # disagree about what "governed" means (the drift that a second implementation would invite).
+  governed_waiver_ok true "$by" "$reason" "$expires" || return 1
+  # Values land inside JSON strings: a quote or a backslash would produce an unparseable marker, and
+  # this file has no JSON encoder. Reject rather than mangle.
+  case "$by$reason" in *[\\\"]*) return 1 ;; esac
+  marker="$(resolve_marker)"
+  # An ambiguous resolution (B7) is not a path, so [ -f ] rejects it here and the writer fails closed
+  # without needing its own ambiguity test: writing a waiver into a guessed run is the one thing worse
+  # than not writing it.
+  [ -n "$marker" ] && [ -f "$marker" ] || return 1
+  mk="$(cat "$marker" 2>/dev/null || true)"
+  [ -n "$mk" ] || return 1
+  mk="$(_marker_strip_obj_key "$mk" "$key")"
+  newmk="${mk%\}}"
+  if [ "${newmk: -1}" = "{" ]; then
+    newmk="${newmk}\"$key\":{\"ack\":true,\"by\":\"$by\",\"reason\":\"$reason\",\"expires\":\"$expires\"}}"
+  else
+    newmk="${newmk},\"$key\":{\"ack\":true,\"by\":\"$by\",\"reason\":\"$reason\",\"expires\":\"$expires\"}}"
+  fi
+  case "$newmk" in
+    \{*\}) _marker_write "$marker" "$newmk" || return 1 ;;
+    *) return 1 ;;
+  esac
+  echo "recorded $key (by=$by, expires=$expires) to $marker — the finding it clears is still printed by the gate." >&2
+  return 0
+}
+
 # json_has_obj_field ARRAYJSON FIELD VALUE → rc 0 if any object in the array-of-objects ARRAYJSON has
 # "FIELD":"VALUE" (whitespace-tolerant). Used by check-seam-ack to test seam_acks presence (AC-5).
 json_has_obj_field() {
@@ -1112,9 +1204,21 @@ risk_rank_int() {
 
 # _is_doc_path PATH → rc 0 if the path is documentation / non-code.
 # ONE definition of the non-doc boundary, shared by delta + stamp.
-_is_doc_path() {
+# _is_doc_file PATH → rc 0 if the FILE ITSELF is prose, by extension. Split out of _is_doc_path because
+# the two questions differ: "is this line documentation for the code-delta count?" takes the whole
+# docs/ and references/ TREES, while "is this file prose rather than a suite?" must not — a real test
+# living at docs/tests/gate_test.go is a suite, and exempting it from a gate would be a hole
+# (check-gate-integrity, spec 021 AC-13). One definition each, and the tree rule composes the file rule.
+_is_doc_file() {
   case "$1" in
-    *.md|*.mdx|*.txt|docs/*|references/*|LICENSE|CHANGELOG*) return 0 ;;
+    *.md|*.mdx|*.txt|LICENSE|CHANGELOG*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+_is_doc_path() {
+  _is_doc_file "$1" && return 0
+  case "$1" in
+    docs/*|references/*) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -1136,6 +1240,60 @@ code_since_baseline() {
   [ -n "$shas" ] || return 1
   d="$(nondoc_delta_of_shas "$shas")"; case "$d" in ''|*[!0-9]*) d=0 ;; esac
   [ "$d" -gt 0 ]
+}
+
+# code_state_since ANCHOR → echoes exactly one of `code` | `no-code` | `cannot-determine`. rc always 0.
+#
+# THREE-VALUED ON PURPOSE (spec 021 D7, plan §8.1). code_since_baseline returns rc 1 for *no code*, for
+# an *unresolvable anchor*, and for *git producing nothing* — three different facts behind one value.
+# At its existing call site rc 1 pushes toward BLOCK, so the overload is harmless there. D7 needs the
+# opposite mapping for one of them ("no code since the anchor" ⇒ the flow is waiting, do not block),
+# and reusing rc 1 would have made an amended history, a shallow clone, or a Stop firing outside the
+# repo read as "nothing to deliver" — letting an announced-unclosed code batch stop cleanly. So the
+# three facts get three answers, and `cannot-determine` blocks exactly as today.
+#
+# COMMITS ARE NOT THE WHOLE OBSERVABLE. An announced batch with real but UNCOMMITTED non-doc edits is
+# the spec's own "code exists, batch not closed" fixture; a commit-only anchor would let it stop
+# cleanly. So the dirty working tree is read too, through the same `git status --porcelain` +
+# _is_doc_path pair gate_cache_key already uses. A doc-only edit is not code — committing tasks.md
+# while waiting must not flip waiting into skipping, or the relaxation delivers nothing.
+code_state_since() {
+  local anchor="${1:-}" bfull shas d line path
+  bfull="$(resolve_sha "$anchor")" || bfull=""
+  [ -n "$bfull" ] || { printf 'cannot-determine'; return 0; }
+
+  # 1) committed code since the anchor.
+  shas="$(git log --format=%h "${bfull}..HEAD" 2>/dev/null | head -200 | tr '\n' ' ')" \
+    || { printf 'cannot-determine'; return 0; }
+  if [ -n "$shas" ]; then
+    d="$(nondoc_delta_of_shas "$shas")"; case "$d" in ''|*[!0-9]*) d=0 ;; esac
+    [ "$d" -gt 0 ] && { printf 'code'; return 0; }
+  fi
+
+  # 2) uncommitted non-doc edits. A `git status` ERROR must not read as a clean tree: the loop would
+  # produce nothing and the caller would see `no-code`, which is a fail-OPEN on exactly the state this
+  # predicate exists to catch. Probe the exit first (same posture as _dirty_control_surface).
+  local status_out
+  # ONE invocation, exit checked: a git-status ERROR must fail closed, not read as a clean tree (the
+  # loop would produce nothing → caller sees no-code → fail-OPEN on exactly the state this catches).
+  status_out="$(git status --porcelain 2>/dev/null)" || { printf 'cannot-determine'; return 0; }
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    path="${line:3}"
+    # A rename record is "XY orig -> new"; the destination is what now exists.
+    case "$line" in [RC]*|" "[RC]*) path="${path##* -> }" ;; esac
+    [ -n "$path" ] || continue
+    # The harness's OWN run directory is never the code under delivery. This repo gitignores `.runs/`,
+    # so it would not appear here — but a project that has not is one `git status` away from every Stop
+    # reading its own ledger as uncommitted code and blocking forever. Excluded on what the path IS,
+    # not on whether someone remembered to ignore it.
+    case "$path" in .runs/*|.runs) continue ;; esac
+    _is_doc_path "$path" || { printf 'code'; return 0; }
+  done <<EOF
+$status_out
+EOF
+
+  printf 'no-code'
 }
 
 # --- F1 (red-touches-tests) test-path detection --------------------------------
@@ -1244,6 +1402,42 @@ nondoc_delta_of_shas() {
   done
   printf '%s' "$total"
 }
+# last_closure_sha → the first commit_sha of the LAST closed ledger entry, if git can resolve it; empty
+# otherwise. The one definition of "where the previous closure ended", read by current_batch_base (the
+# batch window) and by closure_anchor (D7). It used to be inline in current_batch_base only.
+last_closure_sha() {
+  local ledger since
+  ledger="$(resolve_ledger)"
+  [ -n "$ledger" ] && [ -f "$ledger" ] || return 0
+  since="$(grep '"status":"closed"' "$ledger" 2>/dev/null | tail -1 \
+    | sed -nE 's/.*"commit_shas":\[[[:space:]]*"([0-9a-fA-F]+)".*/\1/p')"
+  [ -n "$since" ] && git rev-parse --verify -q "$since^{commit}" >/dev/null 2>&1 || return 0
+  printf '%s' "$since"
+}
+
+# closure_anchor → the sha past which code is NOT covered by any closure: the last closure if there is
+# one, else the run's own harness-stamped baseline. Empty when neither exists.
+#
+# WHY NOT current_batch_base (correcting plan §8.1, which said to reuse it). That helper answers a
+# different question — "what should this batch's diff be measured against" — and to answer it always,
+# it falls back to origin/main, then to HEAD~1. Measured: with no closed batch and baseline_sha == HEAD
+# it returns `HEAD~1`, which drags the run's own last commit into the window and reports `code` for a
+# run that has shipped nothing.
+#
+# For the batch window a guess is serviceable. For D7 it is not: the whole requirement (R3) is that the
+# waiting/skipping signal rest on a HARNESS-STAMPED observable, and neither origin/main nor HEAD~1 is
+# evidence about what a closure covers. So this anchor uses only the two stamped facts and returns
+# empty rather than guessing — and an empty anchor is `cannot-determine`, which blocks.
+closure_anchor() {
+  local marker mk sha
+  sha="$(last_closure_sha)"
+  [ -n "$sha" ] && { printf '%s' "$sha"; return 0; }
+  marker="$(resolve_marker)"
+  [ -n "$marker" ] && [ -f "$marker" ] || return 0
+  mk="$(cat "$marker" 2>/dev/null || true)"
+  printf '%s' "$(field_str "$mk" baseline_sha)"
+}
+
 
 # --- F2 (diff-coverage) batch window ------------------------------------------
 # current_batch_base — echo the base ref/sha for the IN-FLIGHT batch's diff, using the EXACT
@@ -1253,14 +1447,8 @@ nondoc_delta_of_shas() {
 # and cannot drift (spec R1). Echoes a usable base (empty only in a repo with no HEAD~1).
 current_batch_base() {
   local ledger since base b marker mk bsha
-  ledger="$(resolve_ledger)"
-  if [ -n "$ledger" ] && [ -f "$ledger" ]; then
-    since="$(grep '"status":"closed"' "$ledger" 2>/dev/null | tail -1 \
-      | sed -nE 's/.*"commit_shas":\[[[:space:]]*"([0-9a-fA-F]+)".*/\1/p')"
-    if [ -n "$since" ] && git rev-parse --verify -q "$since^{commit}" >/dev/null 2>&1; then
-      printf '%s' "$since"; return 0
-    fi
-  fi
+  since="$(last_closure_sha)"
+  [ -n "$since" ] && { printf '%s' "$since"; return 0; }
   # first batch (no closed batch yet): the window starts at the RUN's OWN baseline_sha, not
   # origin/main. Using origin/main here can drag pre-run commits (even the run baseline itself)
   # into commit_shas, which check-delivery then flags as predate/forged and check-tdd's oldest-

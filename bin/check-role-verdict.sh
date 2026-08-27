@@ -10,9 +10,11 @@
 #   but shapeless.
 #
 #   verify-batch gate (`--gate`): every role required for the in-flight batch must have a recorded,
-#   well-formed verdict. Enforced only where extraction is known to work in this environment (at least
-#   one verdict recorded for the batch); otherwise reported as a declared degradation rather than
-#   pretended — a gate that cannot see must say so, never pass quietly.
+#   well-formed verdict. A batch with ZERO captured verdicts is a REFUSAL (exit 1), not a degraded pass:
+#   the gate says it cannot confirm and then declines to confirm (spec 021 D3, AC-6; F1; P10). This
+#   header used to end "a gate that cannot see must say so, never pass quietly" while the code passed
+#   quietly anyway — saying so was never the whole obligation. The single relief is a governed,
+#   expiring run-scoped `role_verdict_waiver` (AC-7), consulted after the finding is printed.
 #
 # WHY IT BLOCKS ONLY ON PROVABLE MALFORMATION. Blocking on "no verdict found" would deadlock every
 # review whose transcript this cannot parse, which is a worse failure than the one being prevented
@@ -31,8 +33,40 @@ set -uo pipefail
 [ "${TEAM_BOOTSTRAP_DELIVERY_GATE:-on}" = "off" ] && exit 0   # gate-integrity: sanctioned — explicit operator kill switch
 here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=bin/delivery-lib.sh
+# gate-integrity: sanctioned — THE SEPARATING PRINCIPLE (spec 021 AC-8, plan §8.5, ADR-0023). Clause 4
+# of check-gate-integrity flags "declares blindness, then passes", and this line is that shape on
+# purpose. The difference from the `seen == 0` branch B4 just made fail-closed is not severity, it is
+# WAIVABILITY: a gate that cannot load delivery-lib.sh cannot evaluate ANYTHING, including its own
+# governed waiver — governed_waiver_ok lives in the file that failed to load. Blocking here would
+# therefore be unconditional and un-waivable, a gate no operator can ever clear by any means, which is
+# a worse failure than the one it prevents. `seen == 0`, by contrast, is an evaluable state with a
+# working escape, so it refuses. Absent (exit 0) and stating so is the honest report of a gate that
+# could not start; a gate that CAN start and cannot confirm must refuse.
 . "$here/delivery-lib.sh" 2>/dev/null || { echo "$(basename "$0"): delivery-lib.sh is unreadable — this gate cannot evaluate and is NOT passing; it is absent (AC-48)." >&2; exit 0; }
 SCHEMA="$here/../references/schemas/role-output.schema.json"
+
+# --- the operator door (spec 021 AC-7, T027) ---------------------------------
+# `--waive BY REASON EXPIRES` records the governed waiver this gate reads. It exists because a waiver
+# reachable only by hand-editing JSON inside a run marker is not a governed escape — nothing records
+# who opened it or when it closes except the discipline of whoever was editing, and that is exactly the
+# discipline under pressure when a batch will not close. Validation is record_governed_waiver's, which
+# is governed_waiver_ok's, which is this gate's: one definition, so a waiver that records always works
+# and one that would not work is refused here with a reason instead of failing later at the gate.
+# Procedure and the standard for a good `reason`: references/enforcement.md.
+if [ "${1:-}" = "--waive" ]; then
+  shift
+  if [ "$#" -ne 3 ]; then
+    echo "usage: $(basename "$0") --waive BY REASON EXPIRES(YYYY-MM-DD)" >&2
+    echo "  records role_verdict_waiver in the active run marker. Expiry is mandatory and must be in the future." >&2
+    exit 64
+  fi
+  record_governed_waiver role_verdict_waiver "$1" "$2" "$3" || {
+    echo "$(basename "$0"): REFUSED to record role_verdict_waiver — needs a non-empty by and reason, and a future YYYY-MM-DD expires, under an unambiguous active run." >&2
+    exit 1
+  }
+  exit 0
+fi
+
 
 # required_fields_for ROLE → space-separated field names role-output.schema.json requires of ROLE.
 # Empty when the role is unknown or declares none (in which case there is nothing to confirm and the
@@ -81,9 +115,9 @@ _hook_mode() {
   [ -n "$role" ] || exit 0   # gate-integrity: sanctioned — not a team-bootstrap review role: out of scope for this hook
   tr="$(printf '%s' "$payload" | grep -oE '"transcript_path"[[:space:]]*:[[:space:]]*"[^"]*"' \
     | head -1 | sed -E 's/.*"([^"]*)"[[:space:]]*$/\1/')"
-  [ -n "$tr" ] && [ -f "$tr" ] || exit 0   # gate-integrity: sanctioned — no transcript to read; the --gate pass reports this as DEGRADED, so it is recorded there rather than here
+  [ -n "$tr" ] && [ -f "$tr" ] || exit 0   # gate-integrity: sanctioned — no transcript to read. This is the HOOK, which must not block a subagent it cannot parse; the absence surfaces as zero captures, and --gate now REFUSES on that (AC-6) rather than reporting a degraded pass.
   obj="$(_verdict_obj "$tr" "$role")"
-  [ -n "$obj" ] || exit 0   # gate-integrity: sanctioned — no verdict object to judge; the --gate pass reports the absence as DEGRADED
+  [ -n "$obj" ] || exit 0   # gate-integrity: sanctioned — no verdict object to judge; the absence surfaces as zero captures and --gate refuses on it (AC-6)
 
   missing=""
   for f in $(required_fields_for "$role"); do
@@ -124,10 +158,33 @@ _gate_mode() {
   [ -n "$req" ] || { echo "check-role-verdict: batch '$bid' requires no review roles — nothing to confirm."; return 0; }
 
   if [ "${seen:-0}" -eq 0 ]; then
-    # DECLARED degradation, never a quiet pass: no verdict was captured for this batch at all, so the
-    # extraction path is unproven HERE and enforcing would block every close on a capability question.
+    # A gate that declares its own blindness and then passes is the green-by-skip this whole tree exists
+    # to refuse (spec 021 D3, AC-6; F1; constitution P10). The sentence below is UNCHANGED — it was
+    # always right, and "UNVERIFIED for this batch, not satisfied" is a description of a failure. Only
+    # the return value used to disagree with it. It no longer does.
+    #
+    # The counter-argument this branch used to make for itself — that enforcing would block every close
+    # on a capability question — is true, and is not a reason to pass. It is a reason to have a governed
+    # escape, which is what follows. Measured (plan §8.3): capture is 0 for 7 in this repo, so after this
+    # change the waiver is the ONLY way a kind:code batch closes here until the capture channel is fixed,
+    # and fixing it is out of this milestone's scope. That is stated in the CHANGELOG rather than
+    # softened here, because softening it is the defect.
     echo "check-role-verdict: DEGRADED — no role verdict was captured for batch '$bid' (required: [$req]). The SubagentStop capture did not run or could not read a transcript; role confirmation is UNVERIFIED for this batch, not satisfied." >&2
-    return 0
+
+    # AC-7 — the waiver is consulted AFTER the finding is printed, never instead of it: a governed
+    # escape that silences its own finding is an invisible one. Run-scoped (OQ-2: per-batch invites one
+    # per batch) and routed through the SAME governed_waiver_ok that backs gate_integrity_waiver — one
+    # definition of "governed", already proven, so ack+by+reason+expires and an unexpired date are not
+    # re-implemented here to drift. A bare `ack` is not a waiver.
+    if governed_waiver_ok \
+         "$(field_in_obj "$mk" role_verdict_waiver ack)" \
+         "$(field_in_obj "$mk" role_verdict_waiver by)" \
+         "$(field_in_obj "$mk" role_verdict_waiver reason)" \
+         "$(field_in_obj "$mk" role_verdict_waiver expires)"; then
+      echo "check-role-verdict: WAIVED by a governed role_verdict_waiver (finding surfaced above; by/reason/expires recorded, expiry forces re-review) — exit 0. See references/enforcement.md for the procedure." >&2
+      return 0
+    fi
+    return 1
   fi
   missing=""
   for r in $req; do

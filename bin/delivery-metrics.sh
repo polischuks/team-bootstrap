@@ -23,6 +23,43 @@ _pct() { # $1=numerator $2=denominator → integer percent, or "n/a" when there 
   printf '%d' $(( $1 * 100 / $2 ))
 }
 
+# _scan_waivers → sets RUNS_CODE and RUNS_WAIVED: of the runs that closed at least one kind:code
+# batch, how many did so under a governed waiver recorded in their marker.
+#
+# R2's own stated mitigation (spec 021 §8), and it had no task until T028. The risk R2 names is that
+# `role_verdict_waiver` stops being an event and becomes the way batches close — and measured capture
+# in this repo is 0 for 7 (plan §8.3), so that is the DEFAULT trajectory here, not a tail case. A
+# number nobody computes is a mitigation nobody has. This one is computed from the markers themselves,
+# so it cannot be talked up.
+#
+# The denominator is RUNS, matching the waivers scope (OQ-2: run-scoped, because a per-batch waiver
+# invites one per batch). A run that closed no code batch is not counted either way — it was never in
+# a position to need one.
+_scan_waivers() {
+  RUNS_CODE=0; RUNS_WAIVED=0
+  local d mk
+  for d in .runs/*/; do
+    [ -f "$d/batches.jsonl" ] || continue
+    grep -q '"kind":[[:space:]]*"code"' "$d/batches.jsonl" 2>/dev/null || continue
+    RUNS_CODE=$((RUNS_CODE + 1))
+    [ -f "$d/RUN" ] || continue
+    mk="$(cat "$d/RUN" 2>/dev/null || true)"
+    # A run counts as waived only if a waiver is actually EFFECTIVE — the same governed_waiver_ok the
+    # gates read with. A bare substring match would count an expired (ineffective) waiver, or the key
+    # merely appearing inside a reason string, and inflate the very number R2 watches. Undated markers
+    # (the metric has no "now") use the stored expires against today, exactly as the gate would.
+    for _w in role_verdict_waiver gate_integrity_waiver; do
+      if governed_waiver_ok \
+           "$(field_in_obj "$mk" "$_w" ack)" \
+           "$(field_in_obj "$mk" "$_w" by)" \
+           "$(field_in_obj "$mk" "$_w" reason)" \
+           "$(field_in_obj "$mk" "$_w" expires)"; then
+        RUNS_WAIVED=$((RUNS_WAIVED + 1)); break
+      fi
+    done
+  done
+}
+
 _scan() { # sets: TOTAL RECORDED NONDEFAULT
   TOTAL=0; RECORDED=0; NONDEFAULT=0
   local d line bid rec sized tier base
@@ -64,6 +101,17 @@ if [ "${1:-}" = "--self-test" ]; then
   _c "$t" "3" "doc batches are excluded from the denominator"
   _c "$r" "2" "batches without required_roles count as NOT recorded"
   _c "$n" "1" "only a set naming a non-default role counts as non-default"
+  # T028 — the waiver share. A run with no code batch is outside the denominator entirely; a code run
+  # with no waiver is in the denominator and not the numerator; a waived one is in both.
+  ( cd "$T" || exit 1; mkdir -p .runs/w .runs/nocode
+    printf '%s\n' '{"id":"B1","kind":"code"}' > .runs/w/batches.jsonl
+    printf '%s\n' '{"run":"w","role_verdict_waiver":{"ack":true,"by":"f","reason":"r","expires":"2099-01-01"}}' > .runs/w/RUN
+    printf '%s\n' '{"id":"D1","kind":"doc"}' > .runs/nocode/batches.jsonl
+    printf '%s\n' '{"run":"nocode","gate_integrity_waiver":{"ack":true,"by":"f","reason":"r","expires":"2099-01-01"}}' > .runs/nocode/RUN
+    . "$here/delivery-lib.sh"; _scan_waivers; printf '%s %s\n' "$RUNS_CODE" "$RUNS_WAIVED" ) > "$T/wout" 2>/dev/null
+  read -r rc rw < "$T/wout"
+  _c "$rc" "2" "the waiver denominator counts runs that closed a code batch (r and w, not the doc-only run)"
+  _c "$rw" "1" "a waiver on a run that closed no code batch does not inflate the numerator"
   rm -rf "$T"
   [ "$fail" -eq 0 ] && { echo "delivery-metrics --self-test: OK"; exit 0; }
   echo "delivery-metrics --self-test: $fail FAILED" >&2; exit 1
@@ -77,12 +125,14 @@ if [ -n "${1:-}" ]; then
 fi
 
 _scan
+_scan_waivers
 LIVE="$("$here/eval-role.sh" --liveness 2>/dev/null | sed -n 's/.*: \([0-9]*\)\/\([0-9]*\) assignable.*/\1\/\2/p' | tail -1)"
 [ -n "$LIVE" ] || LIVE="unknown"
 
 if [ "$JSON" -eq 1 ]; then
-  printf '{"code_batches":%d,"recorded":%d,"enforce_share_pct":"%s","non_default":%d,"non_default_share_pct":"%s","live_role_bindings":"%s"}\n' \
-    "$TOTAL" "$RECORDED" "$(_pct "$RECORDED" "$TOTAL")" "$NONDEFAULT" "$(_pct "$NONDEFAULT" "$RECORDED")" "$LIVE"
+  printf '{"code_batches":%d,"recorded":%d,"enforce_share_pct":"%s","non_default":%d,"non_default_share_pct":"%s","live_role_bindings":"%s","code_runs":%d,"waived_runs":%d,"waived_share_pct":"%s"}\n' \
+    "$TOTAL" "$RECORDED" "$(_pct "$RECORDED" "$TOTAL")" "$NONDEFAULT" "$(_pct "$NONDEFAULT" "$RECORDED")" "$LIVE" \
+    "$RUNS_CODE" "$RUNS_WAIVED" "$(_pct "$RUNS_WAIVED" "$RUNS_CODE")"
   exit 0
 fi
 echo "delivery-metrics (read-only; from .runs/*/batches.jsonl)"
@@ -90,4 +140,5 @@ echo "  code batches seen ................. $TOTAL"
 echo "  closed with a recorded role set ... $RECORDED  ($(_pct "$RECORDED" "$TOTAL")%)   <- target ~100%; lower = the per-role floor was unreachable"
 echo "  assigned set != tier default ...... $NONDEFAULT  ($(_pct "$NONDEFAULT" "$RECORDED")%)   <- near 0 = the selector does not discriminate"
 echo "  live role bindings ................ $LIVE  (eval-role.sh --liveness)"
+echo "  code runs closed under a waiver ... $RUNS_WAIVED/$RUNS_CODE  ($(_pct "$RUNS_WAIVED" "$RUNS_CODE")%)   <- R2: a waiver is an event; a rising share means it became the posture"
 exit 0

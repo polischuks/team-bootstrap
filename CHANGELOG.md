@@ -2,6 +2,64 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.0] — 2026-08-27
+
+**Dispatch and gate integrity** (`specs/021-dispatch-and-gate-integrity`). Two independent defects let
+a batch close green without a confirmed review: a ledger that recorded a dispatch as if it were a
+completed review, and a verdict gate that declared it could not confirm and passed anyway. Both are
+closed, along with five other false-result defects in the gates. See
+[ADR-0023](docs/adr/0023-dispatch-attempt-vs-verdict.md).
+
+### BREAKING
+
+- **A `kind:code` batch with zero captured role verdicts no longer closes.** `check-role-verdict --gate`
+  printed "role confirmation is UNVERIFIED for this batch, not satisfied" and returned 0; it now returns
+  non-zero. The wording is unchanged — the outcome is not.
+  *What the first run after reinstall will hit:* verdict capture was measured at **0 of 7** dispatches
+  in this repository — `SubagentStop` never produced a `verdicts.jsonl`, across every dedicated review
+  type. So on this codebase the refusal fires on essentially every code batch until the capture channel
+  is fixed, which is **out of this milestone's scope**. The sanctioned bridge is a governed, expiring
+  waiver:
+  ```
+  bin/check-role-verdict.sh --waive "<who>" "<why>" <YYYY-MM-DD>
+  ```
+  It records `role_verdict_waiver` (ack/by/reason/expires) in the run marker, the gate still prints the
+  finding, and `bin/delivery-metrics.sh` reports the share of closures running under a waiver. Track the
+  capture channel in an issue rather than letting the share climb. See
+  [references/enforcement.md](references/enforcement.md).
+
+### Fixed
+
+- **A dispatch record is now marked an attempt.** `dispatch.jsonl` lines carry `"outcome":"attempted"`;
+  a `PreToolUse` hook fires before the tool runs and cannot witness a launch, a run, or a result. The
+  field is additive — pre-3.3.0 records without it still count toward the anti-collapse floor. Three
+  consumer comments that claimed a record proved a reviewer "was LAUNCHED"/"ran" are corrected.
+- **`check-gate-integrity` gains two clauses.** Clause 4 flags any `bin/check-*.sh` path that declares
+  blindness (`DEGRADED`/`UNVERIFIED`/`cannot`) and returns 0 — the discriminator is the return, not the
+  word, so honest FAIL messages are untouched. Clause 5 flags the SIGPIPE-under-`pipefail` class: a
+  streaming producer (`git log`, `grep -r`, `find`, `seq`, `cat FILE`) feeding an early-exit consumer
+  (`head`, `grep -q`), which can end a pipeline at 141.
+- **The pipefail class has a fail-OPEN sub-class, not only a false failure.** Under `pipefail`,
+  `producer | grep -q X` can return non-zero **even when `grep` matched**, so the caller reads "not
+  found" for an X that is present — nondeterministic on buffering, so it passes in the small and fails
+  at scale. Both directions are neutralised at the hazard sites and guarded by the meta-check.
+- **The Stop hook tells waiting from skipping.** An announced-unclosed code batch with no code beyond
+  the last closure is the flow *waiting* for the operator before Phase B, and no longer blocks;
+  uncommitted non-doc edits, or a commit past the closure, still block. The anchor is harness-stamped,
+  never an orchestrator declaration.
+- **An ambiguous active run is declared, not guessed.** Two `.runs/*/RUN` sharing the newest mtime with
+  no `.runs/current` yielded whichever sorted first. It now resolves to a sentinel that reads as "no
+  path" to ordinary marker-gated gates (they skip) and as "ambiguous" to decision gates (the Stop hook
+  fails closed). Pin `TEAM_BOOTSTRAP_RUN` or write `.runs/current` to disambiguate.
+
+### Note
+
+This release does **not** claim that "no review ever ran" on v3.2.1. Whether the pre-fix
+`updatedInput` shape actually broke dispatch (DC-1) was never resolved — the only run available was
+measured against an already-patched plugin cache. The B2 fix (hand back the whole `tool_input` with
+only `prompt` amended) is correct whether the vendor merges or replaces `updatedInput`, so nothing here
+depends on the answer.
+
 ## [3.0.0] — 2026-08-26
 
 **Live roles and harness wiring** (`specs/020-live-roles-and-harness-wiring`). The policy layer could

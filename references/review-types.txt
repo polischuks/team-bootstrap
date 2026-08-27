@@ -15,6 +15,28 @@
 # no-op dispatch would satisfy it — the ADR-0006 quality/willingness limit). It proves a reviewer was
 # DISPATCHED and independent (≠ builder type), not that the review was good.
 #
+# WHAT dispatch.jsonl IS, AND WHAT MAY NOT BE CONCLUDED FROM IT (spec 021 D2, AC-4/AC-5, ADR-0023).
+# bin/record-dispatch.sh appends one line per review-typed dispatch:
+#     {"batch":"<id>","subagent_type":"<slug>","outcome":"attempted"}
+# `outcome` is always the literal `attempted`, and there is no other value. The recorder is a
+# PreToolUse hook: it fires BEFORE the tool executes and returns before the outcome exists, so an
+# ATTEMPT is the entirety of what it can witness. The field carries that in the record rather than
+# leaving it to this file, because a reader holding one line must be able to see what the line is
+# worth without opening a second one.
+#
+# MAY be concluded: a review-typed, builder-independent invocation was requested for that batch. That
+# is the anti-collapse floor (check-role-dispatch's >=1, the per-role floor, reviewer_dispatch_count)
+# and it is exactly what defeats the spec-169 collapse, where NO review-typed dispatch is requested.
+#
+# MAY NOT be concluded: that the subagent launched, ran, finished, or returned anything; that a review
+# HAPPENED; that a required role is satisfied. Confirmation of a review is a typed verdict recorded by
+# check-role-verdict from the finished subagent, and nothing else stands in for it. A gate that reads
+# completion out of this file is reading a claim the file never makes.
+#
+# BACK-COMPATIBILITY: `outcome` is additive and no consumer may REQUIRE it. Records written before
+# v3.3.0 have no such field and still count toward every floor above; requiring it would empty a
+# long-lived ledger of its own history the day the field appeared.
+#
 # Membership + the OPTIONAL role column (all-four-role-dispatch, v2.22.0): a line is `slug` OR
 # `slug<TAB>role`. Column 1 (the slug) is what is RECORDED (is_review_type); an optional TAB-separated
 # column 2 is the ATTRIBUTED role (role_of_slug), read by the per-role floor. Only the four dedicated
