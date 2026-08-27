@@ -1,15 +1,23 @@
 #!/usr/bin/env bash
 # tests/dispatch-integrity.test.sh — behavioural test for the PreToolUse[Agent|Task] dispatch hook.
 #
-# The hook's job is to APPEND the harness's brief to a review dispatch's prompt. It does that by
-# returning `hookSpecificOutput.updatedInput` — and it builds that object from scratch, carrying only
-# `prompt`. Every other field of the call (`subagent_type`, `description`) is absent from the object
-# the hook hands back (spec 021 D1).
+# The hook's job is to APPEND the harness's brief to a review dispatch's prompt, which it does by
+# returning `hookSpecificOutput.updatedInput`. The defect this file pins down (spec 021 D1): it used to
+# build that object FROM SCRATCH with a single key, `prompt`, so every other field of the call —
+# `subagent_type`, `description` — was absent from the object the hook handed back.
 #
-# Whether the vendor MERGES that object into tool_input or REPLACES tool_input with it decides whether
-# the defect is inert or fatal, and the two answers disagree (plan.md §1, DC-1 — measured: it merges).
-# These assertions are deliberately stated over the HOOK'S OWN OUTPUT, so they hold either way: a hook
-# that augments an input must hand back the input it augmented (F3).
+# Whether that was inert or fatal depends on whether the vendor MERGES `updatedInput` into `tool_input`
+# or REPLACES `tool_input` with it, and **that question is OPEN** (DC-1, plan.md §7). The hooks
+# reference says merge; a contemporaneous observation of the harness rejecting every dispatch with a
+# schema error says replace, and is why the installed plugin cache was hand-patched with this same fix
+# before the milestone began. A measurement that claimed to settle it toward merge watched roles launch
+# through that already-patched cache, so it settled nothing. Do not read this file as evidence either
+# way, and do not let it talk anyone out of running the decisive experiment: one review dispatch
+# through a verifiably UNPATCHED cache.
+#
+# Which is exactly why every assertion below is stated over the HOOK'S OWN OUTPUT and never over what
+# the vendor does with it. They hold whichever way DC-1 falls: a hook that augments an input must hand
+# back the input it augmented (F3).
 #
 # AC-1 — updatedInput carries every key of the original tool_input, and only `prompt` differs.
 # AC-2 — subagent_type and description survive byte-for-byte, quotes and non-ASCII included.
@@ -50,7 +58,7 @@ _emit() {
 mkdir -p "$T/ok"; _fixture "$T/ok"
 
 # The payload under test: the three fields a real reviewer dispatch carries. `description` and
-# `subagent_type` are the ones the hook drops today.
+# `subagent_type` are the two the hook USED TO drop.
 PROMPT='Review the batch diff for correctness.'
 PAYLOAD='{"tool_name":"Agent","tool_input":{"description":"code review","prompt":"'"$PROMPT"'","subagent_type":"code-reviewer"}}'
 
@@ -107,6 +115,26 @@ if not isinstance(ui,dict): print("no-updatedInput"); sys.exit(0)
 bad=[k for k,v in (("description",os.environ["DESC"]),("subagent_type",os.environ["STYPE"])) if ui.get(k)!=v]
 print("intact" if not bad else "corrupted:"+",".join(bad))' 2>/dev/null)"
 _chk "$survive_verdict" intact "AC-2 subagent_type and description survive byte-for-byte, quote and non-ASCII included"
+
+# AC-1 — "only `prompt` is changed" is about EVERY other key, not only the two this milestone happens to
+# name. Key-set equality plus two named string fields is satisfied by an emitter that keeps every key
+# and rewrites the values of fields it does not recognise: `{k: str(v) for k,v in ti.items()}` passes
+# both, while turning `run_in_background: true` into the string "True" — a dispatch that quietly changes
+# how the reviewer executes. So the survival assertion is made over the WHOLE object, types included.
+PAYLOAD3='{"tool_name":"Agent","tool_input":{"description":"d","prompt":"'"$PROMPT"'","subagent_type":"code-reviewer","model":"opus","run_in_background":true,"max_turns":12}}'
+whole_verdict="$(_emit "$PAYLOAD3" | TB_PAYLOAD="$PAYLOAD3" python3 -c '
+import json,os,sys
+try: out=json.loads(sys.stdin.read().strip() or "{}")
+except Exception: print("unparseable"); sys.exit(0)
+ui=(out.get("hookSpecificOutput") or {}).get("updatedInput")
+if not isinstance(ui,dict): print("no-updatedInput"); sys.exit(0)
+ti=json.loads(os.environ["TB_PAYLOAD"])["tool_input"]
+# Every key except prompt must compare equal AND be of the same type — `True` and "True" are not the
+# same argument, and == alone would not always say so.
+bad=[k for k,v in ti.items()
+     if k!="prompt" and (ui.get(k)!=v or type(ui.get(k)) is not type(v))]
+print("intact" if not bad else "changed:"+",".join(sorted(bad)))' 2>/dev/null)"
+_chk "$whole_verdict" intact "AC-1 every non-prompt field survives with its value AND its type, named or not"
 
 # AC-3 — three no-emit paths. Each must produce EXACTLY nothing on stdout: a partial updatedInput is a
 # call the vendor may reject or, under merge semantics, a silent narrowing of the call.
