@@ -88,11 +88,44 @@ _prose_reasons() {
 # ledger's self-declared risk_rank (ADR-0006): forgeable, therefore one-directional. It can buy extra
 # review; it can never remove review the paths or the prose already earned.
 # `tb-code-reviewer` is the subagent type; `code-reviewer` is the attributed role (review-types.txt).
+# _known_role ROLE → 0 when ROLE is a role the harness can actually dispatch. Source of truth is the
+# ATTRIBUTION column of review-types.txt — the same column check-role-dispatch attributes a dispatch by,
+# so a role that passes here is by construction one a dispatch can satisfy.
+_known_role() {
+  awk -F'\t' -v r="$1" '!/^#/ && NF>1 && $2==r {f=1} END{exit !f}' "$here/../references/review-types.txt" 2>/dev/null
+}
+
+# _declared_roles BODY → the roles the body DECLARES with `⚠ <role>`, validated.
+#
+# Unvalidated, this took any lowercase word after ⚠ and unioned it into the required set. Observed on
+# run 176-withgauge-platform-integration: the tasks.md CONVENTIONS legend read
+#   - `⚠ reviewer` where a review lens is load-bearing.
+# and the harness read the documentation OF the notation as a USE of it, assigning a role called
+# `reviewer` — no playbook, no agent, no slug, nothing that could ever satisfy it. Under the enforce
+# default that is a requirement with no action that meets it.
+#
+# An unrecognised word is now DROPPED and the fact recorded (`declared-unknown:<word>` joins reasons),
+# never guessed at and never assigned. Same discipline judge-tier applies to a tier word it does not
+# know: no verdict beats an invented one, and silence beats both.
+#
+# Output is `roles<TAB>unknowns`, because every caller reads this through command substitution and a
+# SUBSHELL CANNOT WRITE ITS PARENT'S VARIABLES. An earlier draft set a global and the assignment was
+# silently discarded, so the rejections were dropped in silence — the exact defect this function was
+# being changed to remove. judge-tier's _ASK_RC was the same bug; it is worth naming twice.
 _declared_roles() {
-  printf '%s\n' "$1" \
-    | grep -oE '⚠[[:space:]]*[a-z-]+' 2>/dev/null \
-    | sed 's/⚠[[:space:]]*//; s/^tb-code-reviewer$/code-reviewer/' \
-    | sort -u | tr '\n' ' ' | sed 's/[[:space:]]*$//'
+  local w out="" unk=""
+  while IFS= read -r w; do
+    [ -n "$w" ] || continue
+    if _known_role "$w"; then
+      case " $out " in *" $w "*) : ;; *) out="$out $w" ;; esac
+    else
+      case " $unk " in *" $w "*) : ;; *) unk="$unk $w" ;; esac
+    fi
+  done <<EOF
+$(printf '%s\n' "$1" | grep -oE '⚠[[:space:]]*[a-z-]+' 2>/dev/null \
+  | sed 's/⚠[[:space:]]*//; s/^tb-code-reviewer$/code-reviewer/' | sort -u)
+EOF
+  printf '%s\t%s' "${out# }" "${unk# }"
 }
 
 # _roles_set TIER DECLARED CATEGORIES → the review set: the tier's DEPTH base, UNION whatever the task
@@ -193,7 +226,7 @@ if [ "$per_batch" -eq 1 ]; then
        && printf '%s\n' "$wp" | grep -qvE '\.(md|mdx|txt)$|^docs/|^references/'; then
       wt="full"        # a non-doc path is present, so the milestone's stated complexity applies here
     fi
-    dr="$(_declared_roles "$_body")"
+    dr="$(_declared_roles "$_body")"; dr="${dr%%	*}"   # per-WS: roles only; unknowns are reported once, at run level
     wc_="$(_pick cats "$cl_")"
     printf 'ws=%s\ttier=%s\troles=%s\tcats=%s\tpaths=%s\n' "$_ws" "$wt" "$(_roles_set "$wt" "$dr" "$wc_")" "$wc_" \
       "$(printf '%s' "$wp" | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
@@ -230,7 +263,9 @@ paths="$(_paths_in "$(cat "$tasks")")"
 [ -n "$paths" ] || _degrade "no-target-paths"
 
 # --- task count --------------------------------------------------------------
-ntasks="$(grep -cE '^[[:space:]]*-[[:space:]]*\[[ xX]\][[:space:]]*T[0-9]' "$tasks" 2>/dev/null || true)"
+# `[*_`]*` before the id: a task written `- [ ] **T001**` is a task. The observed tasks.md bolded every
+# id and reported 0 tasks of thirty-odd, silently zeroing the `tasks>=12` tier signal.
+ntasks="$(grep -cE '^[[:space:]]*-[[:space:]]*\[[ xX]\][[:space:]]*[*_`]*T[0-9]' "$tasks" 2>/dev/null || true)"
 case "$ntasks" in ''|*[!0-9]*) ntasks=0 ;; esac
 if [ "$ntasks" -eq 0 ]; then
   ntasks="$(sed -n 's/^[[:space:]]*-[[:space:]]*Total tasks:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$tasks" | head -1)"
@@ -261,8 +296,13 @@ prose="$(_prose_reasons "$dir")"
 if [ -n "$prose" ] && [ "$tier" != "full" ]; then
   tier="full"; reasons="${reasons:+$reasons }$prose"
 fi
-declared="$(_declared_roles "$(cat "$tasks")")"
+_decl_pair="$(_declared_roles "$(cat "$tasks")")"
+declared="${_decl_pair%%	*}"
+declared_unknown="${_decl_pair#*	}"; [ "$declared_unknown" = "$_decl_pair" ] && declared_unknown=""
 [ -n "$declared" ] && reasons="${reasons:+$reasons }declared-roles"
+# A dropped declaration is stated, never silent: the author wrote `⚠ something` and is entitled to know
+# the harness did not act on it.
+for _du in $declared_unknown; do reasons="${reasons:+$reasons }declared-unknown:$_du"; done
 roles="$(_roles_set "$tier" "$declared" "$reasons")"
 
 printf 'tier=%s\nroles=%s\nfiles=%s\ntasks=%s\nlayers=%s\nreasons=%s\n' \

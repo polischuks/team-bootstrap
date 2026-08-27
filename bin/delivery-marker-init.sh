@@ -105,7 +105,50 @@ mkdir -p ".runs/$run" 2>/dev/null || exit 0
 # Idempotent: never clobber baseline_sha. The verdict is RE-STATED, though — a run spans many prompts
 # and a context compaction, and the sizing is only useful in the window where it is read.
 if [ -f "$marker" ]; then
-  _emit_ctx "$(sed -n 's/.*"harness_context":"\([^"]*\)".*/\1/p' "$marker" 2>/dev/null | head -1)"
+  _mk_prev="$(cat "$marker" 2>/dev/null || true)"
+  _prev_degraded="$(field_str "$_mk_prev" sizing_degraded)"
+  _prev_ctx="$(sed -n 's/.*"harness_context":"\([^"]*\)".*/\1/p' "$marker" 2>/dev/null | head -1)"
+  _prev_spec="$(field_str "$_mk_prev" spec_path)"
+
+  # RE-SIZE A DEGRADED RUN. The marker is written once, and for a description-form run that moment is
+  # always BEFORE Phase A produces tasks.md — so the sizing degrades, and because every later arm took
+  # this branch and exited, it never recovered. The run stayed `pipeline=auto` for its whole life with
+  # a perfectly sizable tasks.md on disk beside it. Observed on run 176-withgauge-platform-integration,
+  # where the orchestrator hand-edited the marker to `full`: it was doing the harness's job because the
+  # harness had stopped doing it, and `tier_source` went on claiming the harness had decided.
+  #
+  # Narrow on purpose. Only a run whose sizing DEGRADED is recomputed, and only the fields the hook
+  # owns are spliced (splice_marker_fields preserves precond / preflight / repro_env / the acks, and
+  # never touches baseline_sha). A run that sized successfully is left alone: re-deciding a settled
+  # tier on every prompt would make the verdict a moving target for the gates that read it.
+  if [ -n "$_prev_degraded" ] && [ -n "$_prev_spec" ] && [ -f "$_prev_spec" ]; then
+    _rs="$("$(dirname "$0")/size-from-spec.sh" "$_prev_spec" 2>/dev/null || true)"
+    _rs_t="$(printf '%s\n' "$_rs" | sed -n 's/^tier=//p' | head -1)"
+    case "$_rs_t" in
+      single-thread|mvp|full)
+        _rs_depth="$(review_depth_for_tier "$_rs_t")"
+        _rs_reasons="$(printf '%s\n' "$_rs" | sed -n 's/^reasons=//p' | head -1)"
+        _rs_cats="$(risk_categories_only "$_rs_reasons")"
+        _rs_roles="$(printf '%s\n' "$_rs" | sed -n 's/^roles=//p' | head -1)"
+        # TWO strings, deliberately. What is STORED states the settled facts, because every later arm
+        # re-emits it and a stored "RE-SIZED" would keep announcing, on every prompt for the rest of
+        # the run, an event that happened once. What is EMITTED NOW adds the notice, at the only
+        # moment it is news.
+        _rs_ctx="team-bootstrap harness sizing for run $run: pipeline=$_rs_t, tier_source=$tier_source, marker=$marker. Review depth: $_rs_depth (the /code-review low-medium-high scale). Sizing reasons: ${_rs_reasons:-none}. Risk categories detected: ${_rs_cats:-none}. Assigned review roles for this run: ${_rs_roles:-none}."
+        _prev_pipe="$(field_str "$_mk_prev" pipeline)"
+        _rs_note="$_rs_ctx The run was RE-SIZED just now: the first verdict degraded ($_prev_degraded) because the artefacts it needed did not exist yet, and they do now."
+        [ "$_prev_pipe" = "$_rs_t" ] || _rs_note="$_rs_note The stored pipeline was $_prev_pipe."
+        if splice_marker_fields "$marker" \
+             "pipeline=$_rs_t" "review_depth=$_rs_depth" "sizing_degraded=" \
+             "sizing_reasons=$_rs_reasons" "risk_categories=$_rs_cats" \
+             "assigned_roles=$_rs_roles" "harness_context=$(_json_esc "$_rs_ctx")"; then
+          _emit_ctx "$(_json_esc "$_rs_note")"
+          exit 0
+        fi
+        ;;
+    esac
+  fi
+  _emit_ctx "$_prev_ctx"
   exit 0
 fi
 base="$(git rev-parse --short HEAD 2>/dev/null || true)"
@@ -213,6 +256,41 @@ fi
 # drifted the moment the library learned that an unresolved tier must buy the STRICTEST depth.
 _depth="$(review_depth_for_tier "$pipeline")"
 
+# PROVENANCE. This hook rewrites the marker on every prompt, so an edit to a harness-owned field is
+# erased on the next one — silently. Silently is the defect: while the edit lived, every reader saw a
+# model-authored value wearing `tier_source: harness`, and when it vanished nobody learned it had been
+# there. Observed on run 176-withgauge-platform-integration, where `pipeline`, `sizing_degraded` and
+# `risk_categories` had all been hand-written (`sizing_degraded: resolved-in-phase-a` is a string no
+# script in this repo has ever emitted).
+#
+# The overwrite is CORRECT and stays — a computed field belongs to the computation. What changes is
+# that the replacement is STATED, naming the fields that diverged. This does not detect forgery: an
+# edit that happens to match what the harness computes is invisible by construction. It closes the
+# SILENCE, not the gap (the standing ADR-0006/0008 limit).
+#
+# Computed HERE, before the context sentence is built, so the notice is part of that sentence rather
+# than patched into it afterwards.
+_prov=""
+if [ -f "$marker" ]; then
+  _prev="$(cat "$marker" 2>/dev/null || true)"
+  for _pf in pipeline sizing_degraded risk_categories assigned_roles review_depth; do
+    # field_str, not a hand-rolled sed: a hand-edited marker is written by an editor or a JSON
+    # serialiser and comes back as `"pipeline": "full"` WITH the space, which a `":"` pattern misses
+    # entirely — the detector would then be blind to precisely the edits it exists to notice.
+    _old="$(field_str "$_prev" "$_pf")"
+    [ -n "$_old" ] || continue
+    case "$_pf" in
+      pipeline)        _new="$pipeline" ;;
+      sizing_degraded) _new="$sizing_degraded" ;;
+      risk_categories) _new="$all_cats" ;;
+      assigned_roles)  _new="$all_roles" ;;
+      review_depth)    _new="$_depth" ;;
+      *)               _new="" ;;
+    esac
+    [ "$_old" = "$_new" ] || _prov="${_prov:+$_prov }$_pf(was:$_old)"
+  done
+fi
+
 _base_f=""; [ -n "$base" ] && _base_f="\"baseline_sha\":\"$base\","
 _spec_f="\"spec_present\":$spec_present,\"tier_source\":\"$tier_source\","
 [ -n "$spec_path" ] && _spec_f="$_spec_f\"spec_path\":\"$spec_path\","
@@ -226,6 +304,7 @@ _spec_f="$_spec_f\"review_depth\":\"$_depth\","
 # precedent). Empty stays empty here; the CONTEXT states "none" explicitly — a marker field and a
 # sentence have different jobs.
 _spec_f="$_spec_f\"risk_categories\":\"$all_cats\",\"assigned_roles\":\"$all_roles\","
+[ -n "$_prov" ] && _spec_f="$_spec_f\"provenance_overwritten\":\"$(_json_esc "$_prov")\","
 
 # The verdict, as FACT STATEMENTS. The hooks reference is explicit that additionalContext phrased as
 # out-of-band imperatives trips the prompt-injection defence — Claude then shows the text to the user
@@ -245,10 +324,19 @@ if [ -n "$sel_ran" ]; then
   _ctx="$_ctx Risk categories detected: ${all_cats:-none}."
   _ctx="$_ctx Assigned review roles for this run: ${all_roles:-none}."
 else
-  _ctx="$_ctx Risk categories detected: not computed (the classifier was not consulted for this run)."
+  # Two different facts, and the reason names which. "Not consulted" is a run the classifier never saw;
+  # "could not classify" is a run it saw and degraded on. Collapsing them into one sentence sends the
+  # reader looking in the wrong place — the first is a wiring question, the second an artefact one.
+  if [ -n "$sizing_degraded" ]; then
+    _why="the classifier ran and could not classify: $sizing_degraded"
+  else
+    _why="the classifier was not consulted for this run"
+  fi
+  _ctx="$_ctx Risk categories detected: not computed ($_why)."
   _ctx="$_ctx Assigned review roles for this run: not computed; the batch diff sizes each batch alone."
 fi
 [ -n "$ctx_ws" ]  && _ctx="$_ctx Per-work-stream plan: $ctx_ws."
+[ -n "$_prov" ] && _ctx="$_ctx Harness-owned marker fields were overwritten with the computed values: $_prov."
 # Degradation is stated, never inferred from an absent plan. An empty per-work-stream result used to be
 # indistinguishable from "sized it, no floors apply"; size-from-spec now says degraded=1 + a reason, and
 # the marker and the model both carry it. The batch diff remains the backstop either way.
