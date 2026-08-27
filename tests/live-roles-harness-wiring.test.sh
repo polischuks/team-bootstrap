@@ -279,6 +279,16 @@ _chk "$(grep -q -- '--record-red' "$here/bin/check-tdd.sh" && echo yes || echo n
 _chk "$( "$here/bin/check-tdd.sh" --self-test >/dev/null 2>&1 && echo pass || echo fail )" pass \
   "check-tdd --self-test still passes"
 
+echo "AC-29e — no command playbook still instructs the deleted driver:"
+# Deleting the producer while commands/deliver.md kept telling the model to run it left the red step
+# of every code batch pointing at a script that does not exist. The instruction must name the gate's
+# own entry point (check-tdd.sh --record-red); the deleted name may survive only in code comments and
+# in this test's own history, never in a command playbook.
+_chk "$(grep -l 'tdd-red' "$here/commands/"*.md 2>/dev/null | xargs -n1 basename 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')" "" \
+  "no commands/*.md references bin/tdd-red.sh"
+_chk "$(grep -q -- 'check-tdd.sh --record-red' "$here/commands/deliver.md" && echo yes || echo no)" yes \
+  "deliver.md's red step instructs check-tdd.sh --record-red"
+
 echo "AC-29b — --record-red REFUSES to record when the suite is green (no red, no record):"
 R="$(mktemp -d)"
 ( cd "$R" || exit 1

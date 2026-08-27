@@ -223,8 +223,9 @@ Then, for **each batch, one at a time**:
    authorization (constitution P5 / irreversibility); the guard does **not** gate push/`gh pr merge` (the
    remote's branch-protection is that backstop — [../references/irreversibility.md](../references/irreversibility.md)).
    **Red-first, per batch (P9).** At this batch's red step — after writing the failing test(s), before
-   implementing — run `${CLAUDE_PLUGIN_ROOT}/bin/tdd-red.sh --batch <this batch id>`; it requires the
-   `Test:` suite to actually fail and records the observed red. `check-tdd.sh` (in `verify-batch`, below)
+   implementing — run `${CLAUDE_PLUGIN_ROOT}/bin/check-tdd.sh --record-red --batch <this batch id>`; it
+   requires the `Test:` suite to actually fail and records the observed red anchored to the commit that
+   carries the failing test. `check-tdd.sh` (in `verify-batch`, below)
    fails the batch if this code batch has no red recorded before its own commits — every code batch must
    be red-first in its own window (see [../references/tdd.md](../references/tdd.md)).
 5. **`full` means the HARNESS sizes each batch — not "four roles every time" (#27).**
@@ -304,7 +305,7 @@ Then, for **each batch, one at a time**:
    (`check-completeness`) requires this batch's `task_ids` to be `[x]` in `tasks.md` — so mark them the
    moment the work is done-and-self-tested, before the backstop runs; **C** (`check-seam-ack`) blocks a
    batch touching a recorded `high_risk_seams` path — **or the always-present `control-surface` seam** (the
-   plugin's own machinery: `bin/check-*.sh`, `verify-batch.sh`, `delivery-lib.sh`, `tdd-red.sh`,
+   plugin's own machinery: `bin/check-*.sh`, `verify-batch.sh`, `delivery-lib.sh`,
    `record-dispatch.sh`, `hooks/*.json`, `.claude`, `.mcp.json`, `AGENTS.md`, `commands`, `agents`, the list
    file — from `references/control-surface.txt`) — until you record a `seam_acks` entry naming the seam +
    the shipped commit + a `file:line` note. When a batch legitimately edits the machinery (this repo does,
