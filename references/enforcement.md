@@ -329,3 +329,55 @@ Enforcement assumes the reviewer roles are *in the pipeline* to begin with. `cod
 `integration-verifier`, `architecture-reviewer`, and `regression-guardian` are now in **`mvp`,
 `full`, and `single-thread`** — no pipeline ships a batch unreviewed. The harness layers above make
 sure they actually run.
+
+## Governed waivers — the only sanctioned way past a fail-closed gate
+
+Two gates refuse rather than pass when they cannot confirm, and both are relieved the same way: a
+**governed waiver** recorded in the active run marker.
+
+| gate | waiver key | what it relieves |
+|---|---|---|
+| `bin/check-role-verdict.sh --gate` | `role_verdict_waiver` | zero captured role verdicts for the in-flight batch (spec 021 AC-6/AC-7) |
+| `bin/check-gate-integrity.sh` | `gate_integrity_waiver` | pre-existing green-by-skip / can't-fail findings the batch did not introduce |
+
+**Governed** means four fields, all required: `ack:true`, `by`, `reason`, `expires` (`YYYY-MM-DD`, in
+the future). A bare `ack` is not a waiver. An expired one is not a waiver. There is one definition —
+`governed_waiver_ok` in `delivery-lib.sh` — and both the writer and the gates read it, so a waiver that
+records always works and one that would not work is refused at write time with a reason.
+
+### The procedure
+
+```bash
+bin/check-role-verdict.sh --waive "<who>" "<why>" 2099-01-01
+```
+
+```bash
+bin/check-gate-integrity.sh --waive "<who>" "<why>" 2099-01-01
+```
+
+Each writes its own key into the run marker of the active run and prints what it recorded. Until spec
+021 there was **no writer at all**: the only occurrence of `gate_integrity_waiver` outside the gate
+that read it was a hand-written fixture in a test, which made "hand-edit JSON in the run marker" the
+whole procedure. That is not a governed escape — nothing records who opened it or when it closes
+except the discipline of whoever is editing, and that is exactly the discipline under pressure when a
+batch will not close.
+
+### What a waiver does not do
+
+- **It does not silence the finding.** Both gates print the finding *before* consulting the waiver, then
+  announce that they waived it. A governed escape that hides its own finding is an invisible one.
+- **It does not expire on its own terms.** `expires` is mandatory so a waiver is an event with an end
+  date rather than a posture. After it lapses the gate refuses again, which is the point.
+- **It is run-scoped, not batch-scoped.** A per-batch waiver invites one per batch (spec 021 OQ-2).
+
+### Watch the share, not the instance
+
+`bin/delivery-metrics.sh` reports **code runs closed under a waiver** as a share. One waiver is an
+event. A rising share is the mitigation failing: the escape has become the way batches close.
+
+Read this before waiving `role_verdict_waiver` in particular. Verdict capture was measured at **0 of 7**
+dispatches in this repo (spec 021 plan §8.3) — every review-typed subagent, under an armed run with a
+`kind:code` batch in flight, and `verdicts.jsonl` was never created. So after v3.3.0 this waiver is not
+an exception path here; it is the only way a `kind:code` batch closes until the capture channel is
+fixed, and fixing it was explicitly out of that milestone's scope. Waiving it is correct. Waiving it
+without an issue tracking the capture channel is how the number stops being watched.

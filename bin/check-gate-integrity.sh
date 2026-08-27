@@ -38,6 +38,29 @@ here="$(cd "$(dirname "$0")" && pwd)"
 . "$here/delivery-lib.sh"
 
 root="${1:-.}"
+
+# --- the operator door (spec 021 AC-7, T027) ---------------------------------
+# `--waive BY REASON EXPIRES` records the governed waiver this gate reads. It exists because a waiver
+# reachable only by hand-editing JSON inside a run marker is not a governed escape — nothing records
+# who opened it or when it closes except the discipline of whoever was editing, and that is exactly the
+# discipline under pressure when a batch will not close. Validation is record_governed_waiver's, which
+# is governed_waiver_ok's, which is this gate's: one definition, so a waiver that records always works
+# and one that would not work is refused here with a reason instead of failing later at the gate.
+# Procedure and the standard for a good `reason`: references/enforcement.md.
+if [ "${1:-}" = "--waive" ]; then
+  shift
+  if [ "$#" -ne 3 ]; then
+    echo "usage: $(basename "$0") --waive BY REASON EXPIRES(YYYY-MM-DD)" >&2
+    echo "  records gate_integrity_waiver in the active run marker. Expiry is mandatory and must be in the future." >&2
+    exit 64
+  fi
+  record_governed_waiver gate_integrity_waiver "$1" "$2" "$3" || {
+    echo "$(basename "$0"): REFUSED to record gate_integrity_waiver — needs a non-empty by and reason, and a future YYYY-MM-DD expires, under an unambiguous active run." >&2
+    exit 1
+  }
+  exit 0
+fi
+
 cd "$root" 2>/dev/null || { echo "check-gate-integrity: bad dir '$root'" >&2; exit 64; }
 
 KEY='invariant|constitution|constitutional|gate|contract|security|guard'
@@ -278,6 +301,101 @@ for f in bin/check-*.sh; do
   SILENT=$((SILENT + 1))
 done
 [ "$SILENT" -eq 0 ] || viol=$((viol + SILENT))
+
+# 4) DECLARED BLINDNESS THAT PASSES ANYWAY (spec 021 AC-8) -----------------------
+#
+# The fourth way a gate stops gating, and the one that produced this milestone. check-role-verdict's
+# `seen == 0` branch printed, verbatim, "role confirmation is UNVERIFIED for this batch, not
+# satisfied" — and returned 0. Every word of the diagnosis was right; only the exit code disagreed
+# with it. A gate in that shape is worse than a missing gate: it emits evidence of its own failure
+# into a log nobody blocks on, and the batch closes green.
+#
+# F1 settles the rule: a gate that declares it cannot confirm must not confirm. Clause 2 catches the
+# gate that says NOTHING; this one catches the gate that says the right thing and passes regardless.
+#
+# THE DISCRIMINATOR IS THE RETURN, NOT THE VOCABULARY. "cannot" appears in a dozen honest FAIL
+# messages in this tree ("cites a commit git cannot resolve", "cannot verify reviewer independence"),
+# every one of them followed by a refusal. Keying on the word alone would flag them all, and a check
+# that cries wolf on correct code gets switched off — which is the outcome this whole file exists to
+# prevent (F4). So a finding requires BOTH: the declaration, and a 0 reached from it.
+#
+# Three shapes are correctly NOT findings, and each is recognised by something in the code rather than
+# by a hand-stamped exception:
+#   - declare, then `return 1` / `exit 1` — the fix this clause exists to require;
+#   - declare, then pass only through `governed_waiver_ok` — a governed, expiring escape whose finding
+#     is printed before the waiver is consulted (AC-7). Governance is the difference between an escape
+#     and a hole, and it is visible in the source;
+#   - an inline `gate-integrity: sanctioned` marker, the convention the rest of this file already
+#     uses. That door exists for a genuine AC-48 design and must carry its separating principle in the
+#     reason — see check-role-verdict.sh, where a gate that cannot load its own library cannot
+#     evaluate its own waiver either, so blocking there would be unconditional and un-waivable.
+BLIND=0
+for f in bin/check-*.sh; do
+  [ -f "$f" ] || continue
+  b="$(python3 -c '
+import re,sys
+DECL = re.compile(r"(DEGRADED|UNVERIFIED|CANNOT EVALUATE|cannot evaluate|cannot verify|cannot confirm|cannot certify|is BLIND)")
+OUT  = re.compile(r"\b(echo|printf)\b")
+SANC = re.compile(r"gate-integrity:\s*sanctioned", re.I)
+PASS = re.compile(r"(^|[;&|{(]|\s)(return\s+0|exit\s+0)\s*(;|\}|$)")
+STOP = re.compile(r"(^|[;&|{(]|\s)(return\s+[1-9]|exit\s+[1-9])|viol=|fail=|BLIND=|SILENT=")
+GOV  = re.compile(r"governed_waiver_ok")
+try: lines = open(sys.argv[1], encoding="utf-8", errors="replace").read().split("\n")
+except Exception:
+    # A file this clause cannot read is not thereby clean. Fail closed, loudly, like the classifier above.
+    print("0:UNREADABLE — this clause could not read the file and is NOT passing it"); sys.exit(0)
+# The --self-test block belongs to the suite, not to the gate verdict: its fixtures print DEGRADED on
+# purpose and its final `exit 0` is a test result. Excluded, as clause 2 excludes it. (No apostrophes
+# below this line: the whole block is a single-quoted shell string, and one would end it early.)
+st = next((i for i,l in enumerate(lines) if "--self-test" in l and "1:-" in l), len(lines))
+# A sanction may sit on the line itself or anywhere in the contiguous COMMENT BLOCK immediately above
+# it. A one-line trailing marker cannot carry a principle, and this door is only legitimate when it
+# states the principle that separates it from the shape being flagged - so the reason needs room.
+def sanctioned_above(idx):
+    j = idx - 1
+    while j >= 0 and lines[j].strip().startswith("#"):
+        if SANC.search(lines[j]): return True
+        j -= 1
+    return False
+out=[]
+for i,line in enumerate(lines[:st]):
+    if not (OUT.search(line) and DECL.search(line)): continue
+    if SANC.search(line): continue
+    # A VERDICT is what the gate says on its diagnostic channel, or what the script exits with. Text
+    # written to STDOUT and followed by a function `return` is that helper DATA, not a decision:
+    # check-seam-ack emits "(git status failed - cannot verify ...)" on stdout as a sentinel its caller
+    # reads as a dirty path and then fails CLOSED on, and its `return 0` means "output complete".
+    # Flagging it would be the cry-wolf this clause must avoid, and hand-stamping it would hide the
+    # rule. So stdout declarations qualify only when the pass is a script-level `exit 0`.
+    to_err = ">&2" in line
+    def is_verdict(passline):
+        return to_err or "exit" in passline
+    # Same-line form first: `<test> || { echo "... cannot evaluate ..." >&2; exit 0; }`
+    if PASS.search(line):
+        if is_verdict(line) and not sanctioned_above(i):
+            out.append("%d:%s" % (i+1, line.strip()))
+        continue
+    # Otherwise walk forward over code lines only, to the first decision.
+    seen=0
+    for j in range(i+1, min(i+1+40, st)):
+        nxt = lines[j]
+        if not nxt.strip() or nxt.strip().startswith("#"): continue
+        if GOV.search(nxt): break              # governed escape — not a hole
+        if STOP.search(nxt): break             # refuses, or records a violation
+        if PASS.search(nxt):
+            if is_verdict(nxt) and not SANC.search(nxt) and not sanctioned_above(j):
+                out.append("%d:%s" % (i+1, line.strip()))
+            break
+        seen += 1
+        if seen >= 8: break                    # bounded: a decision this far away is not this one
+print("\n".join(out[:5]))
+' "$f" 2>/dev/null)"
+  [ -n "$b" ] || continue
+  echo "check-gate-integrity: DECLARED BLINDNESS THEN PASSES in '$f' — says it cannot verify, returns 0:" >&2
+  printf '%s\n' "$b" | sed 's/^/    /' >&2
+  BLIND=$((BLIND + 1))
+done
+[ "$BLIND" -eq 0 ] || viol=$((viol + BLIND))
 
 # 3) a gate that can't fail: continue-on-error on a CI job -----------------------
 if [ -d .github/workflows ]; then

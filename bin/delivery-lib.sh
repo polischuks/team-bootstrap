@@ -929,6 +929,54 @@ record_precond() {
   esac
 }
 
+# record_governed_waiver KEY BY REASON EXPIRES → insert/replace the top-level governed waiver object
+# "KEY":{"ack":true,"by":…,"reason":…,"expires":…} in the active run marker. rc 0 on success.
+#
+# WHY THIS EXISTS (spec 021 AC-7, plan §8.3). `gate_integrity_waiver` has been a supported escape since
+# harness-robustness and had NO writer anywhere in the tree: its only occurrence outside the gate that
+# reads it was a hand-written fixture in a test. A waiver whose only operator path is "hand-edit JSON
+# inside the run marker" is not a governed escape — it is an undocumented one that happens to be
+# spelled in JSON, and the difference matters precisely when someone is under pressure to get a batch
+# closed. B4 adds a second such waiver (`role_verdict_waiver`), and measured capture in this repo is 0
+# for 7 (plan §8.3), so that one will be reached on the first post-reinstall run. It gets a door.
+#
+# The writer refuses to record anything governed_waiver_ok would reject — an empty `by`/`reason`, a
+# missing or malformed `expires`, an already-expired date. A waiver that records but does not work is
+# worse than none: the operator believes the escape is armed and finds out at the gate.
+#
+# `ack` is always written true. A waiver object with ack:false is not a lesser waiver, it is an absent
+# one, and offering to write it would only create a shape that looks armed and is not.
+record_governed_waiver() {
+  local key="$1" by="$2" reason="$3" expires="$4" marker mk newmk
+  case "$key" in *[!a-z_]*|"") return 1 ;; esac      # a key is a bare identifier, never JSON
+  # Validate through the SAME predicate the gates read with, so the writer and the reader cannot
+  # disagree about what "governed" means (the drift that a second implementation would invite).
+  governed_waiver_ok true "$by" "$reason" "$expires" || return 1
+  # Values land inside JSON strings: a quote or a backslash would produce an unparseable marker, and
+  # this file has no JSON encoder. Reject rather than mangle.
+  case "$by$reason" in *[\\\"]*) return 1 ;; esac
+  marker="$(resolve_marker)"
+  # An ambiguous resolution (B7) is not a path, so [ -f ] rejects it here and the writer fails closed
+  # without needing its own ambiguity test: writing a waiver into a guessed run is the one thing worse
+  # than not writing it.
+  [ -n "$marker" ] && [ -f "$marker" ] || return 1
+  mk="$(cat "$marker" 2>/dev/null || true)"
+  [ -n "$mk" ] || return 1
+  mk="$(_marker_strip_obj_key "$mk" "$key")"
+  newmk="${mk%\}}"
+  if [ "${newmk: -1}" = "{" ]; then
+    newmk="${newmk}\"$key\":{\"ack\":true,\"by\":\"$by\",\"reason\":\"$reason\",\"expires\":\"$expires\"}}"
+  else
+    newmk="${newmk},\"$key\":{\"ack\":true,\"by\":\"$by\",\"reason\":\"$reason\",\"expires\":\"$expires\"}}"
+  fi
+  case "$newmk" in
+    \{*\}) _marker_write "$marker" "$newmk" || return 1 ;;
+    *) return 1 ;;
+  esac
+  echo "recorded $key (by=$by, expires=$expires) to $marker — the finding it clears is still printed by the gate." >&2
+  return 0
+}
+
 # json_has_obj_field ARRAYJSON FIELD VALUE → rc 0 if any object in the array-of-objects ARRAYJSON has
 # "FIELD":"VALUE" (whitespace-tolerant). Used by check-seam-ack to test seam_acks presence (AC-5).
 json_has_obj_field() {
