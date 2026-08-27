@@ -47,7 +47,7 @@
     ],
     "SubagentStart": [
       {
-        "matcher": "team-bootstrap:.*|.*-reviewer|.*-verifier|.*-guardian",
+        "matcher": "team-bootstrap:.*|.*-reviewer|.*-verifier|.*-guardian|chaos-engineer|devops-platform|test-designer|legal-compliance-checker",
         "hooks": [
           {
             "type": "command",

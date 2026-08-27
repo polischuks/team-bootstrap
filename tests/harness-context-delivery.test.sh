@@ -149,6 +149,22 @@ h=json.load(open(sys.argv[1]))["hooks"].get("SubagentStart",[])
 t=[c.get("type","command") for g in h for c in g.get("hooks",[])]
 print(",".join(sorted(set(t))))' "$here/hooks/hooks.json")" command "  …as a command handler (prompt/agent support here is unconfirmed)"
 
+echo "AC-11b — the matcher reaches EVERY dispatchable role, prefixed OR bare:"
+# The team-bootstrap: prefix is not delivered in subagent_type reliably — review-types.txt keeps both
+# slug forms for exactly this reason, and record-dispatch/check-role-dispatch honour both. A brief
+# matcher that only covers suffix families (-reviewer/-verifier/-guardian) silently skips any bare slug
+# outside them (chaos-engineer, devops-platform, test-designer, legal-compliance-checker), so those
+# roles lose liveness criterion 4 (delivered) whenever the prefix is stripped. Every agents/*.md slug
+# must match in both forms — including any agent added later.
+_chk "$(PY 'import json,re,sys,glob,os
+m=[g.get("matcher","") for g in json.load(open(sys.argv[1]))["hooks"].get("SubagentStart",[])]
+rx=[re.compile(p) for p in m if p]
+slugs=[os.path.basename(f)[:-3] for f in glob.glob(sys.argv[2]+"/agents/*.md")]
+miss=[form for s in slugs for form in (s,"team-bootstrap:"+s)
+      if not any(r.fullmatch(form) for r in rx)]
+print(" ".join(sorted(miss)) if miss else "all-matched")' "$here/hooks/hooks.json" "$here")" all-matched \
+  "every agents/*.md slug matches the SubagentStart matcher, bare and prefixed"
+
 T3="$(mktemp -d)"
 ( cd "$T3" || exit 1
   git init -q; git config user.email a@b.c; git config user.name t

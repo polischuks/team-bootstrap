@@ -42,6 +42,10 @@ _run_state() {
   [ -n "$marker" ] && [ -f "$marker" ] || return 0
   mk="$(cat "$marker" 2>/dev/null || true)"
   bline="$(inflight_batch 2>/dev/null || true)"; bid="$(field_str "$bline" id)"
+  # inflight_batch's fallback returns the LAST ledger line even when that batch is closed — which put
+  # the oxymoron "In-flight batch … (status=closed)" at the top of every session. Only an announced
+  # batch is in flight; a closed-only ledger leaves the run sentence without a batch clause.
+  [ "$(field_str "$bline" status)" = "announced" ] || bid=""
   printf 'Active delivery run %s: pipeline=%s, review_depth=%s, intends_code=%s, marker=%s.%s' \
     "$(field_str "$mk" run)" "$(field_str "$mk" pipeline)" \
     "$(field_str "$mk" review_depth)" "$(field_bool "$mk" intends_code)" "$marker" \
