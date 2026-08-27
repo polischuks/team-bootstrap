@@ -44,9 +44,19 @@ _scan_waivers() {
     RUNS_CODE=$((RUNS_CODE + 1))
     [ -f "$d/RUN" ] || continue
     mk="$(cat "$d/RUN" 2>/dev/null || true)"
-    case "$mk" in
-      *role_verdict_waiver*|*gate_integrity_waiver*) RUNS_WAIVED=$((RUNS_WAIVED + 1)) ;;
-    esac
+    # A run counts as waived only if a waiver is actually EFFECTIVE — the same governed_waiver_ok the
+    # gates read with. A bare substring match would count an expired (ineffective) waiver, or the key
+    # merely appearing inside a reason string, and inflate the very number R2 watches. Undated markers
+    # (the metric has no "now") use the stored expires against today, exactly as the gate would.
+    for _w in role_verdict_waiver gate_integrity_waiver; do
+      if governed_waiver_ok \
+           "$(field_in_obj "$mk" "$_w" ack)" \
+           "$(field_in_obj "$mk" "$_w" by)" \
+           "$(field_in_obj "$mk" "$_w" reason)" \
+           "$(field_in_obj "$mk" "$_w" expires)"; then
+        RUNS_WAIVED=$((RUNS_WAIVED + 1)); break
+      fi
+    done
   done
 }
 

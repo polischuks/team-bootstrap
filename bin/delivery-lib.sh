@@ -34,7 +34,7 @@ _newest_run_file() {
   # ambiguous. `stat` differs across BSD/GNU, so mtime comes from `ls -t --` boundaries: the run of
   # leading entries with no newer sibling. Simpler and portable: compare the top TWO by mtime for a tie
   # using `find`-free `ls`. We already have `ls -t`; add `ls -t` newest + an mtime equality probe.
-  local newest rest n1 n2
+  local newest n2
   newest="$(ls -t .runs/*/"$1" 2>/dev/null | head -1 || true)"
   if [ -n "$newest" ]; then
     # The second-newest by the same ordering. If it shares mtime with the newest, it is a tie.
@@ -109,8 +109,10 @@ resolve_ledger() {
     return 0
   fi
   # No run resolves at all (no RUN anywhere) — legacy behaviour: a ledger left behind by a run whose
-  # marker was removed is still findable. Nothing is gated on it (every gate is marker-gated).
-  _newest_run_file batches.jsonl
+  # marker was removed is still findable. Nothing is gated on it (every gate is marker-gated). A tie
+  # here yields the sentinel, which is not a ledger path — suppress it, matching the id path above.
+  local legacy; legacy="$(_newest_run_file batches.jsonl)"
+  marker_ambiguous "$legacy" || printf '%s' "$legacy"
 }
 
 # resolve_marker — echo the active RUN marker path (or empty). Same run-scoping rule.
@@ -1271,7 +1273,10 @@ code_state_since() {
   # 2) uncommitted non-doc edits. A `git status` ERROR must not read as a clean tree: the loop would
   # produce nothing and the caller would see `no-code`, which is a fail-OPEN on exactly the state this
   # predicate exists to catch. Probe the exit first (same posture as _dirty_control_surface).
-  git status --porcelain >/dev/null 2>&1 || { printf 'cannot-determine'; return 0; }
+  local status_out
+  # ONE invocation, exit checked: a git-status ERROR must fail closed, not read as a clean tree (the
+  # loop would produce nothing → caller sees no-code → fail-OPEN on exactly the state this catches).
+  status_out="$(git status --porcelain 2>/dev/null)" || { printf 'cannot-determine'; return 0; }
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     path="${line:3}"
@@ -1284,7 +1289,9 @@ code_state_since() {
     # not on whether someone remembered to ignore it.
     case "$path" in .runs/*|.runs) continue ;; esac
     _is_doc_path "$path" || { printf 'code'; return 0; }
-  done < <(git status --porcelain 2>/dev/null)
+  done <<EOF
+$status_out
+EOF
 
   printf 'no-code'
 }
