@@ -22,8 +22,8 @@
 #   - sanctioned skips: any skip line carrying an inline `gate-integrity:
 #     sanctioned` marker (add `# gate-integrity: sanctioned — <reason>` on the
 #     skip line to record WHY the deferral does not hide a gate).
-#   - DOCUMENTATION that merely quotes a skip (`*.md`, `*.txt`, …) — but never a real test file, even
-#     under `docs/`: the two shared predicates are composed, `_is_doc_path && ! is_test_path`.
+#   - DOCUMENTATION that merely quotes a skip — judged by the FILE'S OWN form (`_is_doc_file`: `*.md`,
+#     `*.mdx`, `*.txt`, …), never by the directory, so a real suite under `docs/` is still scanned.
 #
 # KNOWN PLATFORM DIVERGENCE (pre-existing, not introduced here): the file scan uses `grep -r --include`,
 # which matches the BASENAME on GNU grep and the WHOLE PATH on BSD/darwin. The set of files scanned
@@ -70,7 +70,25 @@ COND_NAMES = ("skipif", "skipunless", "skipwhen", "assumetrue")
 # The one place a framework name is load-bearing: these runners spell skip as (condition, description).
 # Everywhere else the rule is the SHAPE of the argument, so an unnamed framework behaves correctly.
 COND_FIRST = ("test", "it", "describe", "suite", "context", "this")
+SKIP_SEG = ("skip",) + COND_NAMES
 Q = "\"" + "\x27" + "`"
+
+# Comment syntax is per LANGUAGE, not universal. Truncating every line at the first #, // or --
+# silently hid a later skip behind a JS private field (this.#ci), Python floor division (1 // 2), a
+# shell long flag (--flag) and a decrement (n-- > 0) — five measured under-detections. The extension
+# picks the markers; an unknown extension gets the conservative pair, and every marker still has to sit
+# where a comment can start (line-start or after whitespace).
+BY_EXT = {
+    "py": ["#"], "rb": ["#"], "sh": ["#"], "bash": ["#"], "zsh": ["#"], "yml": ["#"], "yaml": ["#"],
+    "pl": ["#"], "r": ["#"], "tf": ["#"],
+    "js": ["//"], "jsx": ["//"], "ts": ["//"], "tsx": ["//"], "mjs": ["//"], "cjs": ["//"],
+    "go": ["//"], "java": ["//"], "kt": ["//"], "kts": ["//"], "c": ["//"], "h": ["//"],
+    "cc": ["//"], "cpp": ["//"], "hpp": ["//"], "cs": ["//"], "rs": ["//"], "swift": ["//"],
+    "scala": ["//"], "php": ["//"], "dart": ["//"], "m": ["//"],
+    "sql": ["--"], "lua": ["--"], "hs": ["--"], "ex": ["#"], "exs": ["#"], "elm": ["--"],
+}
+ext = path.rsplit(".", 1)[-1].lower() if "." in path.rsplit("/", 1)[-1] else ""
+MARKS = BY_EXT.get(ext, ["#", "//"])
 
 def strip_comments(t):
     out, q, i = [], None, 0
@@ -78,11 +96,22 @@ def strip_comments(t):
         c = t[i]
         if q:
             out.append(c)
-            if c == "\\\\" and i + 1 < len(t): out.append(t[i+1]); i += 2; continue
+            if c == "\\" and i + 1 < len(t):
+                out.append(t[i+1]); i += 2; continue
             if c == q: q = None
-        elif c in Q: q = c; out.append(c)
-        elif c == "#" or t[i:i+2] in ("//", "--"): break
-        else: out.append(c)
+        elif c in Q:
+            q = c; out.append(c)
+        else:
+            starts = (i == 0 or t[i-1].isspace())
+            hit = None
+            for mk in MARKS:
+                if t[i:i+len(mk)] == mk and starts:
+                    # `--` opens a comment only when followed by whitespace (SQL/Lua style); `--flag`
+                    # is an argument and `n--` is an operator.
+                    if mk == "--" and not (i + 2 >= len(t) or t[i+2].isspace()): continue
+                    hit = mk; break
+            if hit: break
+            out.append(c)
         i += 1
     return "".join(out)
 
@@ -93,7 +122,8 @@ def split_args(t, k):
         c = t[i]
         if q:
             cur += c
-            if c == "\\\\" and i + 1 < len(t): cur += t[i+1]; i += 2; continue
+            if c == "\\" and i + 1 < len(t):
+                cur += t[i+1]; i += 2; continue
             if c == q: q = None
         elif c in Q: q = c; cur += c
         elif c in "([{":
@@ -111,9 +141,12 @@ def split_args(t, k):
 
 LIT  = re.compile(r"^(\"|\x27|`|true$|false$|none$|nil$|null$|-?\d+(\.\d+)?$)", re.I)
 CB   = re.compile(r"^(\(.*\)|[A-Za-z_$][\w$]*)\s*(=>|->)|^(async|function)\b")
-# The receiver may be a CHAIN (`test.describe.skip(`): match the whole chain and take its LAST
-# segment as the receiver, or a chained call is not recognised as a skip at all.
+# The receiver may be a CHAIN (`test.describe.skip(`): match the whole chain, so the call is recognised
+# and so a skip sitting MID-chain (`describe.skip.each(...)`, a first-class Jest/Vitest way to disable a
+# whole parametrised suite permanently) is not lost because `each` happens to be the final segment.
 CALL = re.compile(r"(?:^|[^\w$.])((?:[A-Za-z_$][\w$]*\s*\.\s*)*)([A-Za-z_$][\w$]*)\s*\(")
+# A skip modifier can also be REFERENCED without being called: `const gate = describe.skip;`
+BARE = re.compile(r"\.\s*(skip|Skip)\s*(?![\w$(])")
 NAMES = ("skip", "skipif", "skipunless", "skipwhen", "assumetrue", "xit", "xdescribe")
 DECOR = re.compile(r"@(Disabled|Ignore)\b|@pytest\.mark\.skip(?!if)\b|@unittest\.skip(?!If|Unless)\b")
 
@@ -126,27 +159,40 @@ def conditional(recv, name, args, ok):
     if CB.search(a0): return True
     if LIT.match(a0): return False
     # For a runner whose skip signature IS (condition, description), a non-literal first argument in a
-    # 2+-argument call IS the condition — including a plain boolean variable (`test.skip(isCI, "x")`).
-    # Requiring an operator here flagged that genuine conditional, which is the F4 shape this milestone
-    # is fixing. The label hole stays closed by the 2-argument requirement: `test.skip(SKIP_REASON)`
-    # has one argument and remains unconditional.
+    # 2+-argument call IS the condition -- including a plain boolean variable. The label hole stays
+    # closed by the two-argument requirement: `test.skip(SKIP_REASON)` has one argument.
     if len(args) >= 2 and (recv or "").lower() in COND_FIRST: return True
     return False
 
 out = []
-try: lines = open(path, errors="replace").read().splitlines()
-except Exception: sys.exit(0)
+try:
+    lines = open(path, errors="replace").read().splitlines()
+except Exception as e:
+    # FAIL CLOSED. Exiting 0 here would excuse the whole file in silence, which is the one outcome
+    # this gate exists to prevent -- and it would defeat the CLASSIFIER-FAILED fallback of its caller.
+    sys.stderr.write("cannot read %s: %s\n" % (path, e)); sys.exit(1)
+
 for n, raw in enumerate(lines, 1):
     if re.search(r"gate-integrity:\s*sanctioned", raw, re.I): continue
     code = strip_comments(raw)
     hit = False
     for m in CALL.finditer(code):
         chain, name = m.group(1), m.group(2)
-        recv = [x for x in re.split(r"\s*\.\s*", chain) if x]
-        recv = recv[-1] if recv else None
+        segs = [x for x in re.split(r"\s*\.\s*", chain) if x]
+        # a skip that is not the final segment is a MODIFIER on the call, never a condition
+        if any(sg.lower() in SKIP_SEG for sg in segs) and name.lower() not in NAMES:
+            hit = True; break
+        recv = segs[-1] if segs else None
         if name.lower() not in NAMES: continue
         args, ok = split_args(code, m.end() - 1)
+        if not ok:
+            # The call is wrapped over several lines. Complete it before judging: reporting a
+            # prettier-wrapped conditional skip would be the fail-on-correct-code cost that gets
+            # gates switched off. Still bounded, and still reported if it never closes.
+            joined = code + " " + " ".join(strip_comments(l) for l in lines[n:n+5])
+            args, ok = split_args(joined, m.end() - 1)
         if not conditional(recv, name, args, ok): hit = True; break
+    if not hit and BARE.search(code): hit = True
     if not hit and DECOR.search(code): hit = True
     if hit:
         out.append("%d:%s" % (n, raw))

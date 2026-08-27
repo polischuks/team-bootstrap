@@ -130,7 +130,7 @@ _chk "$(_flagged spec/021/spec.md "$prose")" no "AC-13 prose is prose regardless
 # AC-8-shaped: a gate that CANNOT classify must not report OK. With python3 unavailable the classifier
 # is blind, and a blind detector that exits 0 is the silent degradation this very file exists to flag.
 _blind() {
-  local d stub out rc blind_fixture
+  local d out rc blind_fixture
   d="$(mktemp -d "$T/blindXXXXXX")"; mkdir -p "$d/tests" "$d/stub"
   # gate-integrity: sanctioned — fixture: the unconditional skip the blind gate must not miss
   blind_fixture='test.skip("gate invariant holds");'
@@ -140,6 +140,45 @@ _blind() {
   case "$out" in *"OK — no green-by-skip"*) printf 'green-while-blind' ;; *) [ "$rc" -ne 0 ] && printf 'fails-closed' || printf 'exit0' ;; esac
 }
 _chk "$(_blind)" fails-closed "AC-13 a detector that cannot classify fails closed, never reports OK"
+
+# --- Findings from the scoped re-review of the remediation -------------------------------------
+# Every one of these was FLAGGED by the pre-milestone detector and had to stay that way.
+
+# gate-integrity: sanctioned — fixture: Jest/Vitest parametrised skip; `skip` is mid-chain (MUST be flagged)
+chain_each='describe.skip.each([["a"],["b"]])("constitutional gate invariant %s", (n) => {});'
+# gate-integrity: sanctioned — fixture: a bare reference to a skip modifier, no call (MUST be flagged)
+bare_ref='const gate = describe.skip;'
+# gate-integrity: sanctioned — fixture: a JS private field is not a comment (MUST be flagged)
+js_private='if (this.#ci) test.skip("gate invariant");'
+# gate-integrity: sanctioned — fixture: Python floor division is not a comment (MUST be flagged)
+py_floordiv='x = 1 // 2; test.skip("gate invariant")'
+# gate-integrity: sanctioned — fixture: a shell long flag is not a comment (MUST be flagged)
+sh_flag='run --flag; test.skip("gate invariant")'
+# gate-integrity: sanctioned — fixture: a decrement is not a comment (MUST be flagged)
+js_decr='if (n-- > 0) test.skip("gate invariant");'
+# gate-integrity: sanctioned — fixture: an escaped quote inside a string must not desync the scanner (MUST be flagged)
+esc_quote='const x = "\"# "; test.skip("gate invariant");'
+
+_chk "$(_flagged tests/gate.spec.ts "$chain_each")" yes "AC-13 a mid-chain skip modifier (describe.skip.each) is still flagged"
+_chk "$(_flagged tests/gate.spec.ts "$bare_ref")" yes "AC-13 a bare reference to a skip modifier is still flagged"
+_chk "$(_flagged tests/gate.spec.ts "$js_private")" yes "AC-13 a JS private field is not a comment marker"
+_chk "$(_flagged tests/gate_test.py "$py_floordiv")" yes "AC-13 Python floor division is not a comment marker"
+_chk "$(_flagged tests/gate_test.sh "$sh_flag")" yes "AC-13 a shell long flag is not a comment marker"
+_chk "$(_flagged tests/gate.spec.ts "$js_decr")" yes "AC-13 a decrement operator is not a comment marker"
+_chk "$(_flagged tests/gate.spec.ts "$esc_quote")" yes "AC-13 an escaped quote does not desync the scanner"
+
+# A conditional skip WRAPPED over several lines is still conditional: reporting it would be the
+# fail-on-correct-code cost that gets gates disabled (F4). The call is completed across lines.
+_multiline() {
+  local d out
+  d="$(mktemp -d "$T/mlXXXXXX")"; mkdir -p "$d/tests"
+  { printf 'test.skip(({ browserName }) => {\n'
+    printf '  return browserName === "firefox";\n'
+    printf '}, "gate invariant");\n'; } > "$d/tests/gate.spec.ts"
+  out="$( cd "$d" && "$gate" . 2>&1 )"
+  case "$out" in *GREEN-BY-SKIP*) printf 'yes' ;; *"OK — no green-by-skip"*) printf 'no' ;; *) printf 'crashed' ;; esac
+}
+_chk "$(_multiline)" no "AC-13 a conditional skip wrapped over several lines is still conditional"
 
 [ "$fail" -eq 0 ] && { echo "gate-detector.test.sh: OK"; exit 0; }
 echo "gate-detector.test.sh: $fail failure(s)" >&2; exit 1

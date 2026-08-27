@@ -9,8 +9,14 @@ Machine-read by the harness gates (`bin/quality-gate.sh`, `bin/check-tdd.sh`,
 - TestGlobs: `bin/*.test.sh tests/*.test.sh`
 - Lint: `shellcheck --severity=error bin/*.sh`
 - Prepare: `N/A`
-  <!-- pure-bash project: no dependency install step. The Phase-0 readiness gate (check-preflight, WS-B)
-       resolves the Test: binary (bash) on PATH; there is no lockfile to provision. -->
+- Runtime: `bash`, `python3`
+  <!-- No dependency INSTALL step: nothing is vendored and there is no lockfile to provision, so the
+       Phase-0 readiness gate (check-preflight, WS-B) has nothing to resolve beyond the Test: binary.
+       But the suite is not pure bash and has not been for some time: seven bin/*.sh shell out to
+       python3 for the jobs a regex cannot do (JSON parsing in record-dispatch and check-role-verdict,
+       skip-call classification in check-gate-integrity). check-gate-integrity now fails CLOSED when
+       python3 is missing rather than reporting OK while blind, which turns an undeclared dependency
+       into a red suite — so it is declared here instead of discovered on a host without it. -->
 
 > **Coverage / Mutation — intentionally NOT declared.** There is no bash coverage or mutation tool
 > on this host (`bashcov`/`kcov`/`bats` absent), and a declared-but-toolless `Coverage:`/`Mutation:`
