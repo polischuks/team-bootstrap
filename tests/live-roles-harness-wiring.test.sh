@@ -498,5 +498,49 @@ _chk "$(_ac6 "$_poison")" 0 "  …and \"already\" + \"read this\" is not a false
 rm -f "$_poison"
 
 # ---------------------------------------------------------------------------
+# Observed live on run 176-withgauge-platform-integration (2026-08-27). Two defects, one shape:
+# the harness states a WEAKER fact than the one it acted on.
+# ---------------------------------------------------------------------------
+echo "AC-1h — a DEGRADED sizing is 'not computed', never 'none':"
+# size-from-spec returns `degraded=1 reason=no-tasks-md` — non-empty output, so sel_ran was set and the
+# context printed "Risk categories detected: none". The classifier did not classify anything; reporting
+# none is a computed result that was never computed. Same defect AC-1g fixed for the UNCONSULTED case,
+# walking straight through the DEGRADED branch.
+G="$(mktemp -d)"; mkdir -p "$G/specs/degraded"
+printf '# Spec\n\nAn auth rewrite touching src/auth/login.ts.\n' > "$G/specs/degraded/spec.md"
+# No tasks.md at all ⇒ size-from-spec degrades.
+( cd "$G" || exit 1; git init -q; git config user.email a@b.c; git config user.name t
+  printf 'x\n' > seed.txt; git add -A; git commit -q -m base ) >/dev/null 2>&1
+CTXD="$( cd "$G" || exit 1; printf '%s' '/team-bootstrap:deliver specs/degraded' \
+        | "$here/bin/delivery-marker-init.sh" 2>/dev/null | _ctx_of )"
+_chk "$(printf '%s' "$CTXD" | grep -qiF 'Risk categories detected: not computed' && echo yes || echo no)" yes \
+  "a degraded sizing reports 'not computed'"
+_chk "$(printf '%s' "$CTXD" | grep -qiF 'Risk categories detected: none' && echo yes || echo no)" no \
+  "  …and never the false fact 'none'"
+_chk "$(printf '%s' "$CTXD" | grep -qiF 'DEGRADED' && echo yes || echo no)" yes \
+  "  …and still states the degradation and its reason"
+
+echo "AC-16b — an UNRESOLVED tier buys the STRICTEST depth, not the shallowest:"
+# The same marker said "every tier-reading gate fails closed until Phase A resolves it" AND
+# "Review depth: low". Fail-closed means strictest; AC-13 applied that to tier_base_roles and the depth
+# mapping was left answering `auto` with the shallowest level the scale has.
+_depth_of() { ( . "$here/bin/delivery-lib.sh"; review_depth_for_tier "$1" ); }
+_chk "$(_depth_of full)" high "full ⇒ high (unchanged)"
+_chk "$(_depth_of mvp)" medium "mvp ⇒ medium (unchanged)"
+_chk "$(_depth_of single-thread)" low "single-thread ⇒ low — a RESOLVED light tier really is light"
+_chk "$(_depth_of auto)" high "auto ⇒ high — unresolved means enforce until we know"
+_chk "$(_depth_of '')" high "an empty tier ⇒ high, never a shallow default"
+_chk "$(_depth_of nonsense-tier)" high "an unrecognised tier ⇒ high"
+
+echo "AC-16c — the marker states the same depth the library computes (one mapping, not two):"
+_chk "$(grep -cE '_depth=(high|medium|low)' "$here/bin/delivery-marker-init.sh" | tr -d ' ')" 0 \
+  "delivery-marker-init.sh carries no second copy of the depth mapping"
+CTXD2="$( cd "$G" || exit 1; rm -rf .runs; printf '%s' '/team-bootstrap:deliver specs/degraded' \
+         | "$here/bin/delivery-marker-init.sh" 2>/dev/null | _ctx_of )"
+_chk "$(printf '%s' "$CTXD2" | grep -qF 'Review depth: high' && echo yes || echo no)" yes \
+  "an unresolved run states depth=high in the context, matching its fail-closed gates"
+rm -rf "$G"
+
+# ---------------------------------------------------------------------------
 if [ "$fail" -eq 0 ]; then echo "live-roles-harness-wiring: OK"; exit 0; fi
 echo "live-roles-harness-wiring: $fail check(s) FAILED" >&2; exit 1

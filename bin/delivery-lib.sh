@@ -276,9 +276,16 @@ _batch_paths() {
 # spend it without being asked would be exactly the unbounded autonomy P1 rejects.
 review_depth_for_tier() {
   case "$1" in
-    full) printf 'high' ;;
-    mvp)  printf 'medium' ;;
-    *)    printf 'low' ;;
+    full)          printf 'high' ;;
+    mvp)           printf 'medium' ;;
+    single-thread) printf 'low' ;;
+    # UNRESOLVED ⇒ STRICTEST, not shallowest. `auto`, empty, or a word this scale does not know means
+    # the harness cannot say how much review the change needs, and the safe answer to that is all of
+    # it. This branch used to answer `low` — so a marker could state, in the same breath, "every
+    # tier-reading gate fails closed until Phase A resolves it" AND "Review depth: low", telling the
+    # gates to enforce maximally and the model to review minimally. Observed live on run
+    # 176-withgauge-platform-integration. Same rule tier_base_roles already follows (AC-13).
+    *)             printf 'high' ;;
   esac
 }
 
