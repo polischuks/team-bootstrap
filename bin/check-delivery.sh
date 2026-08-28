@@ -64,7 +64,7 @@ if [ "${1:-}" = "--self-test" ]; then
     if [ "$got" -eq "$exp" ]; then echo "  PASS (exit $got) $desc"
     else echo "  FAIL (exit $got, want $exp) $desc" >&2; fail=$((fail + 1)); fi
   }
-  _dirs="_st_ac1 _st_ac2 _st_ac4a _st_ac4b _st_ac5 _st_f2i _st_f2ii _st_ac7 _st_ac9 _st_ws _st_pfabs _st_pffail _st_pfwaiver _st_pfbareack _st_pfexpired _st_pfbad _st_confirm"
+  _dirs="_st_ac1 _st_ac2 _st_ac4a _st_ac4b _st_ac5 _st_f2i _st_f2ii _st_ac7 _st_ac9 _st_ws _st_pfabs _st_pffail _st_pfwaiver _st_pfbareack _st_pfexpired _st_pfbad _st_pfspace_ok _st_pfspace_fail _st_confirm"
   for d in $_dirs; do mkdir -p ".runs/$d"; done
   # F-A recompute (no marker → binding off) -----------------------------------
   printf '%s\n' '{"id":"F1","kind":"code","status":"closed","commit_shas":["deadbeef"],"code_delta":137}' > .runs/_st_ac1/batches.jsonl
@@ -129,6 +129,19 @@ if [ "${1:-}" = "--self-test" ]; then
   printf '%s\n' '{"run":"_st_pfbad","intends_code":true,"source":"harness","preflight":{"gaps":[],"ack":false}}' > .runs/_st_pfbad/RUN
   printf '%s\n' '{"id":"B1","kind":"code","status":"announced"}' > .runs/_st_pfbad/batches.jsonl
   _expect _st_pfbad 1 "F-P — preflight present but no exit field (unreadable) → blocked, not fail-open (P10)"
+  # WS-preflight (issue #80) — a SPACED marker (python json.dump's default `": "`) carries the same nested
+  # preflight object as the compact form and MUST parse identically through the gate: presence + exit/ack.
+  # These two mirror the compact _st_confirm / _st_pffail fixtures with the ONLY difference being spacing.
+  #  (a) spaced, passing preflight (exit:0) + code batch → ALLOWED. Before the fix obj_present's predecessor
+  #      (`*'"preflight":{'*`) read the spaced object as ABSENT → false "Phase-0 gate never ran" BLOCK (exit 1).
+  printf '%s\n' '{"run": "_st_pfspace_ok", "intends_code": true, "source": "harness", "preflight": {"exit": 0, "gaps": [], "ack": false}}' > .runs/_st_pfspace_ok/RUN
+  printf '%s\n' '{"id":"B1","kind":"code","status":"announced"}' > .runs/_st_pfspace_ok/batches.jsonl
+  _expect _st_pfspace_ok 0 "WS-preflight — spaced passing-preflight marker parses as PRESENT → allowed (no false 'never ran' block, #80)"
+  #  (b) spaced, FAILING preflight (exit:1) unacked + code batch → still BLOCKED. Proves the tolerant presence
+  #      test did not become fail-open: obj_present sees it AND the spaced exit:1 read still drives the block.
+  printf '%s\n' '{"run": "_st_pfspace_fail", "intends_code": true, "source": "harness", "preflight": {"exit": 1, "gaps": ["x"], "ack": false}}' > .runs/_st_pfspace_fail/RUN
+  printf '%s\n' '{"id":"B1","kind":"code","status":"announced"}' > .runs/_st_pfspace_fail/batches.jsonl
+  _expect _st_pfspace_fail 1 "WS-preflight — spaced FAILING-preflight marker still blocks (tolerant presence is not fail-open, #80)"
   # #62 — an announced code batch FOLLOWED BY a {"confirm":"<id>"} line (the #56 per-batch
   # confirmation record) is still the in-flight batch, NOT "announced then abandoned". The confirm
   # object is a NON-BATCH ledger record (no "id"): it must not inflate `total`, and it must not
@@ -208,7 +221,11 @@ if [ -n "$marker" ] && [ -f "$marker" ]; then
   preflight_by="$(field_in_obj "$mk" preflight by)"         # WS-B governed-waiver fields
   preflight_reason="$(field_in_obj "$mk" preflight reason)"
   preflight_expires="$(field_in_obj "$mk" preflight expires)"
-  case "$mk" in *'"preflight":{'*) preflight_present=1 ;; esac
+  # Presence via the shared whitespace-tolerant helper, NOT a bespoke `*'"preflight":{'*` glob: a spaced
+  # marker (`"preflight": {`, python json.dump's default) carries the verdict but the compact-only glob
+  # read it as ABSENT → false "Phase-0 gate never ran" BLOCK, even though field_in_obj above read the
+  # exit/ack fine. obj_present and field_in_obj now agree on the same spaced/compact input (issue #80).
+  obj_present "$mk" preflight && preflight_present=1
   # R-3 + N-1: an active run whose baseline does not resolve — whether ABSENT or a bogus
   # value — has its predate check silently disarmed. Flag it loudly for BOTH cases (the
   # success line also enumerates predate=OFF; reachable-from-HEAD still holds regardless).
