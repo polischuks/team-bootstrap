@@ -128,7 +128,7 @@ _scan() {
           _body="{${_rest:0:_idx}}"; _rest="${_rest:_idx+1}"; _rest="${_rest#,}"
           _f="$(field_str "$_body" file)"; _want="$(field_str "$_body" sha256)"
           [ -n "$_f" ] && [ -n "$_want" ] || continue
-          [ -f "$dir/$_sdir/$_f" ] || { echo "WARN spec artifact '$_f' recorded at run start is now MISSING from $_sdir — a producing step removed finished work"; continue; }
+          [ -f "$dir/$_sdir/$_f" ] || continue   # missing-recorded is HARD-owned by the AC-B3b coherence check below (issue #69); here we only compare hashes of files that ARE present
           _got="$( { shasum -a 256 "$dir/$_sdir/$_f" 2>/dev/null || sha256sum "$dir/$_sdir/$_f" 2>/dev/null; } | cut -d' ' -f1 )"
           [ -n "$_got" ] || continue
           [ "$_got" = "$_want" ] || echo "WARN spec artifact '$_f' CHANGED since run start — Phase A Mode 2 checks the milestone, it does not re-draft it. Legitimate only if a recorded analyze/architecture-reviewer finding called for the edit; otherwise a producing step re-ran over finished work (the 2h21m Phase A this gate exists to surface)."
@@ -140,12 +140,24 @@ _scan() {
     if [ -n "$bs" ] && ! git -C "$dir" rev-parse --verify -q "${bs}^{commit}" >/dev/null 2>&1; then
       echo "HARD baseline_sha '$bs' does not resolve to a commit — the batch-window diff has no anchor (unenforceable)"
     fi
-    # WS-B AC-B3b — operating-tree coherence: guard a SPLIT-BRAIN tree — the run's feature dir EXISTS here
-    # but is INCOMPLETE (a partial checkout / the docs-contract exists in the specs/ parent but not fully in
-    # THIS worktree). A wholly-ABSENT feature dir is NOT flagged: at Phase 0 (before Phase A) a greenfield
-    # feature's spec.md/plan.md/tasks.md have not been generated yet — Phase A's specify/plan/tasks create
-    # them — so firing on an absent dir would HARD-fail every greenfield delivery (review HIGH-1). Only a
-    # present-but-partial dir is a coherence failure.
+    # WS-B AC-B3b (+ issue #69) — operating-tree coherence: guard a SPLIT-BRAIN tree — the run's feature
+    # dir EXISTS here but is INCOMPLETE. A wholly-ABSENT feature dir is NOT flagged: at Phase 0 (before
+    # Phase A) a greenfield feature's spec/plan/tasks have not been generated yet — Phase A's
+    # specify/plan/tasks create them — so firing on an absent dir would HARD-fail every greenfield
+    # delivery (review HIGH-1).
+    #
+    # The original present-but-partial check fired on the mere ABSENCE of any of spec/plan/tasks. That
+    # conflated two states it cannot tell apart by absence alone (issue #69):
+    #   • Mode 2, pre-Phase-A: spec.md is on disk (spec_present) but plan.md/tasks.md are NOT YET produced
+    #     — the normal precondition the flow exists to satisfy, not a partial tree.
+    #   • genuine split-brain: plan.md/tasks.md WERE on disk at run start and are gone now — a producing
+    #     step removed finished work.
+    # The distinguishing signal is OBSERVABLE, not a guess: the run-start artifact ledger `spec_artifacts`
+    # (each present artifact hashed by delivery-marker-init at arm time). A docs-contract OUTPUT
+    # (plan/tasks) is a coherence failure only if it was RECORDED present at run start and is absent now;
+    # one that was never recorded is to-be-produced by Phase A, not lost. spec.md is the flow INPUT: if
+    # the feature dir exists at all, its anchoring spec must be present with it (a dir shell with no spec
+    # is incoherent regardless of the ledger). Fail-closed stays intact for the genuine partial tree.
     feat="$(field_str "$mk" feature)"
     case "$feat" in
       ""|unknown) : ;;                          # no spec declared → nothing to check (direct/non-spec run)
@@ -153,7 +165,17 @@ _scan() {
         case "$feat" in *.md) fslug="$(dirname "$feat")" ;; *) fslug="${feat%/}" ;; esac
         if [ -d "$dir/$fslug" ]; then
           for _d in spec.md plan.md tasks.md; do
-            [ -f "$dir/$fslug/$_d" ] || echo "HARD run's docs-contract '$fslug/$_d' absent though its dir '$fslug' exists — split-brain/partial operating tree (the feature is present but incomplete here)"
+            [ -f "$dir/$fslug/$_d" ] && continue
+            if [ "$_d" = spec.md ]; then
+              echo "HARD run's spec '$fslug/$_d' absent though its dir '$fslug' exists — split-brain/partial operating tree (the feature's input spec is missing here)"
+            else
+              # OUTPUT: HARD only if recorded present at run start (a `"file":"<name>"` entry lives ONLY in
+              # spec_artifacts; marker-init writes it with no spaces). Never-recorded ⇒ pre-Phase-A gap.
+              case "$mk" in
+                *"\"file\":\"$_d\""*) echo "HARD run's docs-contract '$fslug/$_d' was recorded present at run start but is absent now — a producing step removed finished work (genuine split-brain, not a pre-Phase-A gap)" ;;
+                *) : ;;   # never recorded at run start → Phase A produces it → normal Mode-2 precondition, not a partial tree (issue #69)
+              esac
+            fi
           done
         fi ;;
     esac
@@ -296,6 +318,35 @@ _self_test() {
   sha_b="$(git -C "$T" rev-parse --short HEAD)"
   printf '{"run":"r","intends_code":true,"baseline_sha":"%s","feature":"specs/y"}\n' "$sha_b" > "$T/.runs/r/RUN"
   _expect "AC-B3b feature docs-contract absent (split-brain tree) → HARD fail (1)" "$T" 1
+  # issue #69 — a docs-contract file that was NEVER present at run start (plan.md/tasks.md not yet
+  # produced) must be distinguished from one that was RECORDED present then LOST. The run-start artifact
+  # ledger (spec_artifacts, hashed by delivery-marker-init) is the observable signal.
+  _mode2run() { # DIR "extra-recorded-among:plan.md tasks.md" — Mode-2 marker: spec.md ON DISK, feature dir present
+    local d="$1" extra="$2" sha sh art a
+    mkdir -p "$d/specs/f"; printf '# spec\n' > "$d/specs/f/spec.md"
+    sh="$( { shasum -a 256 "$d/specs/f/spec.md" 2>/dev/null || sha256sum "$d/specs/f/spec.md" 2>/dev/null; } | cut -d' ' -f1 )"
+    art="{\"file\":\"spec.md\",\"sha256\":\"$sh\"}"
+    for a in $extra; do art="$art,{\"file\":\"$a\",\"sha256\":\"deadbeefdeadbeef\"}"; done
+    sha="$(git -C "$d" rev-parse --short HEAD)"
+    printf '{"run":"r","intends_code":true,"baseline_sha":"%s","feature":"specs/f/spec.md","spec_present":true,"spec_path":"specs/f/spec.md","spec_artifacts":[%s]}\n' "$sha" "$art" > "$d/.runs/r/RUN"
+  }
+  # #69(a) — spec-only start (spec_present, spec.md on disk, plan/tasks NOT yet produced, before Phase A):
+  # NOT a split-brain failure. Only spec.md was on disk at run start, so plan.md/tasks.md were never
+  # recorded — their absence is the precondition Phase A exists to satisfy, not a partial tree.
+  T="$(mktemp -d)"; _scaffold "$T"; _mode2run "$T" ""
+  out="$(env -u TEAM_BOOTSTRAP_RUN "$0" "$T" 2>&1)"; rc=$?
+  if [ "$rc" -eq 0 ] && ! printf '%s' "$out" | grep -q 'split-brain'; then
+    echo "  PASS #69(a) spec-only pre-Phase-A start → NOT split-brain (0)"
+  else
+    echo "  FAIL #69(a) spec-only start flagged as split-brain — rc=$rc; out: $out" >&2; fail=$((fail + 1)); fi
+  # #69(b) — a dir that genuinely LOST plan/tasks after they existed still fails: plan.md/tasks.md were
+  # RECORDED in spec_artifacts at run start but are absent now (a producing step removed finished work).
+  T="$(mktemp -d)"; _scaffold "$T"; _mode2run "$T" "plan.md tasks.md"
+  out="$(env -u TEAM_BOOTSTRAP_RUN "$0" "$T" 2>&1)"; rc=$?
+  if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'HARD.*recorded present at run start but is absent now'; then
+    echo "  PASS #69(b) recorded-then-lost plan/tasks → HARD fail (1)"
+  else
+    echo "  FAIL #69(b) recorded-then-lost plan/tasks not caught — rc=$rc; out: $out" >&2; fail=$((fail + 1)); fi
   # not a git repo → fail-closed (non-ackable)
   T="$(mktemp -d)"; _expect "not a git repo → fail (1)" "$T" 1
   # AC-5 graceful skip — marker not intends_code: records nothing, exits on scaffold verdict (ready)
