@@ -48,36 +48,51 @@ if [ "${1:-}" = "--self-test" ]; then
   # allow: no marker at all (the on-by-default-safe / omitted-marker path)
   _expect "${d}_nomarker" 0 "allow — no active marker → exit 0 (no-op)"
   root_sha="$(git rev-parse --short "$(git rev-list --max-parents=0 HEAD 2>/dev/null | tail -1)" 2>/dev/null)"
+  # The cases below need one thing of their baseline: that there IS non-doc code between it and HEAD,
+  # so code_since_baseline is true and the decision under test (single-thread allow / full block /
+  # absent-pipeline block) is the one exercised. The root commit satisfies that — but it forces
+  # code_since_baseline to walk the whole 300+-commit history (its 200-sha cap, a git-show per sha)
+  # on EVERY such case: ~6s each, ~36s across this block, and it dominated the suite's slowest member.
+  # A near baseline exercises the identical decision at ~1/85th. It is chosen by walking back with the
+  # SAME authority the hook uses — code_since_baseline itself — so the fixture can never disagree with
+  # the code under test about what "code since baseline" means, and it falls back to root if the recent
+  # window were ever doc-only. Normally it stops at HEAD~1 (measured 0.07s vs 5.92s).
+  csb_base=""
+  for _n in 1 2 3 5 8; do
+    _cand="$(git rev-parse --short "HEAD~$_n" 2>/dev/null)" || break
+    if code_since_baseline "$_cand"; then csb_base="$_cand"; break; fi
+  done
+  : "${csb_base:=$root_sha}"
   # WS-A AC-A2 — allow: single-thread DIRECT run (no ledger) that committed code since baseline. The
   # csb allowance is retained only for the pipeline that has no role fan-out.
   mkdir -p ".runs/${d}_direct"
-  printf '%s\n' "{\"run\":\"dr\",\"pipeline\":\"single-thread\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$root_sha\"}" > ".runs/${d}_direct/RUN"
+  printf '%s\n' "{\"run\":\"dr\",\"pipeline\":\"single-thread\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$csb_base\"}" > ".runs/${d}_direct/RUN"
   _expect "${d}_direct" 0 "allow — single-thread direct run, no ledger, code since baseline → exit 0 (AC-A2)"
   # WS-A AC-A1 — block: FULL direct run, code since baseline, no earned closure → the csb allowance is
   # refused for full/mvp (the audit's spec-169 no-batch path, formerly Stop exit 0).
   mkdir -p ".runs/${d}_dfull"
-  printf '%s\n' "{\"run\":\"df\",\"pipeline\":\"full\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$root_sha\"}" > ".runs/${d}_dfull/RUN"
+  printf '%s\n' "{\"run\":\"df\",\"pipeline\":\"full\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$csb_base\"}" > ".runs/${d}_dfull/RUN"
   _expect "${d}_dfull" 2 "block — full direct run, no earned closure → exit 2 (AC-A1)"
   # WS-A AC-A5 — block: ABSENT pipeline, code since baseline, no closure → fail-closed (finding #1).
   mkdir -p ".runs/${d}_dnopipe"
-  printf '%s\n' "{\"run\":\"dn\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$root_sha\"}" > ".runs/${d}_dnopipe/RUN"
+  printf '%s\n' "{\"run\":\"dn\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$csb_base\"}" > ".runs/${d}_dnopipe/RUN"
   _expect "${d}_dnopipe" 2 "block — absent-pipeline direct run → exit 2 (AC-A5, fail-closed)"
   # WS-A AC-A3a — allow: full run, closed batch WITH a reviewer dispatch → run-close floor met.
   mkdir -p ".runs/${d}_frev"
-  printf '%s\n' "{\"run\":\"fr\",\"pipeline\":\"full\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$root_sha\"}" > ".runs/${d}_frev/RUN"
+  printf '%s\n' "{\"run\":\"fr\",\"pipeline\":\"full\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$csb_base\"}" > ".runs/${d}_frev/RUN"
   printf '%s\n' "{\"id\":\"B1\",\"kind\":\"code\",\"status\":\"closed\",\"commit_shas\":[\"$root_sha\"],\"code_delta\":4}" > ".runs/${d}_frev/batches.jsonl"
   printf '%s\n' '{"batch":"B1","subagent_type":"code-reviewer"}' > ".runs/${d}_frev/dispatch.jsonl"
   _expect "${d}_frev" 0 "allow — full run, closed batch + reviewer dispatch → exit 0 (AC-A3a)"
   # WS-A AC-A3b — block: full run, closed batch but ZERO reviewer dispatch (dispatch.jsonl present).
   mkdir -p ".runs/${d}_fnorev"
-  printf '%s\n' "{\"run\":\"fn\",\"pipeline\":\"full\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$root_sha\"}" > ".runs/${d}_fnorev/RUN"
+  printf '%s\n' "{\"run\":\"fn\",\"pipeline\":\"full\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$csb_base\"}" > ".runs/${d}_fnorev/RUN"
   printf '%s\n' "{\"id\":\"B1\",\"kind\":\"code\",\"status\":\"closed\",\"commit_shas\":[\"$root_sha\"],\"code_delta\":4}" > ".runs/${d}_fnorev/batches.jsonl"
   printf '%s\n' '{"batch":"B1","subagent_type":"backend-developer"}' > ".runs/${d}_fnorev/dispatch.jsonl"
   _expect "${d}_fnorev" 2 "block — full run, closed batch, zero reviewer dispatch → exit 2 (AC-A3b)"
   # WS-A AC-A5b (review CRITICAL-1) — block: ABSENT pipeline, closed batch, zero reviewer dispatch. The
   # reviewer floor is a DENYLIST (only single-thread exempt), so an unknown/legacy pipeline cannot skip it.
   mkdir -p ".runs/${d}_unkclosed"
-  printf '%s\n' "{\"run\":\"uc\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$root_sha\"}" > ".runs/${d}_unkclosed/RUN"
+  printf '%s\n' "{\"run\":\"uc\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$csb_base\"}" > ".runs/${d}_unkclosed/RUN"
   printf '%s\n' "{\"id\":\"B1\",\"kind\":\"code\",\"status\":\"closed\",\"commit_shas\":[\"$root_sha\"],\"code_delta\":4}" > ".runs/${d}_unkclosed/batches.jsonl"
   printf '%s\n' '{"batch":"B1","subagent_type":"backend-developer"}' > ".runs/${d}_unkclosed/dispatch.jsonl"
   _expect "${d}_unkclosed" 2 "block — absent-pipeline, closed batch, zero reviewer dispatch → exit 2 (AC-A5b)"

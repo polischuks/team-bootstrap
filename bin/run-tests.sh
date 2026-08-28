@@ -25,9 +25,17 @@ set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 
 # auto_jobs → a sane default concurrency for this host: CPU count, capped at 8, floor 1.
-# The cap is not about CPUs — most members are shell and I/O rather than compute, and beyond a
-# handful of them the host's fork/exec and disk become the limit while the failure blast radius of
-# a genuinely order-dependent member keeps growing.
+#
+# The cap is measured, not guessed. Full suite on a 12-core host, seconds:
+#   jobs=1  322 · jobs=2  177 · jobs=4  96 · jobs=8  82 · jobs=12  86 · jobs=16  91
+# Scaling is near-linear to 4, plateaus at 8, and degrades monotonically past it — 12 workers on
+# 12 cores is SLOWER than 8. Beyond the plateau the extra workers are not finding new work to
+# overlap; they are contending around a floor set by the slowest single member, which no amount of
+# concurrency can go under. So 8 sits at the top of the curve rather than short of it.
+#
+# The cap bounds only this DEFAULT. An explicit --jobs is honoured as given, above the core count
+# included (tests/run-tests-parallel.test.sh pins that) — the operator may know something about
+# their host that this function does not.
 auto_jobs() {
   local n
   n="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 1)"
