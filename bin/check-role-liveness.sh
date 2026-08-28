@@ -19,7 +19,9 @@
 # quietly dropped, changes the real number while the declared one keeps saying what used to be true.
 #
 # Usage: bin/check-role-liveness.sh [project-dir]  ·  bin/check-role-liveness.sh --self-test
-# Exit:  0 every binding alive, the eval can fail, the declared count is true · 1 otherwise · 64 usage
+# Exit:  0 every binding alive (or the repo carries no role registry — not applicable, stated) ·
+#        1 a binding is not load-bearing, the eval cannot fail, or the declared count is untrue ·
+#        64 bad usage
 set -uo pipefail
 
 # _measured ROOT [PROFILE] → "alive/total" as the eval reports it (empty if it could not run).
@@ -113,7 +115,24 @@ fi
 # --- main --------------------------------------------------------------------
 case "${1:-}" in -*) echo "usage: check-role-liveness.sh [project-dir] | --self-test" >&2; exit 64 ;; esac
 root="${1:-.}"
-[ -x "$root/bin/eval-role.sh" ] || { echo "check-role-liveness: no bin/eval-role.sh under '$root'" >&2; exit 64; }
+# NOT APPLICABLE ⇒ SKIP, NEVER BLOCK (issue #45). This gate governs team-bootstrap's OWN role
+# registry, and it is wired into verify-batch.sh, which runs in every TARGET repository. An
+# application repository has no role registry and should not acquire one to satisfy a gate — that
+# would be fitting the repo to the tool.
+#
+# Without this branch the gate exited 64 in every foreign repo and blocked every batch of every
+# delivery, with no waiver path. Reported from a real delivery where 18 of 19 gates were green and
+# five independent reviews had run, one of which found and fixed a real bug: the batch still could not
+# close, and would not have closed on any later batch either.
+#
+# The distinction this draws is the one check-version-sync already draws: "cannot check because there
+# is nothing here to check" is not "cannot check because something is wrong", and only the second is
+# a reason to refuse. The skip is STATED, never silent, so it cannot be mistaken for a pass — and it
+# is narrow: a repo that HAS the subject and fails the claim still blocks.
+if [ ! -x "$root/bin/eval-role.sh" ]; then
+  echo "check-role-liveness: NOT APPLICABLE — '$root' has no bin/eval-role.sh, so it carries no team-bootstrap role registry to measure. This gate governs the plugin's own roles (P12); an application repository has none by design. Skipping."
+  exit 0
+fi
 
 n="$(_run "$root")"
 if [ "${n:-0}" -eq 0 ]; then

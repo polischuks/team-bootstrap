@@ -205,5 +205,41 @@ _chk "$( ( cd "$T" || exit 1; printf '%s' "$_commit_payload" | TEAM_BOOTSTRAP_RU
 rm -rf "$T"
 
 # ---------------------------------------------------------------------------
+# Issue #45 — a gate whose SUBJECT is absent must skip, not block.
+#
+# check-role-liveness governs team-bootstrap's OWN role registry (P12), and is wired into
+# verify-batch.sh, which runs in every TARGET repository — where no role registry exists or should.
+# Exiting 64 there blocked every batch of every delivery outside this repo, with no waiver path:
+# reported from a real delivery with 18 of 19 gates green and five independent reviews done.
+#
+# "Cannot check because there is nothing here to check" is not "cannot check because something is
+# wrong". Only the second may block — the line check-version-sync already draws.
+# ---------------------------------------------------------------------------
+echo "#45 — role-liveness skips (not blocks) where its subject does not exist:"
+F="$(mktemp -d)"; mkdir -p "$F/bin"
+printf '# an application repo, not team-bootstrap\n' > "$F/constitution.md"
+_rc45() { bash "$here/bin/check-role-liveness.sh" "$1" >/dev/null 2>&1; echo $?; }
+_msg45() { bash "$here/bin/check-role-liveness.sh" "$1" 2>&1 | tail -1; }
+
+_chk "$(_rc45 "$F")" 0 "no bin/eval-role.sh ⇒ exit 0, the batch is not blocked"
+_chk "$(_msg45 "$F" | grep -qiE 'not applicable|nothing to check|no role registry|skipping' && echo stated || echo silent)" stated \
+  "  …and the skip states WHY, rather than passing in silence"
+_chk "$(bash "$here/bin/check-version-sync.sh" "$F" >/dev/null 2>&1; echo $?)" 0 "  parity: check-version-sync skips the same dir"
+_chk "$(bash "$here/bin/check-context-phrasing.sh" "$F" >/dev/null 2>&1; echo $?)" 0 "  parity: check-context-phrasing skips the same dir"
+
+# The skip is NARROW: on team-bootstrap itself the gate must still run and still pass.
+_chk "$(_rc45 "$here")" 0 "on team-bootstrap itself the gate still passes"
+_chk "$(bash "$here/bin/check-role-liveness.sh" "$here" 2>&1 | grep -qF 'binding(s) alive' && echo ran || echo skipped)" ran \
+  "  …and it really RAN there — not the same skip path"
+
+# MUTATION: subject PRESENT but the claim false must still block, or the fix swallowed a real failure.
+M="$(mktemp -d)"; mkdir -p "$M/bin"
+for f in eval-role.sh delivery-lib.sh select-pipeline.sh; do cp "$here/bin/$f" "$M/bin/" 2>/dev/null; done
+for d in profiles references agents; do cp -R "$here/$d" "$M/$d" 2>/dev/null; done
+printf '| Live role bindings (`bin/eval-role.sh --liveness`) | 999 | x |\n' > "$M/constitution.md"
+_chk "$([ "$(_rc45 "$M")" -ne 0 ] && echo blocks || echo passes)" blocks \
+  "  MUTATION: subject present but the declared count false ⇒ still blocks"
+rm -rf "$F" "$M"
+
 if [ "$fail" -eq 0 ]; then echo "hook-behaviour: OK"; exit 0; fi
 echo "hook-behaviour: $fail FAILED" >&2; exit 1
