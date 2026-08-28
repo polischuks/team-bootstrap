@@ -28,16 +28,17 @@ first CI enforcement of the test suite itself.
 
 ### Added
 
-- **CI runs the declared `Test:` suite** (`bin/run-tests.sh`) and the runner's own two previously-uncovered
-  proofs — a red member now fails a required check, which was never enforced before (#53, #54). The job
-  runs on macOS, the suite's known-green platform; Linux portability of four members is tracked in #59.
+- **The test runner is now control surface** — `bin/run-tests.sh` is declared in
+  `references/control-surface.txt`, so narrowing its member selection or dropping its failure
+  propagation becomes an ack-required, independently-reviewed edit rather than a silent one (#54).
 
 ### Notes
 
 - The three new hook bodies (`delivery-resize`, `check-batch-confirm`) and the frontmatter `--hook-role`
   wiring activate only after the plugin is reinstalled at 3.4.0.
-- `bin/run-tests.sh` is now control surface (#54): a batch touching the runner needs a `control-surface`
-  seam-ack.
+- **#53 (CI runs the declared `Test:` suite) is deferred to #59.** Adding the job revealed the suite is
+  not green on any GitHub runner — a pre-existing portability gap (bash/coreutils/shallow-checkout), not
+  a regression here. It lands once #59 makes the suite CI-green on a macOS+ubuntu matrix.
 
 ## [3.3.0] — 2026-08-27
 

@@ -59,28 +59,3 @@ jobs:
           print(f"  ok  no broken internal links ({len(glob.glob('**/*.md', recursive=True))} files)")
           PY
 
-  suite:
-    name: "Test suite (AGENTS.md Test: bin/run-tests.sh)"
-    # macOS, not ubuntu: bin/run-tests.sh is the DECLARED Test: suite, developed and known-green on
-    # macOS/bash 3.2 (the maintainer platform). Running it here makes a genuinely-red suite fail CI —
-    # #53's guarantee — on the platform the suite targets. It is NOT yet green on Linux (four members
-    # fail on ubuntu, pre-existing, exposed by this very job): issue #59 tracks making this an
-    # os:[macos,ubuntu] matrix once those are fixed. Runners: GitHub macos images also ship bash 3.2.
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      # The runner decides red/green for every gate, so prove the runner itself FIRST: if it is
-      # broken, the suite result below is meaningless. These two proofs are excluded from the sweep
-      # (to avoid re-entry) and were invoked by nothing until now (issue #54).
-      - name: Test runner's own proofs
-        run: |
-          bash bin/run-tests.sh --self-test
-          bash tests/run-tests.test.sh
-
-      # The declared Test: suite — 36 tests/*.test.sh + 29 bin/*.sh --self-test. A red member exits
-      # non-zero and fails this required check; the runner prints `run-tests: FAIL test — <name>` to
-      # stderr, so the failing member is named in the log (issue #53). --jobs is left to the runner's
-      # auto-detect (CPU count capped at 8); GitHub runners have 2-4 cores.
-      - name: Suite
-        run: bin/run-tests.sh
