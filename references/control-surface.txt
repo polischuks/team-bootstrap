@@ -32,6 +32,11 @@ bin/record-dispatch.sh
 # are HOOK bodies, so a gutting is caught only at the NEXT batch close, weaker than a verify-batch gate —
 # see ADR-0014 / AC-C4 KNOWN GAP.)
 bin/guard-git.sh
+# per-batch operator-confirmation checkpoint (issue #56): a PreToolUse[Bash] hook body like guard-git —
+# gutting it to `exit 0` would silently remove the irreversible/run-rate confirmation stop. Also matched
+# by the bin/check-*.sh glob above; named here too so the "every hook body is control surface" invariant
+# (harness-context-delivery AC-19, a fixed-string check) sees it.
+bin/check-batch-confirm.sh
 bin/quality-gate.sh
 bin/delivery-stop-hook.sh
 bin/delivery-marker-init.sh
