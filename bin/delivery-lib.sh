@@ -1096,6 +1096,138 @@ record_governed_waiver() {
   return 0
 }
 
+# --- sanctioned marker-edit writers (issue #72; front-ended by bin/marker.sh) ------------------------
+# These record the acks/waivers an operator previously had to hand-edit into the machine-owned RUN JSON.
+# They own the shape contract the gates read, reuse the atomic _marker_write / _obj_span primitives, and
+# refuse to write anything the reading gate would reject (governed_waiver_ok / the exit shape) — a waiver
+# that records but does not clear its gate is worse than none. bin/marker.sh re-validates the result.
+
+# _json_scalar_set BODY KEY RAW → BODY (a single "{…}" object) with top-level scalar KEY set to RAW, a
+# JSON token the CALLER pre-encodes (true|false|123|"quoted"). Replaces an existing scalar KEY (string OR
+# bareword, whitespace-tolerant around its colon, normalising to compact "KEY":RAW), else inserts it
+# before BODY's final '}'. The trailing quote in the match anchors on the whole key, so a key that is a
+# prefix of another ("enforcement_ack" vs "enforcement_ack_by") is never confused. Depth-1 by the callers'
+# construction: the marker's sibling objects (precond/preflight) do not carry these key names, and the
+# nested variant below passes an already-isolated object body. Echoes BODY unchanged-shaped on success.
+_json_scalar_set() {
+  local body="$1" key="$2" raw="$3" before rest ws v pre
+  if printf '%s' "$body" | grep -qE "[{,][[:space:]]*\"$key\"[[:space:]]*:[[:space:]]*(\"|true|false|null|-?[0-9])"; then
+    before="${body%%\"$key\"*}"            # up to (excl) the first "KEY"
+    rest="${body#*\"$key\"}"               # from just after "KEY": optional ws, ':', optional ws, value
+    rest="${rest#"${rest%%[![:space:]]*}"}"   # ltrim to the ':'
+    rest="${rest#:}"
+    rest="${rest#"${rest%%[![:space:]]*}"}"   # ltrim to the value
+    case "$rest" in
+      \"*) v="${rest#\"}"; v="${v%%\"*}"; rest="${rest#\"$v\"}" ;;   # drop old string value
+      *)   v="${rest%%,*}"; v="${v%%\}*}"; rest="${rest#"$v"}" ;;    # drop old bareword (to next , or })
+    esac
+    printf '%s"%s":%s%s' "$before" "$key" "$raw" "$rest"
+  else
+    pre="${body%\}}"                       # everything up to the closing brace
+    case "$pre" in
+      *[!\{[:space:]]) printf '%s,"%s":%s}' "$pre" "$key" "$raw" ;;  # object has members → comma-join
+      *)               printf '%s"%s":%s}' "$pre" "$key" "$raw" ;;   # empty object → no leading comma
+    esac
+  fi
+}
+
+# _marker_set_obj_scalar MK OBJ KEY RAW → MK with the top-level "OBJ":{…} object's scalar KEY set to RAW.
+# Locates OBJ's own {…} span (brace-balanced + string-aware via _obj_span, like field_in_obj), edits only
+# that scalar through _json_scalar_set, and leaves every sibling — including OBJ's own array members
+# (precond.items / preflight.gaps) — byte-for-byte untouched. rc 1 if OBJ is absent or unbalanced.
+_marker_set_obj_scalar() {
+  local mk="$1" obj="$2" key="$3" raw="$4" head rest ws inner idx body after newbody
+  case "$mk" in *"\"$obj\":"*) : ;; *) return 1 ;; esac
+  head="${mk%%\"$obj\":*}\"$obj\":"
+  rest="${mk#*\"$obj\":}"
+  ws="${rest%%[![:space:]]*}"; rest="${rest#"$ws"}"     # tolerate `"obj": {` (pretty-printed)
+  case "$rest" in \{*) : ;; *) return 1 ;; esac
+  inner="${rest#\{}"
+  idx="$(_obj_span "$inner")"; [ -n "$idx" ] || return 1
+  body="{${inner:0:idx}}"
+  after="${inner:$((idx + 1))}"
+  newbody="$(_json_scalar_set "$body" "$key" "$raw")" || return 1
+  printf '%s%s%s%s' "$head" "$ws" "$newbody" "$after"
+}
+
+# _marker_json_ok STRING → rc 0 if STRING parses as JSON. Prefers python3 (a documented dependency, used
+# by check-role-verdict / check-gate-integrity / the preflight self-test); with no python3 falls back to
+# the single-{…}-object shape guard the other writers use, so a python-less host is never harder-failed
+# than the status quo. The writers below run this on the CANDIDATE before _marker_write, so a mis-splice
+# is refused rather than committed — the marker on disk is never left corrupt.
+_marker_json_ok() {
+  if command -v python3 >/dev/null 2>&1; then
+    printf '%s' "$1" | python3 -c 'import sys,json; json.load(sys.stdin)' >/dev/null 2>&1
+  else
+    case "$1" in \{*\}) return 0 ;; *) return 1 ;; esac
+  fi
+}
+
+# record_precond_ack VALUE(true|false) → set precond.ack in the active run marker, preserving precond.exit
+# and precond.items. Requires an existing precond object (there is nothing to acknowledge without the
+# deliverability advisory check-preconditions records). rc 1 on a bad value, no/ambiguous run, absent
+# precond, or a candidate that does not parse. Clears/sets the flag check-delivery reads (precond.ack).
+record_precond_ack() {
+  local val="$1" marker mk newmk
+  case "$val" in true|false) : ;; *) return 1 ;; esac
+  marker="$(resolve_marker)"
+  [ -n "$marker" ] && [ -f "$marker" ] || return 1
+  mk="$(cat "$marker" 2>/dev/null || true)"
+  [ -n "$mk" ] || return 1
+  case "$mk" in *'"precond":{'*) : ;; *) return 1 ;; esac
+  newmk="$(_marker_set_obj_scalar "$mk" precond ack "$val")" || return 1
+  _marker_json_ok "$newmk" || return 1
+  _marker_write "$marker" "$newmk"
+}
+
+# record_preflight_waiver BY REASON EXPIRES → record the governed Phase-0 waiver check-delivery reads:
+# preflight.{ack:true,by,reason,expires}, preserving preflight.exit and preflight.gaps. Validated through
+# the SAME governed_waiver_ok the gate decides on (so a waiver that records always clears the gate), and
+# free-text is rejected — not mangled — if it carries a `"` or `\` that would break the JSON (this file
+# has no encoder; mirrors record_governed_waiver). Requires an existing preflight object. rc 1 otherwise.
+record_preflight_waiver() {
+  local by="$1" reason="$2" expires="$3" marker mk newmk
+  governed_waiver_ok true "$by" "$reason" "$expires" || return 1
+  case "$by$reason" in *[\\\"]*) return 1 ;; esac
+  marker="$(resolve_marker)"
+  [ -n "$marker" ] && [ -f "$marker" ] || return 1
+  mk="$(cat "$marker" 2>/dev/null || true)"
+  [ -n "$mk" ] || return 1
+  case "$mk" in *'"preflight":{'*) : ;; *) return 1 ;; esac
+  newmk="$mk"
+  newmk="$(_marker_set_obj_scalar "$newmk" preflight ack true)"            || return 1
+  newmk="$(_marker_set_obj_scalar "$newmk" preflight by "\"$by\"")"        || return 1
+  newmk="$(_marker_set_obj_scalar "$newmk" preflight reason "\"$reason\"")" || return 1
+  newmk="$(_marker_set_obj_scalar "$newmk" preflight expires "\"$expires\"")" || return 1
+  _marker_json_ok "$newmk" || return 1
+  _marker_write "$marker" "$newmk"
+}
+
+# record_enforcement_waiver BY REASON EXPIRES CATEGORY(host_structural|deferred) → record the FLAT
+# top-level governed enforcement waiver check-enforcement reads: enforcement_ack:true +
+# enforcement_ack_by/reason/expires/category. Category is validated to the gate's vocabulary; the rest
+# through governed_waiver_ok; free-text carrying `"`/`\` is rejected. Prefix-safe: enforcement_ack is set
+# before its _by/_reason/... siblings without confusion (the trailing quote in _json_scalar_set anchors).
+record_enforcement_waiver() {
+  local by="$1" reason="$2" expires="$3" cat="$4" marker mk newmk
+  case "$cat" in host_structural|deferred) : ;; *) return 1 ;; esac
+  governed_waiver_ok true "$by" "$reason" "$expires" || return 1
+  case "$by$reason" in *[\\\"]*) return 1 ;; esac
+  marker="$(resolve_marker)"
+  [ -n "$marker" ] && [ -f "$marker" ] || return 1
+  mk="$(cat "$marker" 2>/dev/null || true)"
+  [ -n "$mk" ] || return 1
+  case "$mk" in \{*\}) : ;; *) return 1 ;; esac
+  newmk="$mk"
+  newmk="$(_json_scalar_set "$newmk" enforcement_ack true)"                     || return 1
+  newmk="$(_json_scalar_set "$newmk" enforcement_ack_by "\"$by\"")"             || return 1
+  newmk="$(_json_scalar_set "$newmk" enforcement_ack_reason "\"$reason\"")"     || return 1
+  newmk="$(_json_scalar_set "$newmk" enforcement_ack_expires "\"$expires\"")"   || return 1
+  newmk="$(_json_scalar_set "$newmk" enforcement_ack_category "\"$cat\"")"      || return 1
+  _marker_json_ok "$newmk" || return 1
+  _marker_write "$marker" "$newmk"
+}
+
 # json_has_obj_field ARRAYJSON FIELD VALUE → rc 0 if any object in the array-of-objects ARRAYJSON has
 # "FIELD":"VALUE" (whitespace-tolerant). Used by check-seam-ack to test seam_acks presence (AC-5).
 json_has_obj_field() {
@@ -1217,12 +1349,49 @@ role_floor_mode() {
 }
 
 # missing_roles PIPELINE BID → space-separated mandated roles NOT covered by BID's dispatches (empty if
-# all covered or the pipeline mandates none). The per-role gap both the role-dispatch gate and the
-# review-ack parity read from one place (N3 — no drift).
+# all covered or the pipeline mandates none). Sources the blanket per-PIPELINE mandated_roles.
+#
+# SUPERSEDED for the close gates by missing_review_roles (issue #70). Kept because it is unit-tested in
+# tests/all-four-role-dispatch.test.sh and documents the blanket panel, but check-role-dispatch and
+# check-review-ack no longer read it: the blanket mandated_roles(pipeline) disagrees with the diff-sized
+# required set (e.g. mvp, or a small batch inside a full run), and that disagreement WAS the divergence —
+# one gate enforcing the sized subset, the other the full panel, on the same batch.
 missing_roles() {
   local pipeline="$1" bid="$2" covered r missing=""
   covered="$(roles_covered "$bid")"
   for r in $(mandated_roles "$pipeline"); do
+    case " $covered " in *" $r "*) ;; *) missing="${missing:+$missing }$r" ;; esac
+  done
+  printf '%s' "$missing"
+}
+
+# required_review_roles BID → THE single authoritative required-review-role set for this batch, the one
+# set BOTH close gates (check-role-dispatch at close, check-review-ack under enforce) read (issue #70).
+#
+# recorded if the ledger entry already carries it (record_required_roles has run — check-role-dispatch's
+# window, which runs AFTER that record in verify-batch), else computed live via required_roles_for_batch —
+# the SAME diff-aware sizing record_required_roles itself writes and check-review-batch announces. So
+# check-review-ack, which runs BEFORE the record, computes exactly the set that will be recorded, instead
+# of falling back to the blanket mandated_roles(pipeline) and demanding the full panel for a batch the
+# sizing scoped down. This retires mandated_roles(pipeline) as an independent second floor: the two gates
+# can no longer disagree about what the batch needs, so a batch never fails review-ack for a role dispatch
+# said it didn't need (#70 acceptance). Empty only for a doc batch / unresolvable id, exactly as
+# required_roles_for_batch already returns. The >=1 independent-reviewer floor lives inside
+# required_roles_for_batch (F4/AC-18) and is never sized away by either path.
+required_review_roles() {
+  local bid="$1" rec
+  [ -n "$bid" ] || return 0
+  rec="$(required_roles_recorded "$bid" 2>/dev/null || true)"
+  if [ -n "$rec" ]; then printf '%s' "$rec"; return 0; fi
+  required_roles_for_batch "$bid"
+}
+
+# missing_review_roles BID → required_review_roles(BID) minus roles_covered(BID): the per-role gap both
+# close gates read from ONE place (issue #70, N3 — no drift). Supersedes missing_roles for the gates.
+missing_review_roles() {
+  local bid="$1" covered r missing=""
+  covered="$(roles_covered "$bid")"
+  for r in $(required_review_roles "$bid"); do
     case " $covered " in *" $r "*) ;; *) missing="${missing:+$missing }$r" ;; esac
   done
   printf '%s' "$missing"
@@ -1264,6 +1433,40 @@ reviewer_dispatch_count() {
     [ "$rbatch" = "$bid" ] && n=$((n + 1))
   done < "$disp"
   printf '%s' "$n"
+}
+
+# reviewers_in_flight → rc 0 IFF the IN-FLIGHT announced kind:code batch has >=1 reviewer-typed dispatch
+# recorded for it and has not closed. The observable that tells "waiting for dispatched reviewers" apart
+# from "abandoned Phase B" (issue #65).
+#
+# WHY THIS SIGNAL. The Stop hook blocked every Stop while an announced-unclosed kind:code batch existed
+# — the correct posture for a run that skipped Phase B, but ALSO the normal state while the orchestrator
+# waits for review subagents it already dispatched for that batch. The two were indistinguishable, so
+# each Stop during a legitimate review wait burned an exit-2 cycle (and, per #60, a full conversation
+# re-scan). The existing D7 relaxation covers only the "no code has moved" wait (waiting for an operator
+# before Phase B); a batch whose code IS committed reads as `code` there and does not qualify.
+#
+# GROUNDED IN dispatch.jsonl, NEVER DECLARED (R3). "A reviewer is in flight" is read from the same
+# harness-recorded reviewer tally the run-close floor uses (reviewer_dispatch_count ← record-dispatch.sh,
+# PreToolUse[Agent]) for the batch inflight_batch names — not from any marker field the orchestrator
+# writes, which the same mind this gate checks could forge. A run that dispatched NO reviewer for its
+# open batch has count 0 and never arms: the abandoned case still blocks.
+#
+# HONEST LIMIT (the disclosed ADR-0006/0008 ceiling, not a new hole). record-dispatch is PreToolUse, so
+# "in flight" means a review was ATTEMPTED and the batch has not closed; there is no return/verdict
+# observable (SubagentStop is flaky #27755, subagents run background). So a run that dispatched a
+# reviewer, received a verdict, and THEN abandoned reads as waiting. That is the SAME forgeability the
+# reviewer floor already runs at — and it is strictly narrower than the class the gate exists to catch,
+# which is a batch with ZERO reviewer dispatch. It also cannot mask the two hardest-failing shapes: a
+# run with no ledger at all (no announced batch → never arms) and a batch whose only dispatch is a
+# builder or is credited to a different id (reviewer_dispatch_count is 0 → never arms).
+reviewers_in_flight() {
+  local line bid
+  line="$(inflight_batch)"; [ -n "$line" ] || return 1
+  [ "$(field_str "$line" kind)" = "code" ] || return 1
+  [ "$(field_str "$line" status)" = "announced" ] || return 1
+  bid="$(field_str "$line" id)"; [ -n "$bid" ] || return 1
+  [ "$(reviewer_dispatch_count "$bid")" -ge 1 ]
 }
 
 # risk_rank_int NAME → integer rank (higher = more load-bearing); empty if unknown.

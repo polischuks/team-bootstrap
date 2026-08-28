@@ -166,12 +166,16 @@ _evaluate() {
     [ "$unmeasured" -gt 0 ] && echo "check-diff-coverage: WARN — ${unmeasured} of ${changed_n} changed non-doc line(s) are NOT in the coverage report; the percentage below is over the measured ${m} only. Declare a cover-all Coverage: command, or set CoverageStrict: true to count unmeasured as misses." >&2
   fi
 
+  # The verdict line states the measurement BASE, not just the ratio (issue #71): a percentage over a
+  # hidden denominator reads as wrong. `measured M of T changed non-doc lines` names how much of the
+  # change the coverage report actually saw — in non-strict mode M can be < T (a partial report scored
+  # over its subset), in strict mode denom == T so the ratio and the base agree.
   local pct; pct=$(( 100 * c / denom ))
   if [ "$pct" -lt "$thr" ]; then
-    echo "  FAIL: changed-line coverage ${pct}% (${c}/${denom}) < threshold ${thr}% — add tests exercising the changed lines (F2, breadth)." >&2
+    echo "  FAIL: changed-line coverage ${pct}% (${c}/${denom} covered; measured ${m} of ${changed_n} changed non-doc lines) < threshold ${thr}% — add tests exercising the changed lines (F2, breadth)." >&2
     return 1
   fi
-  echo "check-diff-coverage: changed-line coverage ${pct}% (${c}/${denom}) ≥ ${thr}% — OK."
+  echo "check-diff-coverage: changed-line coverage ${pct}% (${c}/${denom} covered; measured ${m} of ${changed_n} changed non-doc lines) ≥ ${thr}% — OK."
   return 0
 }
 

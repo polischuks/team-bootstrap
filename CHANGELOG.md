@@ -2,6 +2,29 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.0] — 2026-08-28
+
+**Friction cluster from three live retrospectives.** Eleven fixes to the delivery gates and doctrine surfaced by real `/deliver` runs (specs 185, 097, 178-179) — one a regression from 3.4.0, the rest long-standing sharp edges where the machinery assumed a shape the real work didn't hold.
+
+### Fixed
+
+- **check-delivery counts only batch lines** (#62, regression from #56): the `{"confirm":"<id>"}` line that check-batch-confirm appends no longer inflates the ledger total or makes a confirmed in-flight batch read as "abandoned". Counts/orders over lines carrying `"id"` only.
+- **Un-pinned the completeness path** (#63): `commands/deliver.md` uses `${CLAUDE_PLUGIN_ROOT}/bin/check-completeness.sh` instead of a stale `2.18.1/bin/...` absolute path.
+- **verify-batch caches the suite verdict on tree state** (#64): a retry whose tree is byte-identical (e.g. an ack-only ledger edit) reuses the cached green instead of re-running the whole suite; any real code change invalidates the key. Mutation was already cached.
+- **stop-hook distinguishes waiting-for-reviewers from abandoned** (#65): an open batch with reviewers dispatched (per dispatch.jsonl) and not yet returned is treated as *waiting* — no exit-2 churn — while a genuinely abandoned code run still blocks.
+- **Enforcement gains a governed repo-capability opt-out** (#66): a repo that does not run mutation/coverage tooling declares it (attributable, visible, in AGENTS.md) so run-rate/irreversible batches close without a risk_rank downgrade — ignored the moment a real tool resolves on PATH. `check-mutation` also gains the governed `--waive` the other enforce gates have.
+- **First-class regression-lock batch form** (#67): a batch may prove itself with a lock whose obligation is "the lock reddens when the locked behaviour is mutated" (`check-tdd --record-lock`), instead of a manufactured HEAD~1 red.
+- **check-tdd rejects an obvious wrong-cause red** (#68): an import/collection/syntax/missing-file red no longer satisfies red-first on its own; any assertion signal still passes (conservative, to avoid false-rejects).
+- **Preflight tells Mode-2 from split-brain** (#69): a spec-only pre-Phase-A start (plan/tasks legitimately not yet produced) is no longer reported as a partial/split-brain tree; a dir that *lost* recorded artefacts still fails.
+- **Single-sourced the reviewer panel** (#70): check-role-dispatch and check-review-ack now read one shared required-reviewer set, so a batch never fails review-ack late for a role dispatch said it didn't need. (Root cause: review-ack ran before the sized set was recorded.)
+- **gate-integrity scopes to the batch delta; diff-coverage shows its denominator** (#71): standing skips outside the batch no longer demand a waiver each run (whole-tree audit stays available via `--audit`); coverage output states measured-vs-total changed lines.
+- **A marker helper CLI** (#72): `bin/marker.sh` records acks/waivers in the correct validated shape (proven against the gates that read them) so operators never hand-edit the machine-owned RUN JSON.
+
+### Notes
+
+- Activation needs a plugin reinstall at 3.6.0.
+- CI test-suite job remains deferred to #59.
+
 ## [3.5.0] — 2026-08-28
 
 **Verdict capture rewired + delivery cost instrumented.** Two fixes from watching real 3.4.0 delivery runs where verdict capture was 0-of-N and a single spec cost ~1.1M tokens / ~3h46m with no way to see where.

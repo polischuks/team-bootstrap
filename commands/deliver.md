@@ -342,7 +342,7 @@ Then, for **each batch, one at a time**:
    confirmation, enforced by `check-batch-confirm.sh` rather than by a prose pause here.
 
 **Milestone finalization (hard, before declaring done).** After the final batch closes, run
-`/Users/sergey_polishchuk/.claude/plugins/cache/team-bootstrap/team-bootstrap/2.18.1/bin/check-completeness.sh --final` — the closure-fidelity completeness
+`${CLAUDE_PLUGIN_ROOT}/bin/check-completeness.sh --final` — the closure-fidelity completeness
 gate in milestone mode: **no** `[ ]` may remain in `specs/<slug>/tasks.md`, and **every** `AC-N` in
 `spec.md` must be referenced by ≥1 test-path file (`is_test_path`; `AcPattern:` configurable). A non-zero
 exit means the milestone is **not** done — an unchecked task or an acceptance criterion with no test. Fix

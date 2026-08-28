@@ -131,24 +131,18 @@ _evaluate() {
         viol=$((viol + 1))
       fi
       # all-four-role-dispatch T4 — per-role PARITY: under ENFORCE, a review_acks claim needs the batch to
-      # cover EVERY mandated role (roles_covered ⊇ mandated_roles), not merely ≥1 dispatch. In warn (default
-      # until references/role-dispatch-enforce is committed) the ≥1 corroboration above is the floor. Mirrors
-      # the role-dispatch gate via the same delivery-lib helpers (N3 — no drift).
+      # cover EVERY REQUIRED role (roles_covered ⊇ required_review_roles), not merely ≥1 dispatch. In warn
+      # (default until references/role-dispatch-enforce is committed) the ≥1 corroboration above is the floor.
       if [ "$(role_floor_mode)" = "enforce" ]; then
-        # Read the SAME set check-role-dispatch enforces (N3 — no drift): a batch whose recorded
-        # required_roles the harness sized down must not pass that gate and then fail here for the
-        # blanket roles it was deliberately sized out of (review MEDIUM).
-        local _miss _rec _r; _rec="$(required_roles_recorded "$bid" 2>/dev/null || true)"
-        if [ -n "$_rec" ]; then
-          _miss=""
-          for _r in $_rec; do
-            case " $(roles_covered "$bid") " in *" $_r "*) : ;; *) _miss="${_miss:+$_miss }$_r" ;; esac
-          done
-        else
-          _miss="$(missing_roles "$pipeline" "$bid")"
-        fi
+        # SINGLE SOURCE (issue #70): read required_review_roles — the SAME set check-role-dispatch reads.
+        # This gate runs BEFORE record_required_roles in verify-batch, so the recorded field is usually
+        # ABSENT here; required_review_roles then computes required_roles_for_batch — the diff-sized set —
+        # instead of the blanket mandated_roles(pipeline). Without this, a small batch inside a full run
+        # failed HERE demanding the full 4-role panel, then PASSED role-dispatch (which runs after the
+        # record) on the sized subset: the batch failed review-ack for roles the sizing said it didn't need.
+        local _miss; _miss="$(missing_review_roles "$bid")"
         if [ -n "$_miss" ]; then
-          echo "  FAIL: review_acks for '$bid' (pipeline='$pipeline', enforce) is missing mandated review role(s) [$_miss] — the per-role floor requires every mandated role dispatched under its dedicated review type, not just ≥1 (all-four-role-dispatch)." >&2
+          echo "  FAIL: review_acks for '$bid' (pipeline='$pipeline', enforce) is missing required review role(s) [$_miss] — the per-role floor requires every required role dispatched under its dedicated review type, not just ≥1 (all-four-role-dispatch; single-sourced with check-role-dispatch, #70)." >&2
           viol=$((viol + 1))
         fi
       fi ;;
@@ -324,8 +318,11 @@ if [ "${1:-}" = "--self-test" ]; then
   _chk "B3 absent pipeline + review_acks + no dispatch → fail-closed" "$(_run)" 1
   rm -f "$T/.runs/r/dispatch.jsonl"
 
-  # --- all-four-role-dispatch T4: per-role parity under ENFORCE (roles_covered ⊇ mandated) ----------
-  _batch '{"id":"C1","kind":"code","status":"announced"}'
+  # --- all-four-role-dispatch T4: per-role parity under ENFORCE (roles_covered ⊇ required_review_roles) --
+  # RECORD the required set on the ledger line (issue #70): review-ack reads the SAME single source
+  # (required_review_roles) check-role-dispatch reads, so this pins parity against a known 4-role set
+  # rather than the retired blanket mandated_roles(pipeline).
+  _batch '{"id":"C1","kind":"code","status":"announced","required_roles":["integration-verifier","architecture-reviewer","regression-guardian","code-reviewer"]}'
   _cover4rev() { { printf '{"batch":"C1","subagent_type":"integration-verifier"}\n'
     printf '{"batch":"C1","subagent_type":"architecture-reviewer"}\n'
     printf '{"batch":"C1","subagent_type":"regression-guardian"}\n'
