@@ -84,6 +84,159 @@ _scan() { # sets: TOTAL RECORDED NONDEFAULT
   done
 }
 
+# --- wall-time attribution (issue #61) -----------------------------------------
+# Turns the two honest wall-clock facts the hooks record — dispatch `ts` (record-dispatch, per review
+# role) and batch `closed_at` (verify-batch, per batch) — into per-batch and per-role wall-time, so a
+# 1.1M-token/3h46m run can be ATTRIBUTED to where the time went. What is NOT here is TOKENS: a bash hook
+# cannot see per-subagent token usage (that is the harness's, not the plugin's — see delivery-lib's #61
+# note), so this reports wall-time only and says so, rather than fabricating a token split.
+#
+# HONEST LIMITS carried in the output itself:
+#   - Per-batch wall-time = closed_at[N] - closed_at[N-1]; the FIRST batch is measured from the run's
+#     earliest recorded activity (min ts / closed_at), which UNDER-counts any implementation done before
+#     the first recorded event. Labelled "from first recorded activity".
+#   - "review-window" is the wall-clock span from a batch's first to its last review DISPATCH. Reviews
+#     run background/parallel and their COMPLETION is not observed (#60), so this is a span, not additive
+#     reviewer time, and it has no matching per-role end — per role we can report WHEN each was dispatched
+#     and how often, never how long it ran.
+
+_hms() { # SECS → "Xm Ys" (or "Ys" under a minute); non-numeric/negative → "?"
+  local s="${1:-}"
+  case "$s" in ''|*[!0-9-]*) printf '?'; return 0 ;; esac
+  [ "$s" -lt 0 ] && { printf '?'; return 0; }
+  if [ "$s" -ge 60 ]; then printf '%dm %ds' "$((s / 60))" "$((s % 60))"; else printf '%ds' "$s"; fi
+}
+
+# _emit_timing MODE DIR  (MODE = human | json) → per-run wall-time for the single run rooted at DIR.
+# Prints nothing when the run has no timing to report (no closed_at and no dispatch ts). In json mode it
+# prints exactly one object with NO trailing comma; the caller joins objects.
+_emit_timing() {
+  local mode="$1" d="$2" bfile="$2/batches.jsonl" dfile="$2/dispatch.jsonl"
+  local runid; runid="$(basename "$d")"
+  [ -f "$bfile" ] || return 0
+
+  # earliest recorded activity across BOTH ledgers = run t0.
+  local t0="" v line
+  if [ -f "$dfile" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+      [ -n "$line" ] || continue
+      v="$(field_num "$line" ts)"; [ -n "$v" ] || continue
+      { [ -z "$t0" ] || [ "$v" -lt "$t0" ]; } && t0="$v"
+    done < "$dfile"
+  fi
+  # closed code batches, in close (file) order.
+  local ids="" closes="" last_close=""
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ -n "$line" ] || continue
+    [ "$(field_str "$line" kind)" = "code" ] || continue
+    v="$(field_num "$line" closed_at)"; [ -n "$v" ] || continue
+    ids="$ids $(field_str "$line" id)"; closes="$closes $v"; last_close="$v"
+    { [ -z "$t0" ] || [ "$v" -lt "$t0" ]; } && t0="$v"
+  done < "$bfile"
+  [ -n "$t0" ] || return 0                      # nothing timed at all
+  local total=""; [ -n "$last_close" ] && total="$((last_close - t0))"
+
+  # per-role tallies (subagent_type → attributed role) across the run.
+  local roles_seen="" role
+  if [ -f "$dfile" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+      [ -n "$line" ] || continue
+      role="$(role_of_slug "$(field_str "$line" subagent_type)")"
+      [ -n "$role" ] || role="$(field_str "$line" subagent_type)"
+      [ -n "$role" ] && roles_seen="$roles_seen $role"
+    done < "$dfile"
+  fi
+
+  if [ "$mode" = "human" ]; then
+    printf '    run %s: total %ss (%s) from first recorded activity\n' "$runid" "$total" "$(_hms "$total")"
+    local prev="$t0" id cl bid n mn mx
+    # zip ids+closes positionally
+    set -- $closes
+    for id in $ids; do
+      cl="$1"; shift
+      # review window for this batch
+      n=0; mn=""; mx=""
+      if [ -f "$dfile" ]; then
+        while IFS= read -r line || [ -n "$line" ]; do
+          [ -n "$line" ] || continue
+          [ "$(field_str "$line" batch)" = "$id" ] || continue
+          v="$(field_num "$line" ts)"; [ -n "$v" ] || continue
+          n=$((n + 1))
+          { [ -z "$mn" ] || [ "$v" -lt "$mn" ]; } && mn="$v"
+          { [ -z "$mx" ] || [ "$v" -gt "$mx" ]; } && mx="$v"
+        done < "$dfile"
+      fi
+      local win=0; [ -n "$mn" ] && [ -n "$mx" ] && win="$((mx - mn))"
+      printf '      batch %-6s wall %ss (%s)  review-window %ss over %d dispatch(es)\n' \
+        "$id" "$((cl - prev))" "$(_hms "$((cl - prev))")" "$win" "$n"
+      prev="$cl"
+    done
+    for role in $(printf '%s\n' $roles_seen | sort -u); do
+      n="$(printf '%s\n' $roles_seen | grep -cxF -e "$role" || true)"
+      mn=""; mx=""
+      while IFS= read -r line || [ -n "$line" ]; do
+        [ -n "$line" ] || continue
+        r2="$(role_of_slug "$(field_str "$line" subagent_type)")"; [ -n "$r2" ] || r2="$(field_str "$line" subagent_type)"
+        [ "$r2" = "$role" ] || continue
+        v="$(field_num "$line" ts)"; [ -n "$v" ] || continue
+        { [ -z "$mn" ] || [ "$v" -lt "$mn" ]; } && mn="$v"
+        { [ -z "$mx" ] || [ "$v" -gt "$mx" ]; } && mx="$v"
+      done < "$dfile"
+      printf '      role %-24s %s dispatch(es)  first@%s last@%s\n' "$role" "$n" "${mn:-n/a}" "${mx:-n/a}"
+    done
+    return 0
+  fi
+
+  # json mode — one object, no trailing comma.
+  local bj="" prev="$t0" id cl n mn mx first=1
+  set -- $closes
+  for id in $ids; do
+    cl="$1"; shift
+    n=0; mn=""; mx=""
+    if [ -f "$dfile" ]; then
+      while IFS= read -r line || [ -n "$line" ]; do
+        [ -n "$line" ] || continue
+        [ "$(field_str "$line" batch)" = "$id" ] || continue
+        v="$(field_num "$line" ts)"; [ -n "$v" ] || continue
+        n=$((n + 1))
+        { [ -z "$mn" ] || [ "$v" -lt "$mn" ]; } && mn="$v"
+        { [ -z "$mx" ] || [ "$v" -gt "$mx" ]; } && mx="$v"
+      done < "$dfile"
+    fi
+    local win=0; [ -n "$mn" ] && [ -n "$mx" ] && win="$((mx - mn))"
+    [ "$first" -eq 1 ] || bj="$bj,"; first=0
+    bj="$bj{\"id\":\"$id\",\"wall_s\":$((cl - prev)),\"review_window_s\":$win,\"dispatches\":$n}"
+    prev="$cl"
+  done
+  local rj="" r2; first=1
+  for role in $(printf '%s\n' $roles_seen | sort -u); do
+    n="$(printf '%s\n' $roles_seen | grep -cxF -e "$role" || true)"
+    mn=""; mx=""
+    while IFS= read -r line || [ -n "$line" ]; do
+      [ -n "$line" ] || continue
+      r2="$(role_of_slug "$(field_str "$line" subagent_type)")"; [ -n "$r2" ] || r2="$(field_str "$line" subagent_type)"
+      [ "$r2" = "$role" ] || continue
+      v="$(field_num "$line" ts)"; [ -n "$v" ] || continue
+      { [ -z "$mn" ] || [ "$v" -lt "$mn" ]; } && mn="$v"
+      { [ -z "$mx" ] || [ "$v" -gt "$mx" ]; } && mx="$v"
+    done < "$dfile"
+    [ "$first" -eq 1 ] || rj="$rj,"; first=0
+    rj="$rj{\"role\":\"$role\",\"dispatches\":$n,\"first_ts\":${mn:-null},\"last_ts\":${mx:-null}}"
+  done
+  printf '{"run":"%s","total_wall_s":%s,"tokens":null,"batches":[%s],"roles":[%s]}' \
+    "$runid" "${total:-null}" "$bj" "$rj"
+  return 0
+}
+
+# _timing_runs → the run dirs to report timing for, newest first, capped. Read-only.
+_timing_runs() {
+  local d
+  for d in $(ls -dt .runs/*/ 2>/dev/null); do
+    [ -d "$d" ] || continue
+    printf '%s\n' "${d%/}"
+  done
+}
+
 if [ "${1:-}" = "--self-test" ]; then
   fail=0
   _c() { if [ "$1" = "$2" ]; then echo "  PASS $3"; else echo "  FAIL $3 (got [$1] want [$2])" >&2; fail=$((fail + 1)); fi; }
@@ -129,10 +282,22 @@ _scan_waivers
 LIVE="$("$here/eval-role.sh" --liveness 2>/dev/null | sed -n 's/.*: \([0-9]*\)\/\([0-9]*\) assignable.*/\1\/\2/p' | tail -1)"
 [ -n "$LIVE" ] || LIVE="unknown"
 
+# wall-time attribution across the runs that carry timing (issue #61), newest first.
+TIMING_JSON="["; _tsep=""; _tobj=""
+while IFS= read -r _trun; do
+  [ -n "$_trun" ] || continue
+  _tobj="$(_emit_timing json "$_trun")"
+  [ -n "$_tobj" ] || continue
+  TIMING_JSON="$TIMING_JSON$_tsep$_tobj"; _tsep=","
+done <<EOF
+$(_timing_runs)
+EOF
+TIMING_JSON="$TIMING_JSON]"
+
 if [ "$JSON" -eq 1 ]; then
-  printf '{"code_batches":%d,"recorded":%d,"enforce_share_pct":"%s","non_default":%d,"non_default_share_pct":"%s","live_role_bindings":"%s","code_runs":%d,"waived_runs":%d,"waived_share_pct":"%s"}\n' \
+  printf '{"code_batches":%d,"recorded":%d,"enforce_share_pct":"%s","non_default":%d,"non_default_share_pct":"%s","live_role_bindings":"%s","code_runs":%d,"waived_runs":%d,"waived_share_pct":"%s","timing":%s,"tokens_available":false}\n' \
     "$TOTAL" "$RECORDED" "$(_pct "$RECORDED" "$TOTAL")" "$NONDEFAULT" "$(_pct "$NONDEFAULT" "$RECORDED")" "$LIVE" \
-    "$RUNS_CODE" "$RUNS_WAIVED" "$(_pct "$RUNS_WAIVED" "$RUNS_CODE")"
+    "$RUNS_CODE" "$RUNS_WAIVED" "$(_pct "$RUNS_WAIVED" "$RUNS_CODE")" "$TIMING_JSON"
   exit 0
 fi
 echo "delivery-metrics (read-only; from .runs/*/batches.jsonl)"
@@ -141,4 +306,21 @@ echo "  closed with a recorded role set ... $RECORDED  ($(_pct "$RECORDED" "$TOT
 echo "  assigned set != tier default ...... $NONDEFAULT  ($(_pct "$NONDEFAULT" "$RECORDED")%)   <- near 0 = the selector does not discriminate"
 echo "  live role bindings ................ $LIVE  (eval-role.sh --liveness)"
 echo "  code runs closed under a waiver ... $RUNS_WAIVED/$RUNS_CODE  ($(_pct "$RUNS_WAIVED" "$RUNS_CODE")%)   <- R2: a waiver is an event; a rising share means it became the posture"
+# issue #61 — per-batch / per-role wall-time. Tokens are the harness's, not the plugin's, so they are
+# NOT here; a bash hook never sees per-subagent token usage (delivery-lib #61 note). This is the honest
+# half: where the WALL-CLOCK went. Printed newest run first, only for runs that carry timing.
+_any_timing=0
+while IFS= read -r _trun; do
+  [ -n "$_trun" ] || continue
+  _thuman="$(_emit_timing human "$_trun")"
+  [ -n "$_thuman" ] || continue
+  if [ "$_any_timing" -eq 0 ]; then
+    echo "  wall-time (issue #61; per run — tokens NOT recorded: per-subagent token usage is the harness's, not a bash hook's):"
+    _any_timing=1
+  fi
+  printf '%s\n' "$_thuman"
+done <<EOF
+$(_timing_runs)
+EOF
+[ "$_any_timing" -eq 0 ] && echo "  wall-time .......................... none recorded yet (needs closed_at on batches / ts on dispatches; accrues as runs close on this version)"
 exit 0
