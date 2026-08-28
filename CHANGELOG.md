@@ -2,6 +2,23 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.0] — 2026-08-28
+
+**Verdict capture rewired + delivery cost instrumented.** Two fixes from watching real 3.4.0 delivery runs where verdict capture was 0-of-N and a single spec cost ~1.1M tokens / ~3h46m with no way to see where.
+
+### Fixed
+
+- **Verdict capture is carried off the plugin-level `SubagentStop` event** (#60). The capture path previously lived only in each review agent's frontmatter `Stop` hook, which does not fire for Agent-tool-dispatched subagents — so `verdicts.jsonl` was never written and every code batch closed on a manual waiver. `check-role-verdict` now reads the subagent's own transcript (`agent_transcript_path`, not the main-session `transcript_path`), and `hooks.json` registers a plugin-level `SubagentStop` for the review roles. When capture still cannot run, the batch-close gate writes a `verdict-capture.jsonl` trace naming *why* (`capture-channel-did-not-fire`) instead of a guess — the gate still refuses/waives fail-closed. NOTE: live firing of `SubagentStop` for Agent-tool dispatches is a host capability this layer cannot force or self-test; the fix makes capture mechanically possible and the failure diagnosable.
+
+### Added
+
+- **Per-batch and per-role wall-time instrumentation** (#61). `record-dispatch` stamps each review dispatch with `ts`; `verify-batch` stamps `closed_at` on batch close; `delivery-metrics` reports per-batch and per-role wall-time (human + `--json`) so a multi-hour run can be attributed. Tokens are **not** included: a bash hook cannot see per-subagent token usage (investigated — no hook payload carries it), and the output says so (`tokens_available:false`) rather than fabricating a number.
+
+### Notes
+
+- Activation of the new `SubagentStop` registration needs a plugin reinstall at 3.5.0.
+- The CI test-suite job remains deferred to #59 (suite not yet green on any GitHub runner).
+
 ## [3.4.0] — 2026-08-28
 
 **Batch: eight open issues.** Verdict capture, sizing honesty, guard scoping, delivery flow, and the

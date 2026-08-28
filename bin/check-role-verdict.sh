@@ -74,6 +74,30 @@ _tallied_for() {
   marker_list verdicts_captured 2>/dev/null | grep -oE "\"$1/[^\"]*\"" | grep -c . || true
 }
 
+# _record_capture_decline RUNDIR BATCH "REQUIRED" "DISPATCHED" DIAG — ISSUE #60. Append a diagnostic
+# trace to .runs/<run>/verdict-capture.jsonl, written by THIS gate — a path that PROVENLY fires
+# (verify-batch calls it at every batch close, and CI runs it). Before this, a seen==0 close left NOTHING
+# behind: no verdict, and no decline record either, so the operator's only evidence was the gate's own
+# guess ("the capture did not run OR could not read a transcript") — two very different failures it could
+# not tell apart. dispatch.jsonl CAN tell them apart: if reviewers were dispatched and zero verdicts
+# landed and no decline was traced, the capture channel did not fire (or fired blind and recorded
+# nothing). The record names that observable state instead of guessing at it.
+#
+# De-duped per (batch, diagnosis): verify-batch retries the gate on every close attempt, so an
+# append-per-call would balloon the file with identical lines. One line per distinct diagnosis is the
+# signal; repeats are not.
+_record_capture_decline() {
+  local rundir="$1" bid="$2" req="$3" disp="$4" diag="$5" f
+  [ -n "$rundir" ] && [ -d "$rundir" ] || return 0
+  [ -n "$bid" ] && [ -n "$diag" ] || return 0
+  f="$rundir/verdict-capture.jsonl"
+  if [ -f "$f" ] && grep -F "\"batch\":\"$bid\"" "$f" 2>/dev/null | grep -qF "\"diagnosis\":\"$diag\""; then
+    return 0
+  fi
+  printf '{"event":"gate-decline","batch":"%s","required":"%s","dispatched":"%s","verdicts_seen":0,"diagnosis":"%s"}\n' \
+    "$bid" "$(json_esc "$req")" "$(json_esc "$disp")" "$diag" >> "$f" 2>/dev/null || true
+}
+
 # --- the operator door (spec 021 AC-7, T027) ---------------------------------
 # `--waive BY REASON EXPIRES` records the governed waiver this gate reads. It exists because a waiver
 # reachable only by hand-editing JSON inside a run marker is not a governed escape — nothing records
@@ -136,13 +160,16 @@ print(json.dumps(found) if found else "")' "$1" "$2" 2>/dev/null || true
 _hook_mode() {
   local explicit_slug="${1:-}" payload role tr obj missing f rundir bid bline
   payload="$(cat 2>/dev/null || true)"
-  # ISSUE #44 — where the role comes from. A SubagentStop/Stop payload does NOT carry the dispatched
-  # subagent_type (that field lives in the PreToolUse[Agent] tool_input, which is exactly why
-  # record-dispatch.sh reads it THERE and not here). So recovering the role from a payload field was
-  # 0-of-7 in practice: role came back empty and this hook exited before reading a transcript or writing
-  # a single verdict. The declaring frontmatter already KNOWS its role, so it names it: each review
-  # agent's `Stop` hook is `check-role-verdict.sh --hook-role <its-own-slug>`. When that slug is given we
-  # use it; the payload scan stays only as a back-compat fallback for a caller that does carry the field.
+  # ISSUE #44/#60 — where the role comes from. Two role sources, in order:
+  #   1. --hook-role <slug> from the DECLARING FRONTMATTER: each review agent's own `Stop` hook (converted
+  #      to SubagentStop while that subagent runs) already KNOWS its role and names it. This is primary and
+  #      needs nothing from the payload.
+  #   2. the payload's `agent_type`: the Claude Code hooks reference documents SubagentStop as carrying
+  #      `agent_type` (the dispatched subagent type) — which is exactly what the PLUGIN-LEVEL SubagentStop
+  #      registration (hooks.json, #60) relies on, since one registration covers many agent types and
+  #      cannot pass a static --hook-role. (#44's earlier reading — that the payload carries NO type —
+  #      held for the frontmatter-Stop shape it measured; the documented SubagentStop payload does carry
+  #      `agent_type`, so the fallback is a real capture path for the plugin-level event, not dead code.)
   if [ -n "$explicit_slug" ]; then
     role="$explicit_slug"
   else
@@ -153,7 +180,15 @@ _hook_mode() {
   [ -n "$role" ] || exit 0   # gate-integrity: sanctioned — not a team-bootstrap review role: out of scope for this hook
   role="$(role_of_slug "$role" 2>/dev/null || true)"      # slug → attributed role; empty ⇒ not a review type
   [ -n "$role" ] || exit 0   # gate-integrity: sanctioned — not a team-bootstrap review role: out of scope for this hook
-  tr="$(printf '%s' "$payload" | grep -oE '"transcript_path"[[:space:]]*:[[:space:]]*"[^"]*"' \
+  # ISSUE #60 — read the SUBAGENT's OWN transcript. A SubagentStop payload carries TWO transcript paths:
+  # `transcript_path` is the MAIN SESSION transcript, and `agent_transcript_path` is the finished
+  # subagent's own transcript (hooks reference). The verdict object lives in the SUBAGENT transcript, so a
+  # hook reading `transcript_path` scanned the wrong file, found no verdict for the role, and exited 0 —
+  # the 0-of-N silent miss EVEN WHEN the hook fired. Prefer `agent_transcript_path`; fall back to
+  # `transcript_path` for a caller (e.g. a --hook-role frontmatter Stop on a host that supplies only it).
+  tr="$(printf '%s' "$payload" | grep -oE '"agent_transcript_path"[[:space:]]*:[[:space:]]*"[^"]*"' \
+    | head -1 | sed -E 's/.*"([^"]*)"[[:space:]]*$/\1/')"
+  [ -n "$tr" ] || tr="$(printf '%s' "$payload" | grep -oE '"transcript_path"[[:space:]]*:[[:space:]]*"[^"]*"' \
     | head -1 | sed -E 's/.*"([^"]*)"[[:space:]]*$/\1/')"
   [ -n "$tr" ] && [ -f "$tr" ] || exit 0   # gate-integrity: sanctioned — no transcript to read. This is the HOOK, which must not block a subagent it cannot parse; the absence surfaces as zero captures, and --gate now REFUSES on that (AC-6) rather than reporting a degraded pass.
   obj="$(_verdict_obj "$tr" "$role")"
@@ -175,13 +210,19 @@ _hook_mode() {
   [ -n "$bid" ] || exit 0   # gate-integrity: sanctioned — no in-flight batch to confirm roles for
   rundir="$(dirname "$(resolve_marker 2>/dev/null || true)")"
   [ -n "$rundir" ] && [ -d "$rundir" ] || exit 0   # gate-integrity: sanctioned — no run directory: out of scope, and the --gate pass fails closed on a missing capture
-  printf '{"batch":"%s","role":"%s","fields_ok":true}\n' "$bid" "$role" >> "$rundir/verdicts.jsonl" 2>/dev/null || true
+  # ISSUE #60 — record once. Both the frontmatter Stop (as SubagentStop) AND the plugin-level SubagentStop
+  # can fire for the same finished subagent; without this guard that one review would append two identical
+  # verdict lines. The gate only needs >=1 per role, so a duplicate is harmless to correctness — but a
+  # bloated ledger is not free, and the durable tally is already a set, so make the file match it.
+  if ! grep -qF "{\"batch\":\"$bid\",\"role\":\"$role\",\"fields_ok\":true}" "$rundir/verdicts.jsonl" 2>/dev/null; then
+    printf '{"batch":"%s","role":"%s","fields_ok":true}\n' "$bid" "$role" >> "$rundir/verdicts.jsonl" 2>/dev/null || true
+  fi
   _record_verdict_tally "$bid" "$role"   # ISSUE #46 — durable, tamper-evident twin of the append above
   exit 0
 }
 
 _gate_mode() {
-  local marker mk bline bid pipeline rundir recorded req r missing seen tallied lost
+  local marker mk bline bid pipeline rundir recorded req r missing seen tallied lost dispatched diag
   marker="$(resolve_marker 2>/dev/null || true)"
   [ -n "$marker" ] && [ -f "$marker" ] || { echo "check-role-verdict: no active delivery run — skipping."; return 0; }
   mk="$(cat "$marker" 2>/dev/null || true)"
@@ -210,17 +251,26 @@ _gate_mode() {
       echo "check-role-verdict: DURABILITY BREACH (#46) — $tallied verdict record(s) for batch '$bid' were captured and are still recorded in the RUN marker (verdicts_captured), but .runs/<run>/verdicts.jsonl is now empty or REMOVED. The evidence was lost AFTER capture; the marker retains proof it existed. This gate cannot re-confirm from a deleted file and does not pass on it — the removal is reported, not swallowed." >&2
     fi
     # A gate that declares its own blindness and then passes is the green-by-skip this whole tree exists
-    # to refuse (spec 021 D3, AC-6; F1; constitution P10). The sentence below is UNCHANGED — it was
-    # always right, and "UNVERIFIED for this batch, not satisfied" is a description of a failure. Only
-    # the return value used to disagree with it. It no longer does.
+    # to refuse (spec 021 D3, AC-6; F1; constitution P10). "UNVERIFIED for this batch, not satisfied" is a
+    # description of a failure; the return value agrees with it (it refuses below).
     #
-    # The counter-argument this branch used to make for itself — that enforcing would block every close
-    # on a capability question — is true, and is not a reason to pass. It is a reason to have a governed
-    # escape, which is what follows. Measured (plan §8.3): capture is 0 for 7 in this repo, so after this
-    # change the waiver is the ONLY way a kind:code batch closes here until the capture channel is fixed,
-    # and fixing it is out of this milestone's scope. That is stated in the CHANGELOG rather than
-    # softened here, because softening it is the defect.
-    echo "check-role-verdict: DEGRADED — no role verdict was captured for batch '$bid' (required: [$req]). The SubagentStop capture did not run or could not read a transcript; role confirmation is UNVERIFIED for this batch, not satisfied." >&2
+    # ISSUE #60 — say WHY, from the observable, and leave a trace. dispatch.jsonl records whether reviewers
+    # were dispatched for this batch, which distinguishes the two failures the old one-line guess conflated
+    # ("did not run" vs "ran but could not read"). Write the finding to verdict-capture.jsonl by this gate
+    # (a proven-firing path), and print a message grounded in that observable rather than the guess.
+    dispatched="$(roles_covered "$bid" 2>/dev/null || true)"
+    if [ "$tallied" -gt 0 ]; then diag="captured-then-lost"
+    elif [ -n "$dispatched" ]; then diag="capture-channel-did-not-fire"
+    else diag="no-reviewer-dispatched"; fi
+    _record_capture_decline "$rundir" "$bid" "$req" "$dispatched" "$diag"
+    case "$diag" in
+      capture-channel-did-not-fire)
+        echo "check-role-verdict: UNVERIFIED — batch '$bid' required [$req]; dispatch.jsonl records reviewer dispatch(es) for [$dispatched], but .runs/<run>/verdicts.jsonl holds zero verdicts and no per-role decline was traced. The verdict-capture hook did not fire (or fired blind) for these Agent-tool dispatches — role confirmation is UNVERIFIED, not satisfied. Diagnosis recorded in .runs/<run>/verdict-capture.jsonl (#60)." >&2 ;;
+      captured-then-lost)
+        echo "check-role-verdict: UNVERIFIED — batch '$bid' (required: [$req]) had verdict(s) captured (durable marker tally) then REMOVED from verdicts.jsonl; see the durability breach above. Role confirmation is UNVERIFIED, not satisfied. Diagnosis recorded in .runs/<run>/verdict-capture.jsonl (#46/#60)." >&2 ;;
+      *)
+        echo "check-role-verdict: UNVERIFIED — batch '$bid' required [$req] but no reviewer dispatch is recorded and no verdict was captured; role confirmation is UNVERIFIED for this batch, not satisfied. Diagnosis recorded in .runs/<run>/verdict-capture.jsonl (#60)." >&2 ;;
+    esac
 
     # AC-7 — the waiver is consulted AFTER the finding is printed, never instead of it: a governed
     # escape that silences its own finding is an invisible one. Run-scoped (OQ-2: per-batch invites one

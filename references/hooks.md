@@ -78,6 +78,35 @@ Two more hooks make the delivery-occurred gate ([enforcement.md](enforcement.md)
   or a block) and marker-gates to a no-op off-session. Honest limit: `subagent_type` is model-authored, so
   this is **degradation-proof, not forgery-proof** (ADR [0008](../docs/adr/0008-harness-verified-role-execution.md)).
 
+### Verdict capture (v3.4.x, issue #60)
+
+- **`SubagentStop` (matcher: the review-role agent types) →
+  [`../bin/check-role-verdict.sh`](../bin/check-role-verdict.sh)** — a **plugin-level** registration that
+  fires when a review subagent finishes. The capture path used to be **only** each review agent's
+  frontmatter `Stop` (converted to `SubagentStop` while that subagent runs); relying on that alone,
+  verdict capture measured **0-of-N** on live Agent/Task-tool runs, so every `kind:code` batch closed on
+  a `role_verdict_waiver`. Two mechanism facts from the Claude Code hooks reference drove the fix:
+  - `SubagentStop` **matches on `agent_type`** (the same values as `SubagentStart`, which this plugin
+    already uses successfully), so a single plugin-level registration covers every review type and
+    recovers the role from the payload's `agent_type` — no per-agent `--hook-role` needed.
+  - the payload carries **`agent_transcript_path`** (the finished subagent's OWN transcript) distinct
+    from **`transcript_path`** (the MAIN session transcript). The verdict object lives in the subagent
+    transcript, so the hook now reads `agent_transcript_path` first and falls back to `transcript_path`.
+    Reading only `transcript_path` scanned the wrong file and captured nothing **even when the hook
+    fired** — a second, independent cause of the 0-of-N symptom.
+
+  Both channels (plugin-level `SubagentStop` and per-agent frontmatter `Stop`) now coexist; a capture is
+  recorded **once** (deduped by batch+role). It **blocks (exit 2) only on a malformed verdict** — a
+  well-formed verdict passes, so it cannot deadlock the closure step.
+
+  **Honest limit.** That the host actually *delivers* a plugin-level `SubagentStop` for an Agent-tool
+  dispatch is a host capability this layer cannot force or self-test; the documentation asserts it, and a
+  bash test can prove the hook's LOGIC (role from `agent_type`, verdict from `agent_transcript_path`) but
+  not the event's firing. So the **batch-close gate** (`check-role-verdict --gate`, a proven-firing path)
+  writes a diagnostic trace to `.runs/<run>/verdict-capture.jsonl` whenever a `kind:code` batch closes
+  with zero captured verdicts, recording WHY (reviewers dispatched but capture produced nothing ⇒
+  `capture-channel-did-not-fire`) instead of the old "did not run OR could not read" guess.
+
 ## Layering (which gate runs where)
 
 | Gate | Where | Enforces |

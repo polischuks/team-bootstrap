@@ -103,10 +103,17 @@ stamp_batch_closed() {
   [ -n "$shas" ] && shas_json="[\"$(printf '%s' "$shas" | sed 's/,/","/g')\"]"
   local gates="quality-gate=ok;orphans=ok;architecture=ok;gate-integrity=ok;tdd=ok;version-sync=ok;diff-coverage=ok;mutation=ok;enforcement=ok;completeness=ok;seam-ack=ok;disposition=ok;review-ack=ok;role-dispatch=ok;delivery=ok"
 
+  # closed_at — the wall-clock second this batch closed (issue #61). This is the only per-batch END this
+  # plugin observes (only this script flips a batch to closed), so it anchors per-batch wall-time in
+  # delivery-metrics: batch N's wall-time = closed_at[N] - closed_at[N-1], with the first batch measured
+  # from the run's earliest recorded activity. TB_NOW_EPOCH-stubbable via delivery-lib's _now_epoch, so
+  # the self-test below is deterministic and never reads the real clock.
+  local closed_at; closed_at="$(_now_epoch)"
+
   local newline
   newline="$(printf '%s' "$target" \
     | sed -E 's/"status":[[:space:]]*"announced"/"status":"closed"/' \
-    | sed 's/}[[:space:]]*$/,"commit_shas":'"$shas_json"',"code_delta":'"$delta"',"gate_results":"'"$gates"'"}/')"
+    | sed 's/}[[:space:]]*$/,"commit_shas":'"$shas_json"',"code_delta":'"$delta"',"gate_results":"'"$gates"'","closed_at":'"$closed_at"'}/')"
 
   local tmp; tmp="$(mktemp)"
   while IFS= read -r l; do
@@ -131,11 +138,16 @@ if [ "${1:-}" = "--self-test" ]; then
   printf '{"run":"r","intends_code":true,"baseline_sha":"%s"}\n' "$base" > "$T/.runs/r/RUN"
   printf '{"id":"B1","kind":"code","status":"announced"}\n' > "$T/.runs/r/batches.jsonl"
   printf '{"batch":"B1","red_sha":"%s","observed":"red"}\n' "$red" > "$T/.runs/r/tdd.jsonl"
-  ( cd "$T" && TEAM_BOOTSTRAP_RUN=r stamp_batch_closed ) 2>/dev/null
+  ( cd "$T" && TEAM_BOOTSTRAP_RUN=r TB_NOW_EPOCH=1724800000 stamp_batch_closed ) 2>/dev/null
   got="$(grep -oE '"commit_shas":\[[^]]*\]' "$T/.runs/r/batches.jsonl" 2>/dev/null)"
   if printf '%s' "$got" | grep -q "$impl" && ! printf '%s' "$got" | grep -q "$red"; then
     echo "  PASS commit_shas is IMPL-only ($got) — test-only RED excluded, window = baseline"
   else echo "  FAIL commit_shas=$got (want IMPL=$impl present, RED=$red absent)" >&2; fail=$((fail + 1)); fi
+  # issue #61 — the close stamps a DETERMINISTIC closed_at (the injected TB_NOW_EPOCH, never the real
+  # clock), so delivery-metrics can attribute per-batch wall-time. This is the per-batch END anchor.
+  if grep -q '"closed_at":1724800000' "$T/.runs/r/batches.jsonl" 2>/dev/null; then
+    echo "  PASS batch close stamps the injected closed_at wall-clock (per-batch timing, #61)"
+  else echo "  FAIL closed_at not stamped: $(cat "$T/.runs/r/batches.jsonl")" >&2; fail=$((fail + 1)); fi
   rm -rf "$T"
 
   # whitespace tolerance: an announced entry with a SPACE after the colon (any JSON serializer using

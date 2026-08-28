@@ -61,6 +61,17 @@
         ]
       }
     ],
+    "SubagentStop": [
+      {
+        "matcher": "team-bootstrap:.*|.*-reviewer|.*-verifier|.*-guardian|chaos-engineer|devops-platform|test-designer|legal-compliance-checker",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/check-role-verdict.sh"
+          }
+        ]
+      }
+    ],
     "UserPromptExpansion": [
       {
         "matcher": "deliver|team-bootstrap",
