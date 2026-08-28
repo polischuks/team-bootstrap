@@ -56,6 +56,17 @@ else echo "  FAIL --jobs 1 did not run serially — ${el}s, floor is 8s (value p
 out2="$(bash "$R" "$T" --jobs 3 2>&1)"
 _chk "$(printf '%s' "$out2" | grep -c 'jobs=3')" 1 "the green line reports the concurrency used"
 
+# --- 2d. an explicit value above the host's core count is honoured, not clamped ----------------
+# The cap in auto_jobs() applies to the DEFAULT only. An operator on a small host who wants more
+# concurrency than cores must get it: suite members fork and wait on I/O rather than compute, so
+# oversubscription overlaps waiting, and the running count is bounded by the member count anyway.
+# A clamp here would silently ignore the operator and hand back the slower run they asked to avoid.
+cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)"
+case "$cores" in ''|*[!0-9]*) cores=1 ;; esac
+over=$((cores + 4))
+_chk "$(bash "$R" "$T" --jobs "$over" 2>&1 | grep -c "jobs=$over")" 1 \
+  "--jobs above the core count ($over > $cores) is honoured, not clamped"
+
 # --- 3. a red member is still red, and the count survives the subshells -------------------------
 T3="$(mktemp -d)"; _fx "$T3" 2 broken
 bash "$R" "$T3" --jobs 4 >/dev/null 2>&1
