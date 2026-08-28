@@ -29,13 +29,25 @@
 # which matches the BASENAME on GNU grep and the WHOLE PATH on BSD/darwin. The set of files scanned
 # therefore differs between a darwin dev machine and ubuntu CI. Worth knowing before tuning the scan.
 #
-# Usage: bin/check-gate-integrity.sh [project-dir]   # default: current dir
+# PER-BATCH vs WHOLE-TREE (issue #71): the green-by-skip clause (1) scans the DELTA of the active batch
+# by default, so a standing skip the batch never touched does not demand a waiver every run (which is
+# how a reflexive waiver, and then a real green-by-skip, slips past). A skip INTRODUCED in a changed
+# file is still caught — the file is in the delta, so it is scanned. `--audit` (and any run without an
+# active intends_code marker, e.g. CI) scans the WHOLE tree, so a disabled gate anywhere is never hidden
+# from the audit that runs without a batch. Clauses 2/3/4/5 always scan the whole gate set; they read a
+# small fixed set (bin/check-*.sh, CI workflows), not the standing-skip corpus this scoping is about.
+#
+# Usage: bin/check-gate-integrity.sh [--audit] [project-dir]   # default: current dir, per-batch scope
 # Exit:  0 clean / not machine-checkable · 1 integrity violation · 64 bad usage
 set -uo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=bin/delivery-lib.sh
 . "$here/delivery-lib.sh"
+
+# --audit forces the whole-tree green-by-skip scan even inside an active batch.
+audit_scan=0
+if [ "${1:-}" = "--audit" ]; then audit_scan=1; shift; fi
 
 root="${1:-.}"
 
@@ -236,6 +248,50 @@ fi
 
 viol=0
 
+# --- scan scope for the green-by-skip clause (issue #71) ----------------------
+# Per-batch by default: restrict clause 1 to the files THIS batch changed, so standing skips outside the
+# delta stop demanding a waiver every run. Whole-tree when --audit is given, or when no active
+# intends_code run resolves (CI has no marker) — there the audit must see the whole corpus. A resolvable
+# base is required; without one (first commit, no baseline) we fall back to whole-tree rather than guess
+# an empty delta. Narrowing can only clear an out-of-delta finding; it never manufactures one.
+gi_scoped=0
+gi_scope_delta=""   # newline-separated changed paths when gi_scoped=1
+if [ "$audit_scan" -eq 0 ]; then
+  gi_marker="$(resolve_marker 2>/dev/null || true)"
+  if [ -n "$gi_marker" ] && [ -f "$gi_marker" ]; then
+    gi_mk="$(cat "$gi_marker" 2>/dev/null || true)"
+    if [ "$(field_bool "$gi_mk" intends_code)" = "true" ]; then
+      gi_base="$(current_batch_base 2>/dev/null || true)"
+      if [ -n "$gi_base" ]; then
+        gi_scoped=1
+        gi_scope_delta="$(git diff --name-only "$gi_base" HEAD 2>/dev/null)"
+      fi
+    fi
+  fi
+fi
+
+# _skip_scan_files → candidate files for the green-by-skip scan, delta-scoped when gi_scoped=1. The scan
+# glob and exclusions are unchanged from the whole-tree form; scoping only intersects the result with the
+# batch's changed paths (grep -rl emits `./path`, git diff emits `path` — the `${cf#./}` strip aligns them).
+_skip_scan_files() {
+  grep -rlE "$SKIP" . --include='*test*' --include='*spec*' --include='*_test.go' \
+    --exclude='*.pyc' \
+    --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=.claude \
+    --exclude-dir=__pycache__ --exclude-dir=.venv --exclude-dir=venv \
+    --exclude-dir=dist --exclude-dir=build --exclude-dir=.next \
+    --exclude-dir=.mypy_cache --exclude-dir=.ruff_cache --exclude-dir=.pytest_cache \
+    2>/dev/null | head -100 | {
+    if [ "$gi_scoped" -eq 1 ]; then
+      while IFS= read -r cf; do
+        [ -n "$cf" ] || continue
+        printf '%s\n' "$gi_scope_delta" | grep -qxF "${cf#./}" && printf '%s\n' "$cf"
+      done
+    else
+      cat
+    fi
+  }
+}
+
 # 1) green-by-skip on a gate/invariant/constitutional/contract test -------------
 while IFS= read -r f; do
   [ -n "$f" ] || continue
@@ -263,13 +319,7 @@ while IFS= read -r f; do
     printf '%s\n' "$sk" | sed 's/^/    /' >&2
     viol=$((viol + 1))
   fi
-done < <(grep -rlE "$SKIP" . --include='*test*' --include='*spec*' --include='*_test.go' \
-  --exclude='*.pyc' \
-  --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=.claude \
-  --exclude-dir=__pycache__ --exclude-dir=.venv --exclude-dir=venv \
-  --exclude-dir=dist --exclude-dir=build --exclude-dir=.next \
-  --exclude-dir=.mypy_cache --exclude-dir=.ruff_cache --exclude-dir=.pytest_cache \
-  2>/dev/null | head -100)
+done < <(_skip_scan_files)
 
 # 2) SILENT DEGRADATION — a gate that returns emptiness instead of a decision (AC-48) ------------
 #
@@ -455,13 +505,13 @@ done
 
 if [ "$viol" -gt 0 ]; then
   echo "check-gate-integrity: $viol integrity issue(s) — a gate that doesn't run is a failure, not a pass." >&2
-  # WS-8 (harness-robustness): a GOVERNED run-level waiver clears pre-existing findings the batch did not
-  # introduce (the retro's dashboard skips + e2e continue-on-error OUTSIDE the batch delta, which forced a
-  # hand-stamp every batch). It does NOT silence them — the findings are already printed above. Governed =
-  # ack + by + reason + expires; expiry forces re-review, so a disabled gate cannot pass forever. In CI
-  # there is no run marker, so the waiver is impossible there and a genuinely disabled gate is never hidden.
-  # (Full per-finding delta-scoping is deferred — arch-review flagged its risk of silently dropping a
-  # finding outside the delta; a surfaced-and-expiring waiver is the sound, simpler mechanism.)
+  # WS-8 (harness-robustness): a GOVERNED run-level waiver clears findings the batch did not introduce.
+  # Since issue #71 the green-by-skip clause is already delta-scoped, so the routine standing-skip case no
+  # longer reaches here; this waiver now covers what survives an in-delta scope — a whole-tree `--audit`,
+  # a skip in a file the batch legitimately touched but is deferring, and clauses 2/3/4/5 (always whole
+  # gate set). It does NOT silence findings — they are printed above. Governed = ack + by + reason +
+  # expires; expiry forces re-review, so a disabled gate cannot pass forever. In CI there is no run
+  # marker, so the waiver is impossible there and a genuinely disabled gate is never hidden.
   marker="$(resolve_marker)"
   if [ -n "$marker" ] && [ -f "$marker" ]; then
     mk="$(cat "$marker" 2>/dev/null || true)"
@@ -476,5 +526,9 @@ if [ "$viol" -gt 0 ]; then
   fi
   exit 1
 fi
-echo "check-gate-integrity: OK — no green-by-skip or can't-fail gate detected."
+if [ "$gi_scoped" -eq 1 ]; then
+  echo "check-gate-integrity: OK — no green-by-skip or can't-fail gate detected (green-by-skip scan scoped to this batch's delta; run --audit for a whole-tree audit)."
+else
+  echo "check-gate-integrity: OK — no green-by-skip or can't-fail gate detected."
+fi
 exit 0
