@@ -109,6 +109,89 @@ if [ -f "$marker" ]; then
   _prev_degraded="$(field_str "$_mk_prev" sizing_degraded)"
   _prev_ctx="$(sed -n 's/.*"harness_context":"\([^"]*\)".*/\1/p' "$marker" 2>/dev/null | head -1)"
   _prev_spec="$(field_str "$_mk_prev" spec_path)"
+  _prev_src="$(field_str "$_mk_prev" tier_source)"
+  _prev_pipe="$(field_str "$_mk_prev" pipeline)"
+
+  # RECONCILE AN OPERATOR-DECLARED TIER (issue #47). Choosing the tier by hand is legitimate (P1) — but
+  # a marker written by an earlier harness/auto arm carries dependent fields that describe a computation
+  # the operator's choice SUPERSEDED: review_depth, sizing_degraded, risk_categories, assigned_roles and
+  # the harness_context sentence all still speak for the old tier. A field that describes a superseded
+  # computation is worse than an absent one, because a reader trusts it. So when tier_source is operator
+  # we bring those fields into agreement with the DECLARED tier and never touch the tier itself:
+  #   - review_depth and the tier's depth-BASE roles are a function of the declared tier alone, so they
+  #     are always recomputable — even with no spec on disk.
+  #   - risk_categories and the category-earned roles need the spec; when one is resolvable we size it,
+  #     when it is not we mark them "not computed" (fail closed — never a stale "none" a reader trusts).
+  # The re-size below must NOT run for this path: recomputing the tier would OVERRULE the human (the
+  # bug this issue also exposes), so it is guarded to the harness path it was built for.
+  #
+  # Cheap staleness gate first: recompute only when a dependent visibly disagrees with the declared
+  # tier (wrong depth, a stale degradation, or an empty role floor). Once reconciled these all agree, so
+  # a settled operator run costs no size-from-spec spawn on later arms and re-announces nothing.
+  if [ "$_prev_src" = "operator" ]; then
+    _op_depth="$(review_depth_for_tier "$_prev_pipe")"
+    _op_stale=0
+    [ "$(field_str "$_mk_prev" review_depth)" = "$_op_depth" ] || _op_stale=1
+    [ -n "$_prev_degraded" ] && _op_stale=1
+    [ -n "$(field_str "$_mk_prev" assigned_roles)" ] || _op_stale=1
+    if [ "$_op_stale" -eq 1 ]; then
+      # The depth-base roles the declared tier earns — knowable without a spec (delivery-lib, AC-14).
+      _op_roles=""
+      for _r in $(tier_base_roles "$_prev_pipe"); do
+        case " $_op_roles " in *" $_r "*) : ;; *) _op_roles="${_op_roles:+$_op_roles }$_r" ;; esac
+      done
+      # Resolve a spec to size the CATEGORIES against: the marker's recorded path first, else the path
+      # named in this prompt normalised to spec.md (the fresh-path rule).
+      _op_spec="$_prev_spec"
+      if [ -z "$_op_spec" ] && [ -n "$spec" ]; then
+        case "$spec" in *.md) _op_spec="$spec" ;; *) _op_spec="${spec%/}/spec.md" ;; esac
+      fi
+      _op_cats=""; _op_degraded=""; _op_selran=""
+      if [ -n "$_op_spec" ] && [ -f "$_op_spec" ]; then
+        _op_out="$("$(dirname "$0")/size-from-spec.sh" "$_op_spec" 2>/dev/null || true)"
+        case "$_op_out" in
+          *degraded=1*)
+            # Spec present but not sizable yet: the categories cannot be computed. Record WHY, and leave
+            # them not-computed rather than inventing a "none".
+            _op_degraded="$(printf '%s\n' "$_op_out" | sed -n 's/^reason=//p' | head -1)"
+            [ -n "$_op_degraded" ] || _op_degraded="unknown"
+            ;;
+          *)
+            if [ -n "$_op_out" ]; then
+              _op_selran=1
+              _op_cats="$(risk_categories_only "$(printf '%s\n' "$_op_out" | sed -n 's/^reasons=//p' | head -1)")"
+              for _r in $(roles_for_categories "$_op_cats" 2>/dev/null || true); do
+                case " $_op_roles " in *" $_r "*) : ;; *) _op_roles="${_op_roles:+$_op_roles }$_r" ;; esac
+              done
+            fi
+            ;;
+        esac
+      fi
+      # The reconciled sentence, phrased as FACT STATEMENTS like the main path. "none" and "not computed"
+      # stay DIFFERENT facts: $_op_selran is set only when the classifier was actually consulted.
+      _op_ctx="team-bootstrap harness sizing for run $run: pipeline=$_prev_pipe, tier_source=operator, marker=$marker."
+      _op_ctx="$_op_ctx Review depth: $_op_depth (the /code-review low-medium-high scale; the tier sets depth, the risk categories set composition)."
+      if [ -n "$_op_selran" ]; then
+        _op_ctx="$_op_ctx Risk categories detected: ${_op_cats:-none}."
+      else
+        if [ -n "$_op_degraded" ]; then _op_why="the classifier ran and could not classify: $_op_degraded"
+        else _op_why="no spec is resolvable on disk, so the operator's tier cannot be sized for categories"; fi
+        _op_ctx="$_op_ctx Risk categories detected: not computed ($_op_why)."
+      fi
+      _op_ctx="$_op_ctx Assigned review roles for this run: ${_op_roles:-none} (the declared tier's review floor; the batch diff may lift it)."
+      [ -n "$_op_degraded" ] && _op_ctx="$_op_ctx Per-work-stream sizing DEGRADED (reason: $_op_degraded) — no work-stream floors were derived; the batch diff sizes each batch alone."
+      if splice_marker_fields "$marker" \
+           "review_depth=$_op_depth" "sizing_degraded=$_op_degraded" \
+           "risk_categories=$_op_cats" "assigned_roles=$_op_roles" \
+           "harness_context=$(_json_esc "$_op_ctx")"; then
+        _op_note="$_op_ctx The tier was declared by the operator; its dependent fields were RECONCILED to it just now — they had described a superseded sizing."
+        _emit_ctx "$(_json_esc "$_op_note")"
+        exit 0
+      fi
+    fi
+    _emit_ctx "$_prev_ctx"
+    exit 0
+  fi
 
   # RE-SIZE A DEGRADED RUN. The marker is written once, and for a description-form run that moment is
   # always BEFORE Phase A produces tasks.md — so the sizing degrades, and because every later arm took
@@ -121,7 +204,11 @@ if [ -f "$marker" ]; then
   # owns are spliced (splice_marker_fields preserves precond / preflight / repro_env / the acks, and
   # never touches baseline_sha). A run that sized successfully is left alone: re-deciding a settled
   # tier on every prompt would make the verdict a moving target for the gates that read it.
-  if [ -n "$_prev_degraded" ] && [ -n "$_prev_spec" ] && [ -f "$_prev_spec" ]; then
+  #
+  # HARNESS ONLY (issue #47). This branch RECOMPUTES the tier, so it must never run over an
+  # operator-declared one — the harness must not overrule a human. The operator path is handled and
+  # returned above; the explicit guard here states the invariant rather than relying on control flow.
+  if [ "$_prev_src" != "operator" ] && [ -n "$_prev_degraded" ] && [ -n "$_prev_spec" ] && [ -f "$_prev_spec" ]; then
     _rs="$("$(dirname "$0")/size-from-spec.sh" "$_prev_spec" 2>/dev/null || true)"
     _rs_t="$(printf '%s\n' "$_rs" | sed -n 's/^tier=//p' | head -1)"
     case "$_rs_t" in
@@ -135,7 +222,6 @@ if [ -f "$marker" ]; then
         # the run, an event that happened once. What is EMITTED NOW adds the notice, at the only
         # moment it is news.
         _rs_ctx="team-bootstrap harness sizing for run $run: pipeline=$_rs_t, tier_source=$tier_source, marker=$marker. Review depth: $_rs_depth (the /code-review low-medium-high scale). Sizing reasons: ${_rs_reasons:-none}. Risk categories detected: ${_rs_cats:-none}. Assigned review roles for this run: ${_rs_roles:-none}."
-        _prev_pipe="$(field_str "$_mk_prev" pipeline)"
         _rs_note="$_rs_ctx The run was RE-SIZED just now: the first verdict degraded ($_prev_degraded) because the artefacts it needed did not exist yet, and they do now."
         [ "$_prev_pipe" = "$_rs_t" ] || _rs_note="$_rs_note The stored pipeline was $_prev_pipe."
         if splice_marker_fields "$marker" \
