@@ -148,9 +148,93 @@ _chk "$( ( cd "$R46" || exit 1; TEAM_BOOTSTRAP_RUN=r "$V" --gate >/dev/null 2>&1
 rm -f "$R46/.runs/r/verdicts.jsonl"
 _gate_err46="$( ( cd "$R46" || exit 1; TEAM_BOOTSTRAP_RUN=r "$V" --gate 2>&1 >/dev/null ) )"
 _chk "$( ( cd "$R46" || exit 1; TEAM_BOOTSTRAP_RUN=r "$V" --gate >/dev/null 2>&1 ); echo $? )" 1 "a removed verdict file cannot pass the gate"
-_chk "$(printf '%s' "$_gate_err46" | grep -ciE 'REMOVED|durability breach')" 1 \
+# >=1 (was ==1): #60 adds a second breach-naming line — the captured-then-lost diagnosis pointing at the
+# verdict-capture.jsonl trace — so what matters is that the loss IS named, not that it is named exactly once.
+_chk "$(printf '%s' "$_gate_err46" | grep -qiE 'REMOVED|durability breach' && echo yes || echo no)" yes \
   "the gate NAMES the loss (durability breach) instead of silently reverting to 'unverified'"
 rm -rf "$R46"
+
+echo "#60 — capture reads the SUBAGENT transcript (agent_transcript_path), not the main-session transcript:"
+# Claude Code hooks reference: a SubagentStop payload carries BOTH transcript_path (the MAIN session
+# transcript) AND agent_transcript_path (the finished subagent's OWN transcript). The verdict object lives
+# in the SUBAGENT transcript. Reading transcript_path scans the wrong file, finds no verdict for the role,
+# and exits 0 — the 0-of-N silent miss EVEN WHEN the hook fires. Prefer agent_transcript_path.
+S60="$(mktemp -d)"
+( cd "$S60" || exit 1; git init -q; git config user.email a@b.c; git config user.name t
+  printf 'x\n' > s.txt; git add -A; git commit -q -m b; mkdir -p .runs/r
+  printf '{"run":"r","pipeline":"full","intends_code":true}\n' > .runs/r/RUN
+  printf '{"id":"B1","kind":"code","status":"announced"}\n' > .runs/r/batches.jsonl ) >/dev/null 2>&1
+# the subagent's OWN transcript holds the well-formed verdict; the main-session transcript is a decoy with
+# NO verdict object for this role.
+printf '%s\n' '{"role":"integration-verifier","status":"completed","integration_verified":true,"orphans_found":[]}' > "$S60/sub.jsonl"
+printf '%s\n' '{"role":"orchestrator","note":"main session, no reviewer verdict here"}' > "$S60/main.jsonl"
+S60_PAYLOAD="$(printf '{"hook_event_name":"SubagentStop","agent_type":"team-bootstrap:integration-verifier","agent_transcript_path":"%s","transcript_path":"%s","stop_hook_active":false}' "$S60/sub.jsonl" "$S60/main.jsonl")"
+rm -f "$S60/.runs/r/verdicts.jsonl"
+( cd "$S60" || exit 1; printf '%s' "$S60_PAYLOAD" | TEAM_BOOTSTRAP_RUN=r "$V" >/dev/null 2>&1 )
+_chk "$(grep -c '"role":"integration-verifier"' "$S60/.runs/r/verdicts.jsonl" 2>/dev/null || echo 0)" 1 \
+  "verdict captured from the SUBAGENT transcript (agent_transcript_path), main-session decoy ignored"
+_chk "$(grep -c '"batch":"B1"' "$S60/.runs/r/verdicts.jsonl" 2>/dev/null || echo 0)" 1 \
+  "plain hook mode: role recovered from agent_type, attributed to the in-flight batch"
+# firing the SAME capture twice (frontmatter Stop AND the plugin-level SubagentStop can both fire) records once.
+( cd "$S60" || exit 1; printf '%s' "$S60_PAYLOAD" | TEAM_BOOTSTRAP_RUN=r "$V" >/dev/null 2>&1 )
+_chk "$(grep -c '"role":"integration-verifier"' "$S60/.runs/r/verdicts.jsonl" 2>/dev/null || echo 0)" 1 \
+  "idempotent: a repeated capture for the same batch+role does not double-record"
+# back-compat: a payload with ONLY transcript_path (no agent_transcript_path) still captures.
+rm -f "$S60/.runs/r/verdicts.jsonl"
+S60_LEGACY="$(printf '{"hook_event_name":"SubagentStop","agent_type":"team-bootstrap:integration-verifier","transcript_path":"%s"}' "$S60/sub.jsonl")"
+( cd "$S60" || exit 1; printf '%s' "$S60_LEGACY" | TEAM_BOOTSTRAP_RUN=r "$V" >/dev/null 2>&1 )
+_chk "$(grep -c '"role":"integration-verifier"' "$S60/.runs/r/verdicts.jsonl" 2>/dev/null || echo 0)" 1 \
+  "back-compat: only transcript_path present → still captured"
+rm -rf "$S60"
+
+echo "#60 — a PLUGIN-LEVEL SubagentStop registration carries capture off the Agent/Task-tool completion event:"
+# The capture path used to be ONLY each review agent's frontmatter Stop. A plugin-level SubagentStop keyed
+# to the review agent types is the documented event that fires for Agent/Task-tool subagents (hooks
+# reference: SubagentStop matches agent_type, same values as SubagentStart). This asserts the registration
+# EXISTS and is wired to check-role-verdict; it does NOT — and a bash test CANNOT — prove the host delivers
+# the event for an Agent-tool dispatch. That end-to-end firing stays host-dependent (see the report).
+_hooks="$here/hooks/hooks.json"
+_chk "$(python3 -c 'import json,sys; h=json.load(open(sys.argv[1]))["hooks"]; sys.exit(0 if "SubagentStop" in h else 1)' "$_hooks" 2>/dev/null && echo yes || echo no)" yes \
+  "hooks.json registers a plugin-level SubagentStop event"
+_chk "$(python3 -c 'import json,sys
+h=json.load(open(sys.argv[1]))["hooks"].get("SubagentStop",[])
+cmds=[hk.get("command","") for e in h for hk in e.get("hooks",[])]
+sys.exit(0 if any("check-role-verdict.sh" in c for c in cmds) else 1)' "$_hooks" 2>/dev/null && echo yes || echo no)" yes \
+  "  …wired to check-role-verdict.sh"
+_chk "$(python3 -c 'import json,sys
+h=json.load(open(sys.argv[1]))["hooks"].get("SubagentStop",[])
+ms=" ".join(e.get("matcher","") for e in h)
+sys.exit(0 if ("verifier" in ms) and ("reviewer" in ms) and ("team-bootstrap" in ms) else 1)' "$_hooks" 2>/dev/null && echo yes || echo no)" yes \
+  "  …matched on the review-role agent types"
+
+echo "#60 — the batch-close gate writes a diagnosable trace (proven-firing path), not a guess:"
+# Acceptance #60(2): when capture produced nothing, a trace must record WHY, written by a path proven to
+# fire. verify-batch calls this gate at batch close, so THE GATE writes it. dispatch.jsonl makes the two
+# old possibilities ("hook never ran" vs "ran but blind") distinguishable, so the record names the
+# observable state instead of the "did not run OR could not read" guess.
+G60="$(mktemp -d)"
+( cd "$G60" || exit 1; git init -q; git config user.email a@b.c; git config user.name t
+  printf 'x\n' > s.txt; git add -A; git commit -q -m b; mkdir -p .runs/r
+  printf '{"run":"r","pipeline":"full","intends_code":true}\n' > .runs/r/RUN
+  printf '{"id":"B1","kind":"code","status":"announced","required_roles":["integration-verifier","code-reviewer"]}\n' > .runs/r/batches.jsonl
+  # reviewers WERE dispatched for B1 (dispatch.jsonl), but NO verdicts.jsonl exists — the live 3.4.0 state.
+  printf '%s\n%s\n' '{"batch":"B1","subagent_type":"team-bootstrap:integration-verifier","outcome":"attempted"}' '{"batch":"B1","subagent_type":"team-bootstrap:tb-code-reviewer","outcome":"attempted"}' > .runs/r/dispatch.jsonl ) >/dev/null 2>&1
+_g60_err="$( ( cd "$G60" || exit 1; TEAM_BOOTSTRAP_RUN=r "$V" --gate 2>&1 >/dev/null ) )"
+_chk "$( ( cd "$G60" || exit 1; TEAM_BOOTSTRAP_RUN=r "$V" --gate >/dev/null 2>&1 ); echo $? )" 1 "seen==0 still refuses (no waiver)"
+_chk "$([ -f "$G60/.runs/r/verdict-capture.jsonl" ] && echo yes || echo no)" yes \
+  "the gate WROTE a diagnostic trace to verdict-capture.jsonl"
+_chk "$(grep -c 'capture-channel-did-not-fire' "$G60/.runs/r/verdict-capture.jsonl" 2>/dev/null || echo 0)" 1 \
+  "  …diagnosing capture-channel-did-not-fire (reviewers dispatched, zero verdicts, no decline trace)"
+_chk "$(grep -c '"batch":"B1"' "$G60/.runs/r/verdict-capture.jsonl" 2>/dev/null || echo 0)" 1 "  …for the in-flight batch"
+_chk "$(printf '%s' "$_g60_err" | grep -ciE 'did not run or could not read')" 0 \
+  "the gate no longer prints the 'did not run OR could not read' guess"
+_chk "$(printf '%s' "$_g60_err" | grep -ciE 'verdict-capture\.jsonl')" 1 "  …it points the operator at the trace file"
+# idempotent: verify-batch retries the gate; the trace records once per (batch,diagnosis), not per retry.
+( cd "$G60" || exit 1; TEAM_BOOTSTRAP_RUN=r "$V" --gate >/dev/null 2>&1 )
+( cd "$G60" || exit 1; TEAM_BOOTSTRAP_RUN=r "$V" --gate >/dev/null 2>&1 )
+_chk "$(grep -c 'capture-channel-did-not-fire' "$G60/.runs/r/verdict-capture.jsonl" 2>/dev/null || echo 0)" 1 \
+  "  …and does not balloon on the gate's retries (deduped per batch+diagnosis)"
+rm -rf "$G60"
 
 echo "3.1 — the closure gate reads the recorded verdicts:"
 _chk "$(grep -qE '(^|[^a-z-])check-role-verdict\.sh' "$here/bin/verify-batch.sh" && echo yes || echo no)" yes \
