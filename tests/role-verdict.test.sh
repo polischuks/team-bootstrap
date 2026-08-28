@@ -236,6 +236,78 @@ _chk "$(grep -c 'capture-channel-did-not-fire' "$G60/.runs/r/verdict-capture.jso
   "  …and does not balloon on the gate's retries (deduped per batch+diagnosis)"
 rm -rf "$G60"
 
+echo "#81 — the waiver DISCRIMINATES a dropped capture from a skipped role, via the reliable dispatch record:"
+# dispatch.jsonl (PreToolUse[Agent], record-dispatch.sh) records fact-of-dispatch RELIABLY. A required
+# role PRESENT there but with no verdict is a capture that DROPPED (host SubagentStop never fired) —
+# defensible, waivable. A required role ABSENT from it was SKIPPED — never dispatched, never reviewed —
+# and no waiver may pass it. Before #81 a single blanket role_verdict_waiver blessed BOTH cases: the gate
+# had the dispatch record but did not use it to QUALIFY the waiver.
+W81="$(mktemp -d)"
+( cd "$W81" || exit 1; git init -q; git config user.email a@b.c; git config user.name t
+  printf 'x\n' > s.txt; git add -A; git commit -q -m b; mkdir -p .runs/r
+  printf '{"id":"B1","kind":"code","status":"announced","required_roles":["code-reviewer","integration-verifier"]}\n' > .runs/r/batches.jsonl ) >/dev/null 2>&1
+_mk81() { printf '{"run":"r","pipeline":"full","intends_code":true%s}\n' "${1:+,$1}" > "$W81/.runs/r/RUN"; }
+_WV='"role_verdict_waiver":{"ack":true,"by":"founder","reason":"host SubagentStop did not fire","expires":"2099-01-01"}'
+_g81() { ( cd "$W81" || exit 1; TEAM_BOOTSTRAP_RUN=r "$V" --gate . >/dev/null 2>&1 ); echo $?; }
+
+# (a) EVERY required role dispatched, NO verdicts, valid waiver → dropped capture → WAIVED (exit 0).
+printf '%s\n%s\n' \
+  '{"batch":"B1","subagent_type":"team-bootstrap:tb-code-reviewer","outcome":"attempted"}' \
+  '{"batch":"B1","subagent_type":"team-bootstrap:integration-verifier","outcome":"attempted"}' \
+  > "$W81/.runs/r/dispatch.jsonl"
+rm -f "$W81/.runs/r/verdict-capture.jsonl" "$W81/.runs/r/verdicts.jsonl"; _mk81 "$_WV"
+_chk "$(_g81)" 0 "(a) every required role dispatched-but-uncaptured + valid waiver → WAIVED (capture-dropped)"
+_chk "$(grep -c 'capture-channel-did-not-fire' "$W81/.runs/r/verdict-capture.jsonl" 2>/dev/null || echo 0)" 1 \
+  "  …diagnosed as capture-channel-did-not-fire (every required role IS on the reliable dispatch channel)"
+
+# (b) ONE required role (integration-verifier) NOT dispatched, SAME valid waiver → skipped → BLOCKED.
+printf '%s\n' '{"batch":"B1","subagent_type":"team-bootstrap:tb-code-reviewer","outcome":"attempted"}' > "$W81/.runs/r/dispatch.jsonl"
+rm -f "$W81/.runs/r/verdict-capture.jsonl" "$W81/.runs/r/verdicts.jsonl"; _mk81 "$_WV"
+_chk "$(_g81)" 1 "(b) a required role with NO dispatch record stays BLOCKED even WITH a valid waiver (skipped ≠ dropped)"
+_chk "$(grep -c 'role-not-dispatched' "$W81/.runs/r/verdict-capture.jsonl" 2>/dev/null || echo 0)" 1 \
+  "  …diagnosed as role-not-dispatched (integration-verifier absent from dispatch.jsonl)"
+
+# (b2) NO reviewer dispatched at all, SAME valid waiver → fully skipped → BLOCKED.
+rm -f "$W81/.runs/r/dispatch.jsonl" "$W81/.runs/r/verdict-capture.jsonl" "$W81/.runs/r/verdicts.jsonl"; _mk81 "$_WV"
+_chk "$(_g81)" 1 "(b2) no dispatch record at all + valid waiver → BLOCKED (a fully skipped batch is never waved through)"
+rm -rf "$W81"
+
+echo "#81 — the SYNCHRONOUS verdict channel: --record writes a typed verdict the gate reads WITHOUT a waiver:"
+# A bash gate cannot read the conversation, and SubagentStop does not fire for Agent-tool dispatches. The
+# durable path is orchestrator-recorded: after a review returns, its typed verdict (role-output.schema.json
+# shape) is written to verdicts.jsonl via `--record ROLE`, and verify-batch reads it — no waiver, no hook.
+# It is tied to the RELIABLE dispatch record: a verdict is only recordable for a role actually dispatched.
+S81="$(mktemp -d)"
+( cd "$S81" || exit 1; git init -q; git config user.email a@b.c; git config user.name t
+  printf 'x\n' > s.txt; git add -A; git commit -q -m b; mkdir -p .runs/r
+  printf '{"run":"r","pipeline":"full","intends_code":true}\n' > .runs/r/RUN
+  printf '{"id":"B1","kind":"code","status":"announced","required_roles":["code-reviewer"]}\n' > .runs/r/batches.jsonl
+  printf '%s\n' '{"batch":"B1","subagent_type":"team-bootstrap:tb-code-reviewer","outcome":"attempted"}' > .runs/r/dispatch.jsonl ) >/dev/null 2>&1
+_CR_GOOD='{"role":"code-reviewer","approval_status":"approved"}'
+_CR_BAD='{"role":"code-reviewer","summary":"lgtm"}'
+
+_chk "$( ( cd "$S81" || exit 1; TEAM_BOOTSTRAP_RUN=r "$V" --gate . >/dev/null 2>&1 ); echo $? )" 1 \
+  "(c) before --record: the gate refuses (dispatched, uncaptured, no waiver)"
+_chk "$( ( cd "$S81" || exit 1; printf '%s' "$_CR_GOOD" | TEAM_BOOTSTRAP_RUN=r "$V" --record code-reviewer >/dev/null 2>&1 ); echo $? )" 0 \
+  "(c) --record accepts a well-formed typed verdict → exit 0"
+_chk "$(grep -c '{"batch":"B1","role":"code-reviewer","fields_ok":true}' "$S81/.runs/r/verdicts.jsonl" 2>/dev/null || echo 0)" 1 \
+  "  …and writes it to verdicts.jsonl in the gate's own shape"
+_g81c_err="$( ( cd "$S81" || exit 1; TEAM_BOOTSTRAP_RUN=r "$V" --gate . 2>&1 >/dev/null ) )"
+_chk "$( ( cd "$S81" || exit 1; TEAM_BOOTSTRAP_RUN=r "$V" --gate . >/dev/null 2>&1 ); echo $? )" 0 \
+  "(c) after --record: the gate PASSES with no waiver"
+_chk "$(printf '%s' "$_g81c_err" | grep -ciE 'waiv')" 0 "  …and it is NOT a waived pass (a real recorded verdict was read)"
+
+rm -f "$S81/.runs/r/verdicts.jsonl"
+_chk "$( ( cd "$S81" || exit 1; printf '%s' "$_CR_BAD" | TEAM_BOOTSTRAP_RUN=r "$V" --record code-reviewer >/dev/null 2>&1 ); echo $? )" 2 \
+  "(c) --record BLOCKS a verdict missing its role's required field (same shape bar as SubagentStop, exit 2)"
+_chk "$([ -f "$S81/.runs/r/verdicts.jsonl" ] && echo present || echo absent)" absent "  …and records nothing"
+
+rm -f "$S81/.runs/r/dispatch.jsonl" "$S81/.runs/r/verdicts.jsonl"
+_chk "$( ( cd "$S81" || exit 1; printf '%s' "$_CR_GOOD" | TEAM_BOOTSTRAP_RUN=r "$V" --record code-reviewer >/dev/null 2>&1 ); echo $? )" 2 \
+  "(c) --record REFUSES a verdict for a role with NO dispatch record (cannot forge a review that never ran)"
+_chk "$([ -f "$S81/.runs/r/verdicts.jsonl" ] && echo present || echo absent)" absent "  …and records nothing"
+rm -rf "$S81"
+
 echo "3.1 — the closure gate reads the recorded verdicts:"
 _chk "$(grep -qE '(^|[^a-z-])check-role-verdict\.sh' "$here/bin/verify-batch.sh" && echo yes || echo no)" yes \
   "check-role-verdict is wired into verify-batch"
