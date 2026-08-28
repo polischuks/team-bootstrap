@@ -330,12 +330,17 @@ T="$(mktemp -d)"; ( _mkclose "$T" '["code-reviewer"]'
 
 # Review HIGH: nothing wired record_required_roles, so the recorded-set branch was unreachable in a
 # real run — the milestone shipped a no-op and the doctrine claimed a fact the harness never produced.
-# The gate must SIZE the batch and say so even when no set was recorded (advisory), so the feature is
-# live on every run; recording it is what upgrades that floor to hard.
+# The gate must SIZE the batch and say so even when no set was recorded, so the feature is live on every
+# run. issue #70 single-sourced the enforced set onto the sizing: with nothing recorded the gate reads
+# required_roles_for_batch (the SAME set check-review-ack reads and record_required_roles will persist),
+# and announces it directly — there is no longer a separate "SIZED vs blanket" divergence line, because
+# the sized set IS the enforced set. The announcement names test-designer, a role only the diff-aware
+# sizing adds (never in the blanket mandated_roles(full)), so its presence proves the sizing is live and
+# not the retired blanket panel.
 T="$(mktemp -d)"; ( _mkclose "$T" 'null' tb-code-reviewer
   sed -i.bak 's/,"required_roles":null//' .runs/r/batches.jsonl 2>/dev/null || true
   out="$(_crd "$T")"; rc=$?
-  _chk "$(printf '%s' "$out" | grep -c 'SIZED')" "1" "AC-9 the harness announces the sized set even with nothing recorded (not inert)"
+  _chk "$(printf '%s' "$out" | grep -q 'test-designer' && echo 1 || echo 0)" "1" "AC-9 the harness announces the diff-sized set even with nothing recorded (not inert, not the blanket panel; #70)"
   # AC-26 (milestone 020) changed what happens NEXT, not what is announced. The sized announcement is
   # still advisory in the sense that matters — it does not invent a requirement — but the per-role floor
   # it reports against now ENFORCES by default, so a run that dispatched nothing is blocked rather than

@@ -1197,12 +1197,49 @@ role_floor_mode() {
 }
 
 # missing_roles PIPELINE BID → space-separated mandated roles NOT covered by BID's dispatches (empty if
-# all covered or the pipeline mandates none). The per-role gap both the role-dispatch gate and the
-# review-ack parity read from one place (N3 — no drift).
+# all covered or the pipeline mandates none). Sources the blanket per-PIPELINE mandated_roles.
+#
+# SUPERSEDED for the close gates by missing_review_roles (issue #70). Kept because it is unit-tested in
+# tests/all-four-role-dispatch.test.sh and documents the blanket panel, but check-role-dispatch and
+# check-review-ack no longer read it: the blanket mandated_roles(pipeline) disagrees with the diff-sized
+# required set (e.g. mvp, or a small batch inside a full run), and that disagreement WAS the divergence —
+# one gate enforcing the sized subset, the other the full panel, on the same batch.
 missing_roles() {
   local pipeline="$1" bid="$2" covered r missing=""
   covered="$(roles_covered "$bid")"
   for r in $(mandated_roles "$pipeline"); do
+    case " $covered " in *" $r "*) ;; *) missing="${missing:+$missing }$r" ;; esac
+  done
+  printf '%s' "$missing"
+}
+
+# required_review_roles BID → THE single authoritative required-review-role set for this batch, the one
+# set BOTH close gates (check-role-dispatch at close, check-review-ack under enforce) read (issue #70).
+#
+# recorded if the ledger entry already carries it (record_required_roles has run — check-role-dispatch's
+# window, which runs AFTER that record in verify-batch), else computed live via required_roles_for_batch —
+# the SAME diff-aware sizing record_required_roles itself writes and check-review-batch announces. So
+# check-review-ack, which runs BEFORE the record, computes exactly the set that will be recorded, instead
+# of falling back to the blanket mandated_roles(pipeline) and demanding the full panel for a batch the
+# sizing scoped down. This retires mandated_roles(pipeline) as an independent second floor: the two gates
+# can no longer disagree about what the batch needs, so a batch never fails review-ack for a role dispatch
+# said it didn't need (#70 acceptance). Empty only for a doc batch / unresolvable id, exactly as
+# required_roles_for_batch already returns. The >=1 independent-reviewer floor lives inside
+# required_roles_for_batch (F4/AC-18) and is never sized away by either path.
+required_review_roles() {
+  local bid="$1" rec
+  [ -n "$bid" ] || return 0
+  rec="$(required_roles_recorded "$bid" 2>/dev/null || true)"
+  if [ -n "$rec" ]; then printf '%s' "$rec"; return 0; fi
+  required_roles_for_batch "$bid"
+}
+
+# missing_review_roles BID → required_review_roles(BID) minus roles_covered(BID): the per-role gap both
+# close gates read from ONE place (issue #70, N3 — no drift). Supersedes missing_roles for the gates.
+missing_review_roles() {
+  local bid="$1" covered r missing=""
+  covered="$(roles_covered "$bid")"
+  for r in $(required_review_roles "$bid"); do
     case " $covered " in *" $r "*) ;; *) missing="${missing:+$missing }$r" ;; esac
   done
   printf '%s' "$missing"
