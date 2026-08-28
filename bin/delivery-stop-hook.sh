@@ -96,6 +96,20 @@ if [ "${1:-}" = "--self-test" ]; then
   printf '%s\n' "{\"id\":\"B1\",\"kind\":\"code\",\"status\":\"closed\",\"commit_shas\":[\"$root_sha\"],\"code_delta\":4}" > ".runs/${d}_unkclosed/batches.jsonl"
   printf '%s\n' '{"batch":"B1","subagent_type":"backend-developer"}' > ".runs/${d}_unkclosed/dispatch.jsonl"
   _expect "${d}_unkclosed" 2 "block — absent-pipeline, closed batch, zero reviewer dispatch → exit 2 (AC-A5b)"
+  # issue #65 — allow: announced-unclosed kind:code batch with code since baseline AND a reviewer
+  # dispatched for it → WAITING for live reviewers, not abandoned. (code_state_since is `code` here, so
+  # the D7 no-code relaxation does NOT apply — reviewers_in_flight is what allows it.)
+  mkdir -p ".runs/${d}_waitrev"
+  printf '%s\n' "{\"run\":\"wr\",\"pipeline\":\"full\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$csb_base\"}" > ".runs/${d}_waitrev/RUN"
+  printf '%s\n' '{"id":"B1","kind":"code","status":"announced"}' > ".runs/${d}_waitrev/batches.jsonl"
+  printf '%s\n' '{"batch":"B1","subagent_type":"code-reviewer","outcome":"attempted"}' > ".runs/${d}_waitrev/dispatch.jsonl"
+  _expect "${d}_waitrev" 0 "allow — announced batch + reviewer in flight → exit 0 (issue #65 waiting)"
+  # issue #65 fail-closed twin — announced-unclosed kind:code batch, code since baseline, but ZERO
+  # reviewer dispatch (no dispatch.jsonl) → genuinely abandoned Phase B → still block.
+  mkdir -p ".runs/${d}_waitnorev"
+  printf '%s\n' "{\"run\":\"wn\",\"pipeline\":\"full\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$csb_base\"}" > ".runs/${d}_waitnorev/RUN"
+  printf '%s\n' '{"id":"B1","kind":"code","status":"announced"}' > ".runs/${d}_waitnorev/batches.jsonl"
+  _expect "${d}_waitnorev" 2 "block — announced batch, code since baseline, zero reviewer dispatch → exit 2 (issue #65 fail-closed)"
   # block: armed run that delivered nothing (no ledger, no code since baseline=HEAD)
   mkdir -p ".runs/${d}_empty"
   printf '%s\n' "{\"run\":\"e\",\"pipeline\":\"full\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$(git rev-parse --short HEAD 2>/dev/null)\"}" > ".runs/${d}_empty/RUN"
@@ -163,7 +177,7 @@ if [ "${1:-}" = "--self-test" ]; then
 
   rm -rf "$_d7"
 
-  rm -rf ".runs/${d}_block" ".runs/${d}_closed" ".runs/${d}_nomarker" ".runs/${d}_direct" ".runs/${d}_dfull" ".runs/${d}_dnopipe" ".runs/${d}_frev" ".runs/${d}_fnorev" ".runs/${d}_unkclosed" ".runs/${d}_empty"
+  rm -rf ".runs/${d}_block" ".runs/${d}_closed" ".runs/${d}_nomarker" ".runs/${d}_direct" ".runs/${d}_dfull" ".runs/${d}_dnopipe" ".runs/${d}_frev" ".runs/${d}_fnorev" ".runs/${d}_unkclosed" ".runs/${d}_waitrev" ".runs/${d}_waitnorev" ".runs/${d}_empty"
   if [ "$fail" -eq 0 ]; then echo "delivery-stop-hook --self-test: OK"; exit 0; fi
   echo "delivery-stop-hook --self-test: $fail case(s) FAILED" >&2; exit 1
 fi
@@ -282,6 +296,19 @@ esac
 waiting=0
 if [ "$announced_code" -gt 0 ]; then
   [ "$(code_state_since "$(closure_anchor 2>/dev/null || true)")" = "no-code" ] && waiting=1
+  # issue #65 — WAITING FOR DISPATCHED REVIEWERS IS NOT ABANDONED. The relaxation above catches only the
+  # "no code has moved" wait (waiting for an operator before Phase B). A batch whose code IS committed
+  # reads as `code` there and stayed blocked — which is also the normal state while the orchestrator
+  # waits for review subagents it ALREADY dispatched for the in-flight batch, so every such Stop burned
+  # an exit-2 cycle. reviewers_in_flight is the OBSERVABLE that tells the two apart (R3): a reviewer-typed
+  # dispatch recorded in dispatch.jsonl for the announced batch, that batch not yet closed. It is read
+  # from the harness-recorded reviewer tally (reviewer_dispatch_count), never a declared marker field. A
+  # run that dispatched NO reviewer for its open batch (the abandoned case) has count 0 and never arms —
+  # so the block still fires for a real abandoned code run. Suppresses the SAME two conjuncts the no-code
+  # waiting does (its own; and prong 1, which asks a run THAT SHIPPED CODE for an earned closure — the
+  # very closure the in-flight reviewers are working toward). Prong 2 (the reviewer floor over CLOSED
+  # batches) is untouched: an announced batch has closed_code 0 there, so it is not in scope regardless.
+  [ "$waiting" -eq 0 ] && reviewers_in_flight && waiting=1
 fi
 
 # BLOCK when: an announced code batch is still unclosed AND the run is not merely waiting; OR no earned
