@@ -126,6 +126,32 @@ for _fa in "$here"/agents/*.md; do
 done
 rm -rf "$R44"
 
+echo "#46 — a captured verdict leaves a durable, tamper-evident record; losing verdicts.jsonl is DETECTED, not silent:"
+# Run 096 lost verdicts.jsonl mid-run while the RUN marker survived, and the loss was invisible — the
+# gate merely reverted to "unverified". The plugin never deletes the file itself, so it cannot prevent
+# an external removal; it CAN leave a record the removal does not erase. Each capture is mirrored into
+# the marker's append-only verdicts_captured list, and the gate names the loss when the file is gone.
+R46="$(mktemp -d)"
+( cd "$R46" || exit 1; git init -q; git config user.email a@b.c; git config user.name t
+  printf 'x\n' > s.txt; git add -A; git commit -q -m b; mkdir -p .runs/r
+  printf '{"run":"r","pipeline":"full","intends_code":true}\n' > .runs/r/RUN
+  printf '{"id":"B1","kind":"code","status":"announced","required_roles":["security-reviewer"]}\n' > .runs/r/batches.jsonl ) >/dev/null 2>&1
+printf '%s\n' '{"role":"security-reviewer","status":"completed","severity_counts":{"critical":0,"high":0,"medium":0,"low":0},"secrets_audit_passed":true}' > "$R46/tr.jsonl"
+R46_PAYLOAD="$(printf '{"hook_event_name":"SubagentStop","transcript_path":"%s"}' "$R46/tr.jsonl")"
+# Capture the verdict through the REAL hook (creates verdicts.jsonl AND the durable marker tally):
+( cd "$R46" || exit 1; printf '%s' "$R46_PAYLOAD" | TEAM_BOOTSTRAP_RUN=r "$V" --hook-role security-reviewer >/dev/null 2>&1 )
+_chk "$(grep -c '"role":"security-reviewer"' "$R46/.runs/r/verdicts.jsonl" 2>/dev/null || echo 0)" 1 "capture wrote verdicts.jsonl"
+_chk "$(grep -c 'B1/security-reviewer' "$R46/.runs/r/RUN" 2>/dev/null || echo 0)" 1 "capture ALSO recorded a durable tally in the RUN marker"
+# Sanity: with the file present, the gate confirms and passes.
+_chk "$( ( cd "$R46" || exit 1; TEAM_BOOTSTRAP_RUN=r "$V" --gate >/dev/null 2>&1 ); echo $? )" 0 "gate passes while verdicts.jsonl is present"
+# Now the failure mode from #46: verdicts.jsonl vanishes; the marker survives.
+rm -f "$R46/.runs/r/verdicts.jsonl"
+_gate_err46="$( ( cd "$R46" || exit 1; TEAM_BOOTSTRAP_RUN=r "$V" --gate 2>&1 >/dev/null ) )"
+_chk "$( ( cd "$R46" || exit 1; TEAM_BOOTSTRAP_RUN=r "$V" --gate >/dev/null 2>&1 ); echo $? )" 1 "a removed verdict file cannot pass the gate"
+_chk "$(printf '%s' "$_gate_err46" | grep -ciE 'REMOVED|durability breach')" 1 \
+  "the gate NAMES the loss (durability breach) instead of silently reverting to 'unverified'"
+rm -rf "$R46"
+
 echo "3.1 — the closure gate reads the recorded verdicts:"
 _chk "$(grep -qE '(^|[^a-z-])check-role-verdict\.sh' "$here/bin/verify-batch.sh" && echo yes || echo no)" yes \
   "check-role-verdict is wired into verify-batch"
