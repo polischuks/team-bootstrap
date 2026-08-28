@@ -138,6 +138,26 @@ field_num() { printf '%s' "$1" | grep -oE "\"$2\":[[:space:]]*-?[0-9]+" | head -
 # field_bool LINE KEY → "key": true|false
 field_bool() { printf '%s' "$1" | grep -oE "\"$2\":[[:space:]]*(true|false)" | head -1 | sed -E "s/\"$2\":[[:space:]]*//"; }
 
+# --- delivery cost instrumentation (issue #61) ---------------------------------
+# A bash hook CANNOT see per-subagent TOKEN usage: token counts are the harness's, not the plugin's,
+# and none of the events this plugin receives carries them — PreToolUse[Agent] fires BEFORE the subagent
+# runs (record-dispatch), PostToolUse[Agent] returns status:"async_launched" with no final usage, and
+# SubagentStop does not fire for Agent-tool subagents (#60, #27755). So the instrument records the fact a
+# bash hook CAN observe honestly: WALL-CLOCK. record-dispatch stamps each review dispatch (`ts`) and
+# verify-batch stamps each batch close (`closed_at`); delivery-metrics turns the two into per-batch and
+# per-role wall-time. Token attribution stays an explicit, documented gap until the harness passes a
+# usage field to a hook (honesty over a fabricated number — P6/P10).
+
+# _now_epoch → wall-clock seconds since the epoch. THE one clock the recording hooks read, so a test can
+# pin it deterministically: TB_NOW_EPOCH overrides the real clock (the repo forbids reading the real
+# clock inside a self-test/fixture — it breaks determinism). Real hook execution leaves TB_NOW_EPOCH
+# unset and reads the actual clock, which is exactly correct for a wall-time recorder. Never fails: an
+# unreadable `date` degrades to 0 (a recorder must not break the dispatch or the close it rides on).
+_now_epoch() {
+  if [ -n "${TB_NOW_EPOCH:-}" ]; then printf '%s' "${TB_NOW_EPOCH}"; return 0; fi
+  date +%s 2>/dev/null || printf 0
+}
+
 # extract every commit_sha from a ledger line as space-separated tokens (compact or spaced).
 shas_of_line() {
   printf '%s' "$1" | grep -oE "\"commit_shas\":[[:space:]]*\[[^]]*\]" | head -1 \

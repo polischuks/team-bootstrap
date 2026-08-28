@@ -74,7 +74,14 @@ record_dispatch() {
   #
   # There is no second value. If a later change ever learns an outcome, it belongs in a record written
   # by whatever observed it — not by this hook, which by construction cannot.
-  printf '{"batch":"%s","subagent_type":"%s","outcome":"attempted"}\n' "$bid" "$stype" >> "$rundir/dispatch.jsonl" 2>/dev/null || true
+  #
+  # `ts` — the wall-clock second this dispatch was requested (issue #61). PreToolUse fires at dispatch,
+  # so this is an honest per-role START timestamp; there is no matching end (SubagentStop does not fire
+  # for Agent-tool subagents — #60), so this stamps a WHEN, never a duration. delivery-metrics derives
+  # the per-batch review window and per-role dispatch timing from it. ADDITIVE: readers use field_str/
+  # field_num and ignore unknown keys, so pre-#61 records with no `ts` still count toward the floor.
+  printf '{"batch":"%s","subagent_type":"%s","outcome":"attempted","ts":%s}\n' \
+    "$bid" "$stype" "$(_now_epoch)" >> "$rundir/dispatch.jsonl" 2>/dev/null || true
   return 0
 }
 
