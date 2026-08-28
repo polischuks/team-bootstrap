@@ -64,7 +64,7 @@ if [ "${1:-}" = "--self-test" ]; then
     if [ "$got" -eq "$exp" ]; then echo "  PASS (exit $got) $desc"
     else echo "  FAIL (exit $got, want $exp) $desc" >&2; fail=$((fail + 1)); fi
   }
-  _dirs="_st_ac1 _st_ac2 _st_ac4a _st_ac4b _st_ac5 _st_f2i _st_f2ii _st_ac7 _st_ac9 _st_ws _st_pfabs _st_pffail _st_pfwaiver _st_pfbareack _st_pfexpired _st_pfbad"
+  _dirs="_st_ac1 _st_ac2 _st_ac4a _st_ac4b _st_ac5 _st_f2i _st_f2ii _st_ac7 _st_ac9 _st_ws _st_pfabs _st_pffail _st_pfwaiver _st_pfbareack _st_pfexpired _st_pfbad _st_confirm"
   for d in $_dirs; do mkdir -p ".runs/$d"; done
   # F-A recompute (no marker → binding off) -----------------------------------
   printf '%s\n' '{"id":"F1","kind":"code","status":"closed","commit_shas":["deadbeef"],"code_delta":137}' > .runs/_st_ac1/batches.jsonl
@@ -129,6 +129,16 @@ if [ "${1:-}" = "--self-test" ]; then
   printf '%s\n' '{"run":"_st_pfbad","intends_code":true,"source":"harness","preflight":{"gaps":[],"ack":false}}' > .runs/_st_pfbad/RUN
   printf '%s\n' '{"id":"B1","kind":"code","status":"announced"}' > .runs/_st_pfbad/batches.jsonl
   _expect _st_pfbad 1 "F-P — preflight present but no exit field (unreadable) → blocked, not fail-open (P10)"
+  # #62 — an announced code batch FOLLOWED BY a {"confirm":"<id>"} line (the #56 per-batch
+  # confirmation record) is still the in-flight batch, NOT "announced then abandoned". The confirm
+  # object is a NON-BATCH ledger record (no "id"): it must not inflate `total`, and it must not
+  # displace the announced batch from being the last BATCH line. Regression guard for the #56/#62
+  # gate conflict — deleting the confirm line must no longer be required to pass delivery.
+  printf '%s\n' '{"run":"_st_confirm","intends_code":true,"source":"harness","preflight":{"exit":0,"gaps":[],"ack":false}}' > .runs/_st_confirm/RUN
+  printf '%s\n%s\n' \
+    '{"id":"B1","kind":"code","status":"announced"}' \
+    '{"confirm":"B1"}' > .runs/_st_confirm/batches.jsonl
+  _expect _st_confirm 0 "#62 — announced batch + trailing confirm line → in flight (not abandoned)"
   # R-2 — a resolvable but UNREACHABLE-from-HEAD commit (dangling / sibling) must not close
   dangling="$(git commit-tree "HEAD^{tree}" -m "dangling probe" 2>/dev/null || true)"
   if [ -n "$dangling" ]; then
@@ -228,7 +238,13 @@ if [ -z "$ledger" ] || [ ! -f "$ledger" ]; then
   exit 0
 fi
 
-total="$(grep -c . "$ledger" 2>/dev/null || echo 0)"
+# total counts BATCH lines only — those carrying an "id" field. The ledger also holds non-batch
+# records: {"confirm":"<id>"} (the #56 per-batch confirmation append) and any future record kind.
+# Counting every non-empty line (grep -c .) inflated total, so an announced batch followed by its
+# own confirm line was no longer the last line and read as "announced then abandoned" (#62 — the
+# #56/#62 gate conflict). The ordering check below (n -eq total) and F-D likewise reason over
+# batch lines only. `"id"[[:space:]]*:` mirrors field_str's selector; a {"confirm":…} line has no "id".
+total="$(grep -cE '"id"[[:space:]]*:' "$ledger" 2>/dev/null || echo 0)"
 n=0
 viol=0
 first_kind=""
@@ -239,12 +255,16 @@ seen_shas=""       # F-2: a commit_sha may be credited to at most one closed bat
 prev_rank=""       # F-E: rank-int of the previously-closed kind:code batch (non-increasing)
 while IFS= read -r line; do
   [ -n "$line" ] || continue
+  id="$(field_str "$line" id)"
+  # Skip non-batch ledger records before counting: a {"confirm":"<id>"} line (the #56 confirmation
+  # append) carries no "id", earns no delivery credit and abandons nothing. Advancing `n` on it — or
+  # letting it be the last line — is what made a confirmed in-flight batch read as abandoned (#62).
+  [ -n "$id" ] || continue
   n=$((n + 1))
   kind="$(field_str "$line" kind)"
   [ "$n" -eq 1 ] && first_kind="$kind"
   [ "$kind" = "code" ] || continue   # doc batches: no delivery credit
   any_code=1
-  id="$(field_str "$line" id)"; [ -n "$id" ] || id="#$n"
   status="$(field_str "$line" status)"
   if [ "$status" = "closed" ]; then
     delta="$(field_num "$line" code_delta)"; case "$delta" in ''|*[!0-9-]*) delta=0 ;; esac
