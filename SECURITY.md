@@ -32,7 +32,7 @@ appreciated: please give a reasonable window to ship a fix before public discuss
 
 Reasoning happens inside the user's Claude Code harness, against the user's own
 credentials and repository. But the plugin is **not** inert markdown: it ships
-**39 scripts under `bin/`** and wires them into **11 Claude Code hook events** via
+**39 scripts under `bin/`** and wires them into **12 Claude Code hook events** via
 [hooks/hooks.json](hooks/hooks.json):
 
 | Hook event | Script(s) | Effect |
@@ -46,10 +46,12 @@ credentials and repository. But the plugin is **not** inert markdown: it ships
 | `PreCompact` / `PostCompact` | `session-context.sh` | preserves the blackboard across context compaction |
 | `TaskCreated` / `TaskCompleted` | `record-task.sh` | records native task lifecycle events |
 | `SubagentStart` | `subagent-brief.sh` | hands a review role its plan (context only; cannot block) |
+| `SubagentStop` | `check-role-verdict.sh` | captures a finished review role's typed verdict; **blocking** only on a malformed verdict |
 | `Stop` | `quality-gate.sh`, `delivery-stop-hook.sh` | **blocking** — can refuse completion |
 
 Review-role subagents additionally declare a `Stop` hook in their own frontmatter
-(`check-role-verdict.sh`), which lives only while that subagent runs.
+(`check-role-verdict.sh`), which lives only while that subagent runs — a second capture
+channel to the plugin-level `SubagentStop` above.
 
 Hooks run automatically, without a per-call permission prompt.
 
