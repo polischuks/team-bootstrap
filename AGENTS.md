@@ -26,6 +26,13 @@ Machine-read by the harness gates (`bin/quality-gate.sh`, `bin/check-tdd.sh`,
 > enforcement waiver** in the run marker (dated, scoped, re-acknowledged each milestone — never a
 > perpetual free pass). See [references/enforcement.md](references/enforcement.md). Substantive
 > coverage/mutation enforcement is for *target* projects that ship those runners.
+>
+> This repo keeps the **`host_structural`** waiver rather than the repo-level `CapabilityOptOut:` (issue
+> #66): a bash coverage/mutation tool genuinely *cannot exist* on this host, so `host_structural` is the
+> honest category. `CapabilityOptOut:` is for a *target* repo where the tool **could** exist (Stryker,
+> coverage runners) but the team has made a standing decision it is out of scope — it closes a
+> `run-rate`/`irreversible` batch without a `risk_rank` downgrade, and is ignored the moment a resolvable
+> `Coverage:`/`Mutation:` command is declared. See [references/agents-md-contract.md](references/agents-md-contract.md).
 
 ## Notes
 

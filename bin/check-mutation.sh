@@ -16,8 +16,14 @@
 # or absent (runs if present, reports, never blocks); score unparseable (WARN); no mutable changed code
 # (`total:0` → pass-with-note — never a divide-by-zero false block).
 #
-# Usage: bin/check-mutation.sh [project-dir]  ·  bin/check-mutation.sh --self-test
-# Exit:  0 pass / skip / advisory · 1 enforce + score below threshold · 64 bad usage
+# GOVERNED WAIVER (issue #66). Under enforce, a batch whose diff-scoped mutation run is infeasible (a
+# 3-line change dragging a 15k-line file into mutation) has a sanctioned escape matching the other enforce
+# gates: `bin/check-mutation.sh --waive BY REASON EXPIRES(YYYY-MM-DD)` records a governed `mutation_waiver`
+# in the active run marker, which _evaluate consults AFTER printing the finding. A bare/expired waiver is
+# not a waiver (governed_waiver_ok). This does not silence the finding and it expires — see enforcement.md.
+#
+# Usage: bin/check-mutation.sh [project-dir]  ·  --self-test  ·  --waive BY REASON EXPIRES
+# Exit:  0 pass / skip / advisory / waived · 1 enforce + score below threshold (unwaived) · 64 bad usage
 set -uo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -25,6 +31,27 @@ here="$(cd "$(dirname "$0")" && pwd)"
 . "$here/delivery-lib.sh"
 
 DEFAULT_MUTATION_THRESHOLD=60
+
+# `--waive BY REASON EXPIRES` records the governed `mutation_waiver` this gate reads — the same door the
+# other enforce gates already carry (check-role-verdict → role_verdict_waiver, check-gate-integrity →
+# gate_integrity_waiver). It exists because diff-scoped mutation on a large-file change (a 3-line refactor
+# in a 15k-line file drags the whole file into mutation) can be infeasible with no sanctioned escape but
+# reverting the good change (issue #66 comment). Validation is record_governed_waiver's, which is
+# governed_waiver_ok's, which is this gate's below: ONE definition, so a waiver that records always works
+# and one that would not is refused here with a reason, not later at the gate. Procedure: references/enforcement.md.
+if [ "${1:-}" = "--waive" ]; then
+  shift
+  if [ "$#" -ne 3 ]; then
+    echo "usage: $(basename "$0") --waive BY REASON EXPIRES(YYYY-MM-DD)" >&2
+    echo "  records mutation_waiver in the active run marker. Expiry is mandatory and must be in the future." >&2
+    exit 64
+  fi
+  record_governed_waiver mutation_waiver "$1" "$2" "$3" || {
+    echo "$(basename "$0"): REFUSED to record mutation_waiver — needs a non-empty by and reason, and a future YYYY-MM-DD expires, under an unambiguous active run." >&2
+    exit 1
+  }
+  exit 0
+fi
 
 _doc() { local f; for f in AGENTS.md CLAUDE.md; do [ -f "$f" ] && { printf '%s' "$f"; return 0; }; done; }
 _cmd() { grep -iE "^[[:space:]]*[-*]?[[:space:]]*$1:" "$2" 2>/dev/null | head -1 | grep -oE '`[^`]+`' | head -1 | tr -d '`'; }
@@ -87,7 +114,19 @@ _evaluate() {
   fi
 
   if awk -v s="$score" -v t="$thr" 'BEGIN{exit !(s+0 < t+0)}'; then
+    # Print the finding BEFORE consulting the waiver — a governed escape that silences its own finding is
+    # an invisible one (parity with check-role-verdict/check-gate-integrity). Then a valid governed
+    # mutation_waiver (ack+by+reason+unexpired-YYYY-MM-DD) relieves the enforce fail; a bare/expired one
+    # does not. Routed through the SAME governed_waiver_ok that backs the peer gates — one definition.
     echo "  FAIL: mutation score ${score} < threshold ${thr} (MutationMode:enforce) — strengthen assertions so tests kill the surviving mutants (F3)." >&2
+    if governed_waiver_ok \
+         "$(field_in_obj "$mk" mutation_waiver ack)" \
+         "$(field_in_obj "$mk" mutation_waiver by)" \
+         "$(field_in_obj "$mk" mutation_waiver reason)" \
+         "$(field_in_obj "$mk" mutation_waiver expires)"; then
+      echo "check-mutation: WAIVED by a governed mutation_waiver (finding surfaced above; by/reason/expires recorded, expiry forces re-review) — exit 0. See references/enforcement.md for the procedure." >&2
+      return 0
+    fi
     return 1
   fi
   echo "check-mutation: mutation score ${score} ≥ ${thr} (enforce) — OK."
@@ -122,6 +161,25 @@ if [ "${1:-}" = "--self-test" ]; then
   # enforce + unparseable score → WARN, pass
   _agents enforce 60; printf 'no score emitted\n' > "$T/mut.txt"
   _chk "enforce, unparseable → WARN, pass" "$(_run)" 0
+  # --waive (issue #66): enforce + low score + a governed mutation_waiver → WAIVED → pass.
+  _agents enforce 60; printf 'mutation_score: 40\n' > "$T/mut.txt"
+  printf '{"run":"r","intends_code":true,"source":"harness","baseline_sha":"x","mutation_waiver":{"ack":true,"by":"x","reason":"r","expires":"2999-01-01"}}\n' > "$T/.runs/r/RUN"
+  _chk "enforce, score 40 < 60, valid mutation_waiver → pass" "$(_run)" 0
+  # expired mutation_waiver → not a waiver → fail
+  printf '{"run":"r","intends_code":true,"source":"harness","baseline_sha":"x","mutation_waiver":{"ack":true,"by":"x","reason":"r","expires":"2000-01-01"}}\n' > "$T/.runs/r/RUN"
+  _chk "enforce, score 40 < 60, EXPIRED mutation_waiver → fail" "$( ( cd "$T" && TEAM_BOOTSTRAP_RUN=r TEAM_BOOTSTRAP_NOW=2026-08-28 "$here/check-mutation.sh" . >/dev/null 2>&1 ); echo $? )" 1
+  # `--waive` writer records the governed waiver, then the enforce run passes on it.
+  printf '{"run":"r","intends_code":true,"source":"harness","baseline_sha":"x"}\n' > "$T/.runs/r/RUN"
+  ( cd "$T" && TEAM_BOOTSTRAP_RUN=r "$here/check-mutation.sh" --waive x r 2999-01-01 >/dev/null 2>&1 )
+  case "$(cat "$T/.runs/r/RUN")" in *'"mutation_waiver":{'*'"by":"x"'*) echo "  PASS --waive wrote mutation_waiver" ;;
+    *) echo "  FAIL --waive did not write mutation_waiver: $(cat "$T/.runs/r/RUN")" >&2; fail=$((fail + 1)) ;; esac
+  _chk "after --waive, enforce + low score → pass" "$(_run)" 0
+  # `--waive` with a past expiry is REFUSED (exit 1), writes nothing.
+  printf '{"run":"r","intends_code":true,"source":"harness","baseline_sha":"x"}\n' > "$T/.runs/r/RUN"
+  _chk "--waive past expiry → refused (exit 1)" "$( ( cd "$T" && TEAM_BOOTSTRAP_RUN=r "$here/check-mutation.sh" --waive x r 2000-01-01 >/dev/null 2>&1 ); echo $? )" 1
+  # restore the plain armed marker for the remaining cases
+  printf '{"run":"r","intends_code":true,"source":"harness","baseline_sha":"x"}\n' > "$T/.runs/r/RUN"
+
   # no Mutation: command → skip+WARN
   ( cd "$T" && printf '# AGENTS\n\n- Lint: `true`\n' > AGENTS.md )
   _chk "no Mutation: command → skip (exit 0)" "$(_run)" 0

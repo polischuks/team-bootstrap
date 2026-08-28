@@ -246,6 +246,22 @@ waiver *governed* ([ADR-0007](../docs/adr/0007-time-boxed-waivers.md)):
   host_structural, the expiry buys **visibility in post-review**, not prevention; the tiered prevention is
   load-bearing for *target* projects where the tooling exists (gaps are `deferred` ⇒ no ack escape).
 
+**Repo-capability opt-out — the honest state between `host_structural` and `deferred` (issue #66).**
+`host_structural` means "the tool provably cannot exist on host". For most repos that is a *lie* — a
+JS/Python project *can* run Stryker/coverage, it just doesn't — so a repo with no such toolchain had only
+two ways past a `run-rate|irreversible` tier: mislabel `host_structural`, or **downgrade `risk_rank`** (the
+launder this gate exists to prevent). Neither is honest. A repo may now declare a governed, repo-level
+**`CapabilityOptOut:`** in AGENTS.md/CLAUDE.md (`mutation`/`diff-coverage`, plus `CapabilityOptOutBy:` /
+`CapabilityOptOutReason:` and an optional `CapabilityOptOutExpires:`). A named dimension is dropped from the
+tier's **owed-gap** set, so the batch closes on the gates the repo *can* run with the missing dimension left
+recorded in `enforcement_gaps` — a **visible** gap, not a risk downgrade. Crucially this is **derived, not
+trusted**, exactly like the `host_structural`→`deferred` demotion: a dimension whose `Coverage:`/`Mutation:`
+command is declared **and resolves on PATH** is `deferred` (arm it), so the opt-out **cannot weaken
+enforcement where the tooling exists**. It is repo-scoped (a capability decision, committed to the contract,
+attributable by git blame), distinct from the per-run marker waivers below. team-bootstrap itself keeps its
+`host_structural` waiver — its bash coverage/mutation tools genuinely cannot exist — but a target repo that
+simply does not do mutation testing now has a first-class, honest way to say so.
+
 **Diff-scoped mutation blind spot (target-project doctrine).** Where mutation *is* armed, diff-scoped
 runs match against production code, so an assertion weakened in an otherwise-unchanged file, or precision
 erosion spilling into an untouched region, is invisible to the per-batch run (cargo-mutants / Stryker note
@@ -339,6 +355,7 @@ Two gates refuse rather than pass when they cannot confirm, and both are relieve
 |---|---|---|
 | `bin/check-role-verdict.sh --gate` | `role_verdict_waiver` | zero captured role verdicts for the in-flight batch (spec 021 AC-6/AC-7) |
 | `bin/check-gate-integrity.sh` | `gate_integrity_waiver` | pre-existing green-by-skip / can't-fail findings the batch did not introduce |
+| `bin/check-mutation.sh` | `mutation_waiver` | under `MutationMode: enforce`, a diff-scoped mutation run infeasible for this batch — a small change dragging a large file into mutation (issue #66 comment) |
 
 **Governed** means four fields, all required: `ack:true`, `by`, `reason`, `expires` (`YYYY-MM-DD`, in
 the future). A bare `ack` is not a waiver. An expired one is not a waiver. There is one definition —
@@ -353,6 +370,10 @@ bin/check-role-verdict.sh --waive "<who>" "<why>" 2099-01-01
 
 ```bash
 bin/check-gate-integrity.sh --waive "<who>" "<why>" 2099-01-01
+```
+
+```bash
+bin/check-mutation.sh --waive "<who>" "<why>" 2099-01-01
 ```
 
 Each writes its own key into the run marker of the active run and prints what it recorded. Until spec
