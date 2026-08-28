@@ -24,13 +24,23 @@
 #        64 bad usage
 set -uo pipefail
 
-# _measured ROOT [PROFILE] → "alive/total" as the eval reports it (empty if it could not run).
-_measured() {
-  local root="$1" prof="${2:-}"
-  ( [ -n "$prof" ] && export TEAM_BOOTSTRAP_PROFILE="$prof"
-    "$root/bin/eval-role.sh" --liveness 2>&1 ) \
-    | sed -n 's/.*: \([0-9]*\)\/\([0-9]*\) assignable.*/\1\/\2/p' | tail -1
-}
+# The result cache (issue #23/#64, ADR-0015) lives in delivery-lib.sh. Sourcing it is side-effect-free
+# (function definitions only), matching check-tdd.sh. Guarded so a foreign install missing the lib still
+# runs — it just does not cache (the safe direction: execute, never a stale pass).
+_libdir="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=bin/delivery-lib.sh
+[ -f "$_libdir/delivery-lib.sh" ] && . "$_libdir/delivery-lib.sh"
+
+# _run returns via these globals (NOT stdout) so a caller need not wrap it in a subshell:
+#   _RUN_N        — count of liveness problems found (0 = all three checks pass).
+#   _RUN_MEASURED — the "alive/total" the shipped-profile eval reported, reused by the main path's OK
+#                   message so it need not fork a second identical ~9s eval (issue #79).
+_RUN_N=0
+_RUN_MEASURED=""
+
+# _COUNT_RE — the sed expression that lifts "alive/total" out of an eval-role --liveness report. Kept in
+# one place so the shipped-profile parse in _run stays identical to what the old _measured helper did.
+_COUNT_RE='s/.*: \([0-9]*\)\/\([0-9]*\) assignable.*/\1\/\2/p'
 
 # _eval_ok ROOT [PROFILE] → 0 when the eval exits clean.
 _eval_ok() {
@@ -55,10 +65,17 @@ _dead_profile() {
 }
 
 _run() {
-  local root="$1" n=0 m d dp
-  if ! _eval_ok "$root"; then
+  local root="$1" n=0 m d dp shipped_out shipped_rc
+  # Run the shipped-profile liveness eval ONCE and reuse it for BOTH the pass-check and the measured
+  # count. It used to be forked twice here (via _eval_ok and _measured) plus a third time in the main
+  # path — each fork re-sizes every routed binding (~9s), and on the same profile/tree the answer is
+  # identical, so the extra forks were pure duplication (issue #79). This does NOT change what is
+  # asserted: the exit code still decides pass/fail, the DEAD lines are still surfaced, and the count is
+  # still parsed from the same eval output.
+  shipped_out="$( "$root/bin/eval-role.sh" --liveness 2>&1 )"; shipped_rc=$?
+  if [ "$shipped_rc" -ne 0 ]; then
     echo "  the liveness eval does not pass on the shipped profile — a binding is not load-bearing" >&2
-    "$root/bin/eval-role.sh" --liveness 2>&1 | sed -n 's/^  DEAD/  DEAD/p' >&2
+    printf '%s\n' "$shipped_out" | sed -n 's/^  DEAD/  DEAD/p' >&2
     n=$((n + 1))
   fi
 
@@ -71,7 +88,10 @@ _run() {
   fi
   rm -f "$dp"
 
-  m="$(_measured "$root")"; d="$(_declared "$root")"
+  # Parse the count from the eval output captured above (the shared _COUNT_RE expression).
+  m="$(printf '%s\n' "$shipped_out" | sed -n "$_COUNT_RE" | tail -1)"
+  _RUN_MEASURED="$m"
+  d="$(_declared "$root")"
   if [ -z "$m" ]; then
     echo "  the liveness eval produced no count — it could not run, which is not the same as passing" >&2
     n=$((n + 1))
@@ -80,7 +100,10 @@ _run() {
     echo "  An enumeration invariant nothing checks is a comment (P12, P11)." >&2
     n=$((n + 1))
   fi
-  printf '%s' "$n"
+  # Return via GLOBALS, never via `$(_run …)` command substitution — a subshell would discard
+  # _RUN_MEASURED (set above), so the reused count would be lost to the caller (the classic
+  # "counter set in a subshell" bug run-tests.sh warns about). Callers read _RUN_N / _RUN_MEASURED.
+  _RUN_N="$n"
 }
 
 # --- self-test ---------------------------------------------------------------
@@ -90,7 +113,7 @@ if [ "${1:-}" = "--self-test" ]; then
     else printf '  FAIL %s (got [%s] want [%s])\n' "$3" "$1" "$2" >&2; fail=$((fail + 1)); fi; }
   here="$(cd "$(dirname "$0")/.." && pwd)"
 
-  _c "$(_run "$here")" 0 "the shipped tree passes all three checks"
+  _run "$here"; _c "$_RUN_N" 0 "the shipped tree passes all three checks"
 
   # The declared-count check must actually be able to fail — otherwise this gate has the very defect
   # it was written to detect in the eval.
@@ -106,7 +129,7 @@ if [ "${1:-}" = "--self-test" ]; then
   ln -s "$here/references" "$T/references" 2>/dev/null || cp -R "$here/references" "$T/references"
   ln -s "$here/agents" "$T/agents" 2>/dev/null || cp -R "$here/agents" "$T/agents"
   for b in delivery-lib.sh select-pipeline.sh; do cp "$here/bin/$b" "$T/bin/"; done
-  _c "$([ "$(_run "$T")" -ge 1 ] && echo caught || echo missed)" caught \
+  _run "$T"; _c "$([ "$_RUN_N" -ge 1 ] && echo caught || echo missed)" caught \
     "a declared count that disagrees with the measured one is caught"
   rm -rf "$T"
 
@@ -139,10 +162,40 @@ if [ ! -x "$root/bin/eval-role.sh" ]; then
   exit 0
 fi
 
-n="$(_run "$root")"
+# Result cache (issue #23/#64, ADR-0015 — the same infra check-tdd/check-mutation use). The liveness
+# eval re-sizes every routed binding (~9s per fork), and verify-batch re-runs this gate on EVERY closure
+# attempt — so a retry triggered by some other late gate re-paid for the whole per-role eval against a
+# byte-identical tree. Reuse this gate's own previous verdict, keyed on the tree state (the key covers
+# the committed window, uncommitted tracked changes, and untracked content — so any edit to profiles/,
+# agents/, references/roles/ or bin/eval-role.sh moves the key and re-executes).
+#
+# This CANNOT weaken the gate (issue #79 guardrail): an EMPTY key means EXECUTE, and the key is empty
+# whenever there is no active run marker — which is exactly the case for this gate's own --self-test in
+# bin/run-tests.sh. So the mutation coverage (the shipped eval passes, the dead-profile eval reddens,
+# the declared count matches) runs in FULL on every suite run and reddens if broken; only verify-batch's
+# repeated in-delivery attempts against an unchanged registry are deduped. A stale pass is the ADR-0015
+# fail-open, so every ambiguity resolves toward re-running.
+ck=""
+if command -v gate_cache_key >/dev/null 2>&1; then
+  ck="$(gate_cache_key role-liveness 'eval-role.sh --liveness')"
+fi
+if [ -n "$ck" ]; then
+  cached="$(gate_cache_get "$ck" 2>/dev/null || true)"
+  if [ "$cached" = "ok" ]; then
+    echo "check-role-liveness: OK — reusing the cached liveness verdict; the role registry and tree are unchanged since the last run (issue #64; any change to a role input re-executes)."
+    exit 0
+  elif [ "$cached" = "fail" ]; then
+    echo "check-role-liveness: FAIL — the cached liveness verdict was a failure and the tree is unchanged since it was recorded (fix a role input, which re-executes the eval)." >&2
+    exit 1
+  fi
+fi
+
+_run "$root"; n="$_RUN_N"
 if [ "${n:-0}" -eq 0 ]; then
-  echo "check-role-liveness: OK — $(_measured "$root") binding(s) alive, the eval can fail, and the declared count is true."
+  [ -n "$ck" ] && gate_cache_put "$ck" "ok"
+  echo "check-role-liveness: OK — ${_RUN_MEASURED:-?} binding(s) alive, the eval can fail, and the declared count is true."
   exit 0
 fi
+[ -n "$ck" ] && gate_cache_put "$ck" "fail"
 echo "check-role-liveness: FAIL — $n problem(s) with the liveness claim (P12)." >&2
 exit 1
