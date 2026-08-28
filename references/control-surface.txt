@@ -46,6 +46,9 @@ bin/delivery-metrics.sh
 bin/session-context.sh
 bin/check-review-batch.sh
 bin/record-task.sh
+# mid-turn degraded-sizing recompute — a PostToolBatch hook body (issue #48); gutting it to `exit 0`
+# silently re-strands a description-form run at pipeline=auto, so it is ack-required control surface.
+bin/delivery-resize.sh
 
 # hook registrations (glob spans '/', so hooks/nested/*.json is covered too)
 hooks/*.json
