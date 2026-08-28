@@ -61,7 +61,12 @@ jobs:
 
   suite:
     name: "Test suite (AGENTS.md Test: bin/run-tests.sh)"
-    runs-on: ubuntu-latest
+    # macOS, not ubuntu: bin/run-tests.sh is the DECLARED Test: suite, developed and known-green on
+    # macOS/bash 3.2 (the maintainer platform). Running it here makes a genuinely-red suite fail CI —
+    # #53's guarantee — on the platform the suite targets. It is NOT yet green on Linux (four members
+    # fail on ubuntu, pre-existing, exposed by this very job): issue #59 tracks making this an
+    # os:[macos,ubuntu] matrix once those are fixed. Runners: GitHub macos images also ship bash 3.2.
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
