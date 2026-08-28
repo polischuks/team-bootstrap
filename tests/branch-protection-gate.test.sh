@@ -28,6 +28,24 @@ T="$(mktemp -d)"
   mkdir -p .runs/bad      && printf '{"run":"bad","pipeline":"full","source":"harness","baseline_sha":"x"}\n'                        > .runs/bad/RUN
 ) >/dev/null 2>&1
 
+# --- a SEPARATE repo (not the session repo), on a FEATURE branch, and a twin on the default branch ------
+# Used by AC-7 (issue #49): a git write scoped to a DIFFERENT directory must be judged against THAT repo,
+# not the session repo the hook runs in.
+OTHER="$(mktemp -d)"       # different repo, on 'feature'
+(
+  cd "$OTHER" || exit 1
+  git init -q; git symbolic-ref HEAD refs/heads/main 2>/dev/null || true
+  git config user.email t@t && git config user.name t
+  echo o > f && git add . && git commit -qm base && git checkout -q -b feature
+) >/dev/null 2>&1
+OTHERMAIN="$(mktemp -d)"   # different repo, on the default branch 'main'
+(
+  cd "$OTHERMAIN" || exit 1
+  git init -q; git symbolic-ref HEAD refs/heads/main 2>/dev/null || true
+  git config user.email t@t && git config user.name t
+  echo o > f && git add . && git commit -qm base
+) >/dev/null 2>&1
+
 _on() { ( cd "$T" && git checkout -q "$1" 2>/dev/null || git checkout -q -b "$1" ) >/dev/null 2>&1; }
 
 # _g PAYLOAD → run the guard from the repo cwd under the armed run 'r'; echo its exit code
@@ -89,6 +107,20 @@ _chk "$(_g '{"tool_name":"Bash","tool_input":{}}')"            0 "payload with n
 _chk "$(_gE 'TEAM_BOOTSTRAP_RUN=r TEAM_BOOTSTRAP_GITGUARD_FORCE_BARE=1' "$(P 'git commit -m hi')")" 2 \
   "forced-bare (no timeout wrapper) git commit on main → still block (fires without timeout)"
 
-rm -rf "$T"
+echo "AC-7 — the branch judged is the git command's TARGET repo, not the session repo (issue #49):"
+_on main   # session repo is on the DEFAULT branch throughout AC-7
+# unambiguous redirects to a DIFFERENT repo that is on a feature branch → allow (0), NOT a session-branch block
+_chk "$(_g "$(P "cd $OTHER && git commit -m x")")"      0 "cd <other-feature> && git commit → allow (follow the cd, judge <other>)"
+_chk "$(_g "$(P "(cd $OTHER && git commit -m x)")")"    0 "subshell (cd <other-feature> && git commit) → allow (follow the cd)"
+_chk "$(_g "$(P "cd $OTHER; git commit -m x")")"        0 "cd <other-feature>; git commit → allow (cd persists across ;)"
+_chk "$(_g "$(P "git -C $OTHER commit -m x")")"         0 "git -C <other-feature> commit → allow (regression guard: already honored)"
+# a redirect to a DIFFERENT repo that IS on the default branch → still block, but judged against <other>
+_chk "$(_g "$(P "cd $OTHERMAIN && git commit -m x")")"  2 "cd <other-main> && git commit → block (other repo is itself on default)"
+# SAFETY (must not fail-open): a cd scoped inside a subshell does NOT leak to a later session-repo commit
+_chk "$(_g "$(P "(cd $OTHER) && git commit -m x")")"    2 "(cd <other>) && git commit → block (cd is subshell-scoped; git runs in the session repo on main)"
+# fail-closed on ambiguity: an unresolvable target dir is treated as needing the guard (judges the session)
+_chk "$(_g "$(P 'cd $NOPE && git commit -m x')")"       2 "cd \$NOPE && git commit (unresolvable target) → block (fail-closed to session, P10)"
+
+rm -rf "$T" "$OTHER" "$OTHERMAIN"
 if [ "$fail" -eq 0 ]; then echo "branch-protection-gate.test.sh: OK"; exit 0; fi
 echo "branch-protection-gate.test.sh: $fail case(s) FAILED" >&2; exit 1
