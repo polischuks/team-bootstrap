@@ -150,7 +150,28 @@ _evaluate() {
 
   [ "$viol" -eq 0 ] || return 1
 
-  if ! eval "$tcmd" >/dev/null 2>&1; then
+  # The cheap red-ordering checks above run every attempt (their input is the ledger, which a late
+  # gate's retry legitimately changes). The suite run below is the EXPENSIVE step — the whole
+  # non-integration suite (~3.5 min) at HEAD. verify-batch re-runs every gate on every retry, so a
+  # retry triggered by a LATE cheap gate (completeness / ordering / gate-integrity) re-paid for the
+  # full suite against a byte-identical tree — recording an ack only rewrites the ledger under .runs/
+  # (gitignored), so the code the suite runs against is unchanged. Reuse this gate's own previous
+  # result keyed on the TREE STATE (command string + committed window + uncommitted tracked +
+  # untracked content, via delivery-lib gate_cache_key); ANY real code change moves the key and
+  # re-runs. An empty key (no marker, no repo, no baseline — e.g. CI) means EXECUTE: gate_cache_get
+  # misses and gate_cache_put no-ops, so the suite always runs there (issue #64). A stale green is the
+  # ADR-0015 fail-open, so every ambiguity resolves toward re-running.
+  local ck out
+  ck="$(gate_cache_key tdd "$tcmd")"
+  # Trust a hit ONLY when it carries a recognized verdict — a corrupt/empty cache entry falls through
+  # to a real run rather than wedging the gate on a spurious permanent red (still the safe direction).
+  if out="$(gate_cache_get "$ck")" && { [ "$out" = "green" ] || [ "$out" = "red" ]; }; then
+    echo "check-tdd: reusing the cached suite verdict — the tree is unchanged since the last run (issue #64; any code change re-executes)."
+  else
+    if eval "$tcmd" >/dev/null 2>&1; then out="green"; else out="red"; fi
+    gate_cache_put "$ck" "$out"
+  fi
+  if [ "$out" != "green" ]; then
     echo "  FAIL: suite is RED at HEAD (\`$tcmd\`) — implement to green before closing (P9)." >&2; return 1
   fi
   echo "check-tdd: per-batch red→green verified — every code batch had its own red step before its code, and the suite is green at HEAD."
