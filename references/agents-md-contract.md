@@ -82,6 +82,25 @@ convention as `Test:`/`Typecheck:`; the framework declares the *contract*, the p
 - **`MutationThreshold:`** (F3) — minimum mutation score to pass under enforce. Default **60**.
 - **`MutationMode:`** (F3) — `enforce` (hard gate) or `advisory` (report only). Default **advisory** —
   mutation is opt-in by contract, not by pipeline tier.
+- **`CapabilityOptOut:`** (gate A, issue #66) — a space/comma list of enforcement dimensions
+  (`mutation`, `diff-coverage`) this repository declares **out of scope as a capability** — an honest
+  middle state between `host_structural` (tool provably cannot exist) and `deferred` (arm it later): the
+  tool *could* exist, but the team has made a standing decision not to run it. When present + governed,
+  [`check-enforcement.sh`](../bin/check-enforcement.sh) drops the named dimension from the risk-tier
+  hard-require, so a **`run-rate`/`irreversible` batch closes without a `risk_rank` downgrade**, the missing
+  dimension left recorded in `enforcement_gaps` (a **visible** gap). Governance is mandatory:
+  **`CapabilityOptOutBy:`** (who — attributable) and **`CapabilityOptOutReason:`** (why) are required, and
+  **`CapabilityOptOutExpires:`** (`YYYY-MM-DD`) is optional but, if present, must be in the future. **It is
+  ignored where the tooling exists:** a dimension whose `Coverage:`/`Mutation:` command is declared and
+  resolves on PATH is `deferred` by construction (arm it — the opt-out cannot dodge the tier), so
+  enforcement is never weakened where the tool is present.
+
+  ```
+  - CapabilityOptOut: `mutation diff-coverage`
+  - CapabilityOptOutBy: `alice`
+  - CapabilityOptOutReason: `no bash mutation/coverage toolchain; standing decision`
+  - CapabilityOptOutExpires: `2027-01-01`   # optional; re-affirms on lapse
+  ```
 - **`VersionFiles:`** (version-sync) — a space/comma list of `path` (whole trimmed file) or `path:key`
   (first `"key":"…"` in that file) whose version values must all agree, e.g.
   `` `package.json:version`, `pyproject.toml:version` ``. **Only needed for non-plugin projects** — a
@@ -119,6 +138,11 @@ here for schema reference; field **order inside each object is load-bearing** fo
   risk seams (seam **then** paths), consumed by [`check-seam-ack.sh`](../bin/check-seam-ack.sh) (gate C).
 - **`seam_acks: [{"seam":"<name>","commit":"<sha>","note":"<file:line + why>"}, …]`** — the recorded
   "read it in the shipped code" ack (seam **then** commit) for a batch touching a flagged seam's paths.
+- **`mutation_waiver: {"ack":true,"by":…,"reason":…,"expires":"YYYY-MM-DD"}`** — the governed, expiring
+  per-run waiver [`check-mutation.sh`](../bin/check-mutation.sh) reads under `MutationMode: enforce` when a
+  diff-scoped run is infeasible for a batch (issue #66 comment). Written by `check-mutation.sh --waive BY
+  REASON EXPIRES`, consulted **after** the finding is printed. Distinct from `CapabilityOptOut:` (a
+  repo-level capability decision): this is a per-run escape where the tool exists and is armed.
 
 A `## PR Conventions` section with:
 

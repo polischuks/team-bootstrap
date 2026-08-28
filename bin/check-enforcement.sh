@@ -33,6 +33,17 @@
 # run-rate fix to team-bootstrap's own gate machinery must not self-block; re-review #2). A `feature|doc`
 # batch off the seams passes on any valid governed waiver.
 #
+# REPO-CAPABILITY OPT-OUT (issue #66). host_structural means "the tool provably cannot exist on host" —
+# a LIE for most repos (Stryker/coverage runners CAN exist), so a repo with no mutation/coverage toolchain
+# was forced to DOWNGRADE risk_rank to escape the tier, the exact launder this gate prevents. AGENTS.md may
+# now carry a governed, VISIBLE, repo-level `CapabilityOptOut:` (dims ∈ {mutation,diff-coverage}) + By +
+# Reason (+ optional Expires). A dimension it names is dropped from the tier's owed-gap set — but ONLY where
+# that dimension's tool does NOT resolve (a declared+resolvable tool is `deferred`: arm it, the opt-out is
+# ignored — so enforcement is NEVER weakened where the tooling exists). When every gap is capability-exempt
+# the batch closes at any tier, the missing dimension left recorded in enforcement_gaps (a visible gap, not
+# a risk downgrade). This is repo-scoped (capability, committed to the contract), distinct from a per-run
+# waiver. See _capability_dims / _gap_capability_exempt and references/enforcement.md.
+#
 # Graceful skips (exit 0): no active marker, or marker not intends_code — never a false block (AC-6).
 #
 # Usage: bin/check-enforcement.sh [project-dir]  ·  bin/check-enforcement.sh --self-test
@@ -63,6 +74,62 @@ _tool_resolves() {
   [ -x "$tok" ] && return 0
   return 1
 }
+# _capability_dims DOC → echo the repo-level CAPABILITY opt-out dimensions that are GOVERNED + VALID
+# (space-separated, restricted to {mutation,diff-coverage}); empty if the declaration is absent/incomplete/
+# expired. This is issue #66's honest middle category between `host_structural` (tool provably cannot
+# exist) and `deferred` (tool exists, arm it later): a repo where the tool COULD exist but the team has
+# made a STANDING, governed decision the dimension is out of scope. Contract (AGENTS.md/CLAUDE.md):
+#   - CapabilityOptOut: `mutation diff-coverage`   (space/comma-separated; unknown dims ignored)
+#   - CapabilityOptOutBy: `<who>`                  (required — attributable)
+#   - CapabilityOptOutReason: `<why>`              (required — justified)
+#   - CapabilityOptOutExpires: `YYYY-MM-DD`        (OPTIONAL; if present must be a valid future date)
+# Governed = attributable + justified + (optionally) time-boxed, and VISIBLE (committed contract, printed
+# by the gate, recorded as a gap). Missing by/reason, or an expired/malformed expiry ⇒ NO dims (fail-closed).
+_capability_dims() {
+  local doc="$1" raw by reason exp now d out=""
+  [ -n "$doc" ] || return 0
+  raw="$(_cmd CapabilityOptOut "$doc")"; [ -n "$raw" ] || raw="$(_val CapabilityOptOut "$doc")"
+  [ -n "$raw" ] || return 0
+  by="$(_cmd CapabilityOptOutBy "$doc")"; [ -n "$by" ] || by="$(_val CapabilityOptOutBy "$doc")"
+  reason="$(_cmd CapabilityOptOutReason "$doc")"; [ -n "$reason" ] || reason="$(_val CapabilityOptOutReason "$doc")"
+  if [ -z "$by" ] || [ -z "$reason" ]; then
+    echo "check-enforcement: CapabilityOptOut declared without By/Reason — an unattributable/unjustified opt-out is not governed; ignored (declare CapabilityOptOutBy: and CapabilityOptOutReason:)." >&2
+    return 0
+  fi
+  exp="$(_cmd CapabilityOptOutExpires "$doc")"; [ -n "$exp" ] || exp="$(_val CapabilityOptOutExpires "$doc")"
+  if [ -n "$exp" ]; then
+    now="${TEAM_BOOTSTRAP_NOW:-$(date +%Y-%m-%d)}"
+    case "$exp" in
+      [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9])
+        if [[ "$exp" < "$now" ]]; then
+          echo "check-enforcement: CapabilityOptOut EXPIRED ($exp < $now) — re-affirm with a future expiry or drop the date; ignored." >&2
+          return 0
+        fi ;;
+      *) echo "check-enforcement: CapabilityOptOutExpires '$exp' is not YYYY-MM-DD — invalid; opt-out ignored." >&2; return 0 ;;
+    esac
+  fi
+  for d in $(printf '%s' "$raw" | tr ',' ' '); do
+    case "$d" in mutation|diff-coverage) out="${out:+$out }$d" ;; esac
+  done
+  printf '%s' "$out"
+}
+
+# _gap_capability_exempt DOC DIMS DIM → 0 if DIM is in the already-validated opt-out set DIMS AND its
+# tool does NOT resolve. The tool-does-not-resolve half is requirement #66-(4): where the tooling DOES
+# exist the gate stays fail-closed exactly as today (a declared+resolvable tool ⇒ `deferred`, arm it — a
+# capability label cannot dodge it), mirroring _any_deferrable's derive-not-trust rule for host_structural.
+# DIMS is passed in (validated once by the caller) so the governance warnings are not re-emitted per gap.
+_gap_capability_exempt() {
+  local doc="$1" dims="$2" dim="$3"
+  case " $dims " in *" $dim "*) : ;; *) return 1 ;; esac
+  case "$dim" in
+    mutation)      _tool_resolves "$doc" Mutation && return 1 ;;
+    diff-coverage) _tool_resolves "$doc" Coverage && return 1 ;;
+    *) return 1 ;;
+  esac
+  return 0
+}
+
 # _any_deferrable DOC GAPS → 0 if any gap dimension has a declared+resolvable tool (⇒ not host_structural).
 _any_deferrable() {
   local doc="$1" gaps="$2"
@@ -196,13 +263,28 @@ _evaluate() {
     return 0
   fi
 
-  # (b) hard-require tiers — an ackable (deferred/unwaived) gap on the highest-cost paths hard-fails.
+  # (a2) REPO-CAPABILITY opt-out (issue #66): reduce the gap set by the dimensions the repo has, in a
+  # governed + visible repo-level declaration, put out of scope — but ONLY where that dimension's tool
+  # does NOT resolve. `remaining` is the gaps still owed. When EVERY gap is capability-exempt the batch
+  # closes on the gates the repo CAN run, at ANY tier, with the missing dimension left recorded in
+  # enforcement_gaps (still printed below) — no risk_rank downgrade coerced. A dimension whose tool
+  # resolves is NOT exempt, so this never weakens enforcement where the tooling exists.
+  local remaining="" g capdims; capdims="$(_capability_dims "$doc")"
+  for g in $gaps; do
+    _gap_capability_exempt "$doc" "$capdims" "$g" || remaining="${remaining:+$remaining }$g"
+  done
+  if [ -n "$capdims" ] && [ -z "$remaining" ]; then
+    echo "check-enforcement: gaps [$gaps] all covered by a governed CapabilityOptOut [$capdims] (repo-level, out of scope; missing dimension recorded as a visible gap, not laundered through a risk downgrade) — rank=${rank:-unset}, seam_touch=$seam_touched. OK."
+    return 0
+  fi
+
+  # (b) hard-require tiers — an ackable (deferred/unwaived) gap STILL OWED on the highest-cost paths hard-fails.
   if [ "$seam_touched" = "yes" ]; then
-    echo "  FAIL-CLOSED: batch touches a high_risk_seam with an ackable enforcement gap [$gaps] (category=$eff_cat) — the highest-cost paths cannot ship under a waiver; arm the tooling. (A valid host_structural gap would be exempt; a declared/resolvable tool is not.)" >&2
+    echo "  FAIL-CLOSED: batch touches a high_risk_seam with an ackable enforcement gap [$remaining] (category=$eff_cat) — the highest-cost paths cannot ship under a waiver; arm the tooling. (A valid host_structural gap, or a governed CapabilityOptOut for a toolless dimension, would be exempt; a declared/resolvable tool is not.)" >&2
     return 1
   fi
   if [ "$rank" = "run-rate" ] || [ "$rank" = "irreversible" ]; then
-    echo "  FAIL-CLOSED: batch risk_rank=$rank with an ackable enforcement gap [$gaps] (category=$eff_cat) — a bleeding-stopper batch must run against real tooling (OQ-1). Only a host_structural gap (tool cannot exist) is exempt." >&2
+    echo "  FAIL-CLOSED: batch risk_rank=$rank with an ackable enforcement gap [$remaining] (category=$eff_cat) — a bleeding-stopper batch must run against real tooling (OQ-1). Only a host_structural gap (tool cannot exist) or a governed CapabilityOptOut for a toolless dimension is exempt." >&2
     return 1
   fi
 
@@ -310,7 +392,56 @@ if [ "${1:-}" = "--self-test" ]; then
     echo "  FAIL R6 marker rewrite result malformed: $got" >&2; fail=$((fail + 1))
   fi
 
+  # issue #66 — REPO-CAPABILITY opt-out. A governed CapabilityOptOut closes a run-rate batch on a
+  # toolless repo with NO risk_rank downgrade; without it (or where the tool resolves) the tier still fails.
+  CAP='# AGENTS
+
+- Test: `true`
+- CapabilityOptOut: `mutation diff-coverage`
+- CapabilityOptOutBy: `alice`
+- CapabilityOptOutReason: `bash repo — no mutation/coverage toolchain; standing decision`
+'
+  _marker '{"run":"r","intends_code":true,"source":"harness","baseline_sha":"x"}'
+  _agents "$CAP"; _batch '{"id":"B1","kind":"code","risk_rank":"run-rate","status":"announced"}'
+  _chk "#66 CapabilityOptOut + run-rate + toolless → closes (no downgrade)" "$(_run)" 0
+  got="$(cat "$T/.runs/r/RUN")"
+  case "$got" in *'"enforcement_gaps":['*'diff-coverage'*'mutation'*']'*) echo "  PASS #66 missing dims still recorded as a visible gap" ;;
+    *) echo "  FAIL #66 gaps not recorded under opt-out: $got" >&2; fail=$((fail + 1)) ;; esac
+  # irreversible closes the same way
+  _batch '{"id":"B1","kind":"code","risk_rank":"irreversible","status":"announced"}'
+  _chk "#66 CapabilityOptOut + irreversible + toolless → closes" "$(_run)" 0
+  # opt-out without By/Reason → not governed → run-rate still fails
+  _agents '# AGENTS
+
+- Test: `true`
+- CapabilityOptOut: `mutation diff-coverage`
+'
+  _batch '{"id":"B1","kind":"code","risk_rank":"run-rate","status":"announced"}'
+  _chk "#66 CapabilityOptOut without By/Reason → not governed → fail" "$(_run)" 1
+  # don't weaken where tooling exists: opt-out names mutation but Mutation: resolves (advisory) → fail
+  _agents '# AGENTS
+
+- Test: `true`
+- Coverage: `true`
+- Mutation: `true`
+- MutationMode: advisory
+- CapabilityOptOut: `mutation`
+- CapabilityOptOutBy: `alice`
+- CapabilityOptOutReason: `x`
+'
+  _chk "#66 opt-out on a dim whose tool RESOLVES → not exempt → fail" "$(_run)" 1
+  # partial cover: opt-out mutation only, coverage toolless & NOT opted out → diff-coverage still owed → fail
+  _agents '# AGENTS
+
+- Test: `true`
+- CapabilityOptOut: `mutation`
+- CapabilityOptOutBy: `alice`
+- CapabilityOptOutReason: `x`
+'
+  _chk "#66 opt-out covers mutation only; diff-coverage still owed → run-rate fail" "$(_run)" 1
+
   # AC-6 — no active marker → skip
+  _agents "$NONE"
   rm -f "$T/.runs/r/RUN"
   _chk "AC-6 no active marker → skip (exit 0)" "$(_run)" 0
   rm -rf "$T"
