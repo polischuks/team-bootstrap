@@ -58,3 +58,11 @@ jobs:
               print("BROKEN LINKS:\n" + "\n".join(broken)); sys.exit(1)
           print(f"  ok  no broken internal links ({len(glob.glob('**/*.md', recursive=True))} files)")
           PY
+
+  suite:
+    name: "Baseline probe — Test suite on ubuntu"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Suite (baseline = clean main, no batch changes)
+        run: bin/run-tests.sh
