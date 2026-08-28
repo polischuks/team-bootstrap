@@ -72,49 +72,26 @@ _evaluate() {
     return 1
   fi
 
-  # --- per-role floor (all-four-role-dispatch): every MANDATED role must be dispatched, not just >=1 ---
-  local mode mandated covered missing
-  mode="$(role_floor_mode)"
+  # --- per-role floor (all-four-role-dispatch): every REQUIRED role must be dispatched, not just >=1 ---
+  # SINGLE SOURCE (issue #70): the required set is required_review_roles — recorded if present (this gate
+  # runs AFTER record_required_roles in verify-batch, so it usually is), else the diff-sized
+  # required_roles_for_batch. check-review-ack reads the SAME set, so the two gates can no longer size the
+  # panel independently and disagree — the blanket mandated_roles(pipeline) is no longer consulted here.
+  local mode mandated covered missing recorded surplus r
   covered="$(roles_covered "$bid")"
-  # issue #27 — the harness sizes each batch: prefer the set RECORDED on this batch's ledger entry over
-  # the blanket per-pipeline mandate. Absent ⇒ the legacy fixed set, so old runs and hand-written
-  # ledgers behave exactly as before. The >=1 reviewer floor above is unaffected either way — it is the
-  # anti-collapse invariant and is never sized away.
-  local recorded surplus r
+  mandated="$(required_review_roles "$bid")"
+  missing="$(missing_review_roles "$bid")"
   recorded="$(required_roles_recorded "$bid" 2>/dev/null || true)"
   if [ -n "$recorded" ]; then
     # A RECORDED set is right-sized for this batch, so its floor is hard REGARDLESS of role_floor_mode.
-    # Hardness follows from the set having been computed — not from a global flag. That is what makes
-    # it safe: the blanket per-pipeline mandate was deliberately never armed, because demanding four
-    # roles for a one-line change leaves under-declaring risk as the only escape (worse than overspend).
-    mandated="$recorded"
-    missing=""
-    for r in $mandated; do
-      case " $covered " in *" $r "*) : ;; *) missing="${missing:+$missing }$r" ;; esac
-    done
+    # Hardness follows from the set having been computed — not from a global flag.
     mode="enforce"
   else
-    # No recorded set ⇒ exactly today's behaviour, untouched: warn unless the operator/marker says
-    # enforce. This milestone changes nothing for legacy runs and hand-written ledgers.
-    #
-    # …but the harness still SIZES the batch and says so, so the feature is not inert on a run whose
-    # orchestrator never recorded the set (review HIGH: nothing wired record_required_roles, which made
-    # the whole recorded-set branch unreachable in production). Computing here is also more accurate
-    # than at announce, where the batch window is still empty. Advisory only — upgrading a
-    # non-adopter's run to hard per-role enforcement is exactly the blanket demand this design rejects.
-    mandated="$(mandated_roles "$pipeline")"
-    missing="$(missing_roles "$pipeline" "$bid")"
-    local sized sized_missing
-    sized="$(required_roles_for_batch "$bid" 2>/dev/null || true)"
-    if [ -n "$sized" ]; then
-      sized_missing=""
-      for r in $sized; do
-        case " $covered " in *" $r "*) : ;; *) sized_missing="${sized_missing:+$sized_missing }$r" ;; esac
-      done
-      if [ "$sized" != "$mandated" ]; then
-        echo "check-role-dispatch: SIZED — the harness sizes batch '$bid' at [$sized] (not the blanket [$mandated]); dispatched [${covered:-none}]${sized_missing:+, short of the sized set: [$sized_missing]}. Record required_roles on the ledger entry to make this floor hard (#27)."
-      fi
-    fi
+    # No recorded set yet ⇒ warn unless the operator/marker says enforce. The set is STILL the diff-sized
+    # required_roles_for_batch (via required_review_roles), identical to what check-review-batch announces
+    # and record_required_roles will persist — never the blanket panel. So a warn-mode close reports the
+    # same set the enforce-mode close (and check-review-ack) would.
+    mode="$(role_floor_mode)"
   fi
   # Surplus is REPORTED, never blocked (#27 boundary): blocking a supernumerary dispatch would push the
   # orchestrator to review INLINE — the spec-169 collapse. Cost is visible where gate results are read.
@@ -127,18 +104,17 @@ _evaluate() {
   fi
   if [ -n "$missing" ]; then
     if [ "$mode" = "enforce" ]; then
-      echo "check-role-dispatch: MISSING ROLES — $pipeline/code batch '$bid' dispatched roles [${covered:-none}] but the mandate requires [$mandated]; MISSING: [$missing]. Dispatch each missing role under its dedicated review type (references/review-types.txt) before closing."
-      echo "  FAIL-CLOSED: batch '$bid' missing mandated review role(s) [$missing] (per-role floor, enforce)." >&2
+      echo "check-role-dispatch: MISSING ROLES — $pipeline/code batch '$bid' dispatched roles [${covered:-none}] but the required set is [$mandated]; MISSING: [$missing]. Dispatch each missing role under its dedicated review type (references/review-types.txt) before closing."
+      echo "  FAIL-CLOSED: batch '$bid' missing required review role(s) [$missing] (per-role floor, enforce)." >&2
       return 1
     fi
-    # warn mode (default until references/role-dispatch-enforce is committed after the T5b adoption probe):
-    # the >=1 floor is satisfied; announce the per-role gap + record telemetry, but do not fail (AC-3).
-    echo "check-role-dispatch: warn (per-role) — batch '$bid' covered [${covered:-none}], missing mandated [$missing]. Ships warn; commit references/role-dispatch-enforce after the adoption probe to enforce. (>=1 floor satisfied.)"   # gate-integrity: sanctioned — warn-mode per-role upgrade
+    # warn mode: the >=1 floor is satisfied; announce the per-role gap + record telemetry, but do not fail.
+    echo "check-role-dispatch: warn (per-role) — batch '$bid' covered [${covered:-none}], missing required [$missing]. Ships warn; commit references/role-dispatch-enforce after the adoption probe to enforce. (>=1 floor satisfied.)"   # gate-integrity: sanctioned — warn-mode per-role upgrade
     local rundir; rundir="$(dirname "$marker")"
     printf '{"batch":"%s","covered":"%s","missing":"%s","mode":"warn"}\n' "$bid" "$covered" "$missing" >> "$rundir/role-telemetry.jsonl" 2>/dev/null || true
     return 0
   fi
-  echo "check-role-dispatch: batch '$bid' recorded $cnt reviewer dispatch(es) covering all mandated roles [$mandated] ($pipeline). OK."
+  echo "check-role-dispatch: batch '$bid' recorded $cnt reviewer dispatch(es) covering all required roles [$mandated] ($pipeline). OK."
   return 0
 }
 
@@ -242,15 +218,21 @@ if [ "${1:-}" = "--self-test" ]; then
   # AC-8 — the ≥1 total-collapse floor stays HARD under WARN: zero dispatch → fail even in warn
   rm -f "$T/.runs/r/dispatch.jsonl" "$T/enforce-marker"
   _chk "AC-8 warn + ZERO dispatch → still fail (≥1 floor hard under warn)" "$(_run)" 1
-  # mvp subset {code-reviewer, regression-guardian}: covering both → pass enforce; missing one → fail
+  # RECORDED sized subset (issue #70): the required set is what the ledger records, single-sourced with
+  # check-review-ack — NOT a blanket per-pipeline mandate. Covering the recorded subset passes; missing one
+  # of it fails (enforce). A recorded set is hard regardless of role_floor_mode.
   _marker '{"run":"r","pipeline":"mvp","intends_code":true,"source":"harness","baseline_sha":"'"$base"'"}'
+  _batch '{"id":"B1","kind":"code","status":"announced","required_roles":["code-reviewer","regression-guardian"]}'
   { printf '{"batch":"B1","subagent_type":"tb-code-reviewer"}\n'; printf '{"batch":"B1","subagent_type":"regression-guardian"}\n'; } > "$T/.runs/r/dispatch.jsonl"
   touch "$T/enforce-marker"
-  _chk "mvp enforce: subset both covered → pass" "$(_run)" 0
+  _chk "mvp enforce: recorded subset both covered → pass" "$(_run)" 0
   _disp '{"batch":"B1","subagent_type":"tb-code-reviewer"}'   # missing regression-guardian
-  _chk "mvp enforce: subset missing one → fail" "$(_run)" 1
-  # override precedence (R5-NB4): TEAM_BOOTSTRAP_ROLE_FLOOR wins over marker presence
-  _marker "{$MK}"; { printf '{"batch":"B1","subagent_type":"tb-code-reviewer"}\n'; } > "$T/.runs/r/dispatch.jsonl"
+  _chk "mvp enforce: recorded subset missing one → fail" "$(_run)" 1
+  # override precedence (R5-NB4): TEAM_BOOTSTRAP_ROLE_FLOOR wins over marker presence. Recorded-ABSENT here
+  # (plain batch line) so required_review_roles falls to the diff-sized required_roles_for_batch, exercising
+  # the fallback path under the FLOOR override.
+  _marker "{$MK}"; _batch '{"id":"B1","kind":"code","status":"announced"}'
+  { printf '{"batch":"B1","subagent_type":"tb-code-reviewer"}\n'; } > "$T/.runs/r/dispatch.jsonl"
   touch "$T/enforce-marker"
   _chk "override: FLOOR=warn beats marker-present → pass" "$( cd "$T" && TEAM_BOOTSTRAP_RUN=r TEAM_BOOTSTRAP_ROLE_FLOOR=warn "$here/check-role-dispatch.sh" . >/dev/null 2>&1; echo $? )" 0
   rm -f "$T/enforce-marker"
