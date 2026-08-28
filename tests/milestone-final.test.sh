@@ -26,14 +26,29 @@ rc9=0
 if [ "$rc9" -eq 0 ]; then echo "  PASS AC-8 no-marker → both gates skip (exit 0)"; else
   echo "  FAIL AC-8 skip expected 0, got $rc9" >&2; fail=$((fail + 1)); fi
 
-# AC-9 — each new/changed gate's --self-test passes and is shellcheck-clean.
+# AC-9 — each new/changed gate DECLARES a --self-test (so run-tests' bin/*.sh --self-test sweep runs it
+# once — asserted just below) and is shellcheck-clean. This loop used to RE-RUN each gate's --self-test
+# here; run-tests already runs every bin/*.sh --self-test, so that re-executed a subset of what had just
+# run and added no coverage — only forks (issue #79, the same dedup as #51's gates-wiring). Whether the
+# self-test PASSES is answered once, in the sweep. What is unique to THIS file is shellcheck-clean, which
+# run-tests does not assert — that stays and still forks shellcheck (cheap, ~ms), not a bash self-test.
 ac9=0
 for g in check-enforcement check-disposition check-review-ack; do
-  bash "$here/bin/$g.sh" --self-test >/dev/null 2>&1 || ac9=1
+  # A gate that lost its --self-test stops being independently checkable by the sweep; that is the
+  # wiring fact, matched with run-tests' OWN detection pattern (a real dispatch on the flag).
+  grep -qE -- '(--self-test\)|= "--self-test" \]|=--self-test)' "$here/bin/$g.sh" 2>/dev/null || ac9=1
   shellcheck --severity=error "$here/bin/$g.sh" >/dev/null 2>&1 || ac9=1
 done
-if [ "$ac9" -eq 0 ]; then echo "  PASS AC-9 new gates self-test + shellcheck clean"; else
-  echo "  FAIL AC-9 a new gate self-test/shellcheck failed" >&2; fail=$((fail + 1)); fi
+if [ "$ac9" -eq 0 ]; then echo "  PASS AC-9 new gates declare a --self-test (run-tests runs it) + shellcheck clean"; else
+  echo "  FAIL AC-9 a new gate lacks a --self-test dispatch or is not shellcheck-clean" >&2; fail=$((fail + 1)); fi
+
+# Dropping the re-run above is safe ONLY because run-tests really sweeps every bin/*.sh --self-test.
+# Assert that, rather than assuming it (mirrors gates-wiring / issue #51).
+if grep -qE 'bin/\*\.sh|for f in .*bin' "$here/bin/run-tests.sh" 2>/dev/null \
+   && grep -q -- '--self-test' "$here/bin/run-tests.sh" 2>/dev/null; then
+  echo "  PASS AC-9 run-tests sweeps bin/*.sh --self-test (so this file need not re-run them)"; else
+  echo "  FAIL AC-9 run-tests does NOT sweep bin/*.sh --self-test — dropping the self-test here loses coverage" >&2
+  fail=$((fail + 1)); fi
 
 # AC-10 — disposition + review-ack are wired into verify-batch's gate list.
 if grep -q 'check-disposition.sh' "$here/bin/verify-batch.sh" && grep -q 'check-review-ack.sh' "$here/bin/verify-batch.sh"; then

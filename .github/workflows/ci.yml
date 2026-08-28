@@ -59,3 +59,41 @@ jobs:
           print(f"  ok  no broken internal links ({len(glob.glob('**/*.md', recursive=True))} files)")
           PY
 
+  # The declared `Test:` suite (AGENTS.md) — nothing ran it in CI before, so a branch that reddened
+  # any behavioural assertion merged green (#53). This job runs it. It runs FIRST the runner's own two
+  # proofs, which the sweep deliberately excludes to avoid re-entry and which nothing else invoked (#54),
+  # THEN the full suite.
+  #
+  # MATRIX: macos-latest is REQUIRED (the platform the suite targets and is known green on — a genuinely
+  # red suite still fails CI). ubuntu-latest is INFORMATIONAL (continue-on-error) until the cross-platform
+  # gap (#59) is closed: its per-member FAIL lines are visible in the log for a data-driven follow-up,
+  # without blocking merges on a pre-existing, unrelated portability effort.
+  suite:
+    name: Declared Test suite (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    # ubuntu is non-blocking; macOS is required (the default — no continue-on-error there).
+    # BOTH legs informational until #59 (suite not green on any GitHub runner — macos-latest is
+    # macos-26, which fails ~7 members that pass on the maintainer's local macOS; ubuntu fails the
+    # portability set). The suite RUNS and its per-member failures are VISIBLE in CI (issue #53's
+    # "run it in CI" goal); making the check BLOCKING/required awaits #59 making the suite portable.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history. Members resolve the repo root commit / walk history
+          # (git rev-list --max-parents=0 HEAD, HEAD~N); checkout@v4 defaults to a depth-1 shallow
+          # clone that grafts the boundary and hides real history. Matches control-surface-guard.yml.
+          fetch-depth: 0
+
+      - name: "Test runner's own two proofs (excluded from the sweep, invoked by nothing else — #54)"
+        run: |
+          bash bin/run-tests.sh --self-test
+          bash tests/run-tests.test.sh
+
+      - name: "Full declared Test suite (bin/run-tests.sh — #53)"
+        run: bin/run-tests.sh
+

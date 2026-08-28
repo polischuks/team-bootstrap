@@ -207,6 +207,20 @@ Then, for **each batch, one at a time**:
    `kind:code` batch closing **after** a lower-rank one (order by risk, bleeding-stopper first). This
    is the *record* of intent, not closure: only `verify-batch.sh` can flip it to `closed`
    (see [../references/enforcement.md](../references/enforcement.md), delivery-occurred layer).
+   - **Withdrawing an announced batch after a pre-code reviewer no_go (#75).** A reviewer returning
+     `no_go` on an announced batch — *before* any code is committed (e.g. `architecture-reviewer`
+     rejects the plan: wrong sink/source, the effect already exists upstream) — is a **normal,
+     expected** outcome, not a failure of the run. The sanctioned response is to **withdraw** the
+     batch and re-plan, recorded as a first-class ledger fact: **append** one line to
+     `.runs/<run>/batches.jsonl` — `{"id":"<this same batch id>","status":"withdrawn","reason":"<reviewer role> no_go: <why>. Re-planning."}`
+     — leaving the original `announced` line in place (do **not** hand-edit or delete it). This is the
+     terminal counterpart to `closed`: `check-delivery.sh` resolves each id to its **latest** status,
+     so a `withdrawn` id is **terminal** — it earns no delivery credit, and it is **not** an
+     "announced-then-abandoned" batch (nor does it count as an abandoning *later* batch for a prior
+     announced one). Withdraw with a recorded reason rather than silently dropping the announce: a
+     bare announce with no closure and a different later batch is still read as abandonment and
+     fails the run. (Parallels the `{"confirm":…}` and regression-lock records — a legitimate flow
+     action needs a recognized ledger form the gates read, not a manual ledger reset.)
 2. **Default NON-STOP — the stop is a mechanism, not this prose (#56).** A **reversible** batch
    (`risk_rank: feature|doc`, no role question) needs no operator prompt: announce it, then proceed to
    run it. The pause that matters is enforced deterministically by
@@ -271,6 +285,17 @@ Then, for **each batch, one at a time**:
    doctrine artefact, and it is expensive: each reviewer is a full subagent (measured 3.6–11.8 min), so
    a chain of four costs 4× the latency of the slowest one. Their gates below are still **each hard**;
    collect all four verdicts, then act on every finding.
+   **Record each verdict as it returns (the synchronous capture channel, #81).** The host does not emit
+   `SubagentStop` for Agent-tool dispatches (#60, a proven host limit), so a reviewer's typed verdict does
+   not reach `verdicts.jsonl` on its own — and `check-role-verdict --gate` then falls back to the
+   capture-dropped waiver on every batch. Close the loop yourself: for **each** reviewer that returns, pipe
+   its typed verdict object (the `role-output.schema.json` shape it emitted) to
+   `${CLAUDE_PLUGIN_ROOT}/bin/check-role-verdict.sh --record <role>` — e.g.
+   `printf '%s' '{"role":"code-reviewer","approval_status":"approved", …}' | …/check-role-verdict.sh --record code-reviewer`.
+   It validates the shape (a shapeless verdict is rejected), refuses a role you did not actually dispatch,
+   and on success writes the record `verify-batch` reads — so the batch closes on a **real recorded
+   verdict, not a waiver**. Record the verdict of a review that genuinely ran; never fabricate one to clear
+   the gate (a skipped role stays blocked by design — dispatch it instead).
    *(Caveat: two of them execute test suites — on a machine where those are CPU-bound, expect
    contention rather than a clean 4× win. The saving is in the reasoning time, which dominates.)*
    **Reviewers flag only what affects correctness or the stated requirements.** A reviewer asked to

@@ -7,8 +7,16 @@
 # does not cost correctness: the classic parallel-runner bug is a failure counter incremented from
 # subshells, where the parent keeps the count it started with and a red suite reports green.
 #
-# Deliberately NOT placed in tests/run-tests.test.sh: bin/run-tests.sh:39 excludes that name from
-# its own sweep, so assertions written there never execute (#54). This name is swept.
+# Deliberately NOT placed in tests/run-tests.test.sh: bin/run-tests.sh excludes that name from its
+# own sweep, so assertions written there never execute (#54). This name is swept.
+#
+# COST (#78): this test used to spawn eight real 1-second sleepers and time the run against a serial
+# floor, which made it the single slowest suite member (~17s). It now asserts the concurrency
+# CONTRACT directly from observed overlap, using tiny synthetic no-op members: each member samples
+# how many members are live at the instant it starts, and the test reads the peak. That proves
+# "≥2 overlap under --jobs>1" and "≤ jobs concurrent" and "every member accounted for" without paying
+# a serial floor in wall-time. Under selective mode (#76) this file also runs only when the runner
+# changes: a --changed run selects it via the tests-referencing-'run-tests' rule.
 set -uo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 R="$here/bin/run-tests.sh"
@@ -17,16 +25,30 @@ _chk() { # got want label
   if [ "$1" = "$2" ]; then echo "  PASS $3"; else echo "  FAIL $3 — got '$1' want '$2'" >&2; fail=$((fail + 1)); fi
 }
 
-# fixture: $1 = dir, $2 = count of green sleepers, $3.. = names of failing members
+# _fx DIR N [FAILING…] — N green members that each SAMPLE live-concurrency at entry into DIR/samples
+# (via a per-member marker under DIR/live), then a short sleep, then unmark. Plus a bare `exit 1`
+# member per FAILING name. The sample stream lets the test read peak concurrency without any
+# non-portable hi-res clock (%N is unavailable on BSD/macOS date).
 _fx() {
   local d="$1" n="$2"; shift 2
-  mkdir -p "$d/bin" "$d/tests"
+  mkdir -p "$d/bin" "$d/tests" "$d/live"; : > "$d/samples"
   local i=1
   while [ "$i" -le "$n" ]; do
-    printf '#!/usr/bin/env bash\nsleep 1\nexit 0\n' > "$d/tests/slow$i.test.sh"; i=$((i + 1))
+    cat > "$d/tests/slow$i.test.sh" <<EOF
+#!/usr/bin/env bash
+touch "$d/live/slow$i.\$\$"
+ls "$d/live" | wc -l | tr -d ' ' >> "$d/samples"
+sleep 0.15
+rm -f "$d/live/slow$i.\$\$"
+exit 0
+EOF
+    i=$((i + 1))
   done
   for b in "$@"; do printf '#!/usr/bin/env bash\nexit 1\n' > "$d/tests/$b.test.sh"; done
 }
+_reset()  { : > "$1/samples"; rm -f "$1/live/"* 2>/dev/null; }        # clear the sample stream
+_peak()   { sort -n "$1/samples" 2>/dev/null | tail -1; }              # max observed concurrency
+_nsamp()  { grep -c '.' "$1/samples" 2>/dev/null | tr -d ' '; }        # members that actually ran
 
 # --- 1. the flag exists and a green suite stays green ------------------------------------------
 T="$(mktemp -d)"; _fx "$T" 2
@@ -34,23 +56,24 @@ bash "$R" "$T" --jobs 4 >/dev/null 2>&1
 _chk "$?" 0 "--jobs 4 on a green suite → 0"
 
 # --- 2. CONCURRENCY, not a flag that parses and ignores ----------------------------------------
-# Eight members that sleep 1s each. Serial floor is 8s; four-way overlap has a ceiling near 2s.
-# The 5s bar sits between them with room for a loaded host, so it can only pass by overlapping.
-T2="$(mktemp -d)"; _fx "$T2" 8
-s=$(date +%s); bash "$R" "$T2" --jobs 4 >/dev/null 2>&1; e=$(date +%s)
-el=$((e - s))
-if [ "$el" -lt 5 ]; then echo "  PASS 8×1s members with --jobs 4 finish in ${el}s (serial floor is 8s)"
-else echo "  FAIL members did not overlap — ${el}s, serial floor 8s" >&2; fail=$((fail + 1)); fi
+# Six no-op members under --jobs 3. If the runner overlaps them, some member starts while ≥1 other
+# is still live, so the peak sample is ≥2; the sliding window caps the peak at the job count, so it
+# is also ≤3. Every member samples exactly once, so the sample count equals the member count.
+T2="$(mktemp -d)"; _fx "$T2" 6
+_reset "$T2"; bash "$R" "$T2" --jobs 3 >/dev/null 2>&1
+peak="$(_peak "$T2")"
+if [ "${peak:-0}" -ge 2 ]; then echo "  PASS members overlap under --jobs 3 (peak concurrency ${peak} ≥ 2)"
+else echo "  FAIL members did not overlap — peak ${peak:-0}, want ≥ 2" >&2; fail=$((fail + 1)); fi
+if [ "${peak:-0}" -le 3 ]; then echo "  PASS concurrency never exceeds the job count (peak ${peak} ≤ 3)"
+else echo "  FAIL window breached — peak ${peak}, cap is 3" >&2; fail=$((fail + 1)); fi
+_chk "$(_nsamp "$T2")" 6 "all 6 members accounted for (each sampled exactly once)"
 
 # --- 2b. the VALUE is honoured, not merely parsed ----------------------------------------------
-# Case 2 alone cannot tell "--jobs 4 was honoured" from "--jobs was ignored and the new auto default
-# ran it in parallel anyway" — both finish fast. The discriminating direction is the serial one: if
-# the value reaches run_suite, --jobs 1 on the same eight sleepers must pay the full 8s floor. A
-# runner that parses the flag and drops it fails here and only here.
-s=$(date +%s); bash "$R" "$T2" --jobs 1 >/dev/null 2>&1; e=$(date +%s)
-el=$((e - s))
-if [ "$el" -ge 8 ]; then echo "  PASS --jobs 1 on the same fixture pays the serial floor (${el}s ≥ 8s)"
-else echo "  FAIL --jobs 1 did not run serially — ${el}s, floor is 8s (value parsed but dropped?)" >&2; fail=$((fail + 1)); fi
+# Case 2 alone cannot tell "--jobs 3 was honoured" from "--jobs was ignored and the new auto default
+# ran it in parallel anyway". The discriminating direction is serial: --jobs 1 on the SAME members
+# must never overlap, so the peak is exactly 1. A runner that parses the flag and drops it fails here.
+_reset "$T2"; bash "$R" "$T2" --jobs 1 >/dev/null 2>&1
+_chk "$(_peak "$T2")" 1 "--jobs 1 runs strictly serially (peak concurrency = 1, value not dropped)"
 
 # --- 2c. the operator can see the concurrency that actually ran --------------------------------
 out2="$(bash "$R" "$T" --jobs 3 2>&1)"
@@ -59,8 +82,7 @@ _chk "$(printf '%s' "$out2" | grep -c 'jobs=3')" 1 "the green line reports the c
 # --- 2d. an explicit value above the host's core count is honoured, not clamped ----------------
 # The cap in auto_jobs() applies to the DEFAULT only. An operator on a small host who wants more
 # concurrency than cores must get it: suite members fork and wait on I/O rather than compute, so
-# oversubscription overlaps waiting, and the running count is bounded by the member count anyway.
-# A clamp here would silently ignore the operator and hand back the slower run they asked to avoid.
+# oversubscription overlaps waiting. A clamp here would silently hand back the slower run.
 cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)"
 case "$cores" in ''|*[!0-9]*) cores=1 ;; esac
 over=$((cores + 4))

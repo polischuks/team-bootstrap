@@ -353,7 +353,7 @@ Two gates refuse rather than pass when they cannot confirm, and both are relieve
 
 | gate | waiver key | what it relieves |
 |---|---|---|
-| `bin/check-role-verdict.sh --gate` | `role_verdict_waiver` | zero captured role verdicts for the in-flight batch (spec 021 AC-6/AC-7) |
+| `bin/check-role-verdict.sh --gate` | `role_verdict_waiver` | a **dropped capture** for the in-flight batch: every required role IS in `dispatch.jsonl` but no verdict landed (spec 021 AC-6/AC-7; discriminated per issue #81 — see below) |
 | `bin/check-gate-integrity.sh` | `gate_integrity_waiver` | pre-existing green-by-skip / can't-fail findings the batch did not introduce |
 | `bin/check-mutation.sh` | `mutation_waiver` | under `MutationMode: enforce`, a diff-scoped mutation run infeasible for this batch — a small change dragging a large file into mutation (issue #66 comment) |
 
@@ -402,3 +402,42 @@ dispatches in this repo (spec 021 plan §8.3) — every review-typed subagent, u
 an exception path here; it is the only way a `kind:code` batch closes until the capture channel is
 fixed, and fixing it was explicitly out of that milestone's scope. Waiving it is correct. Waiving it
 without an issue tracking the capture channel is how the number stops being watched.
+
+### The capture-failure path, discriminated (issue #81)
+
+The root cause is a host limitation, proven and settled: **Claude Code does not emit `SubagentStop` for
+Agent-tool-dispatched review subagents** (upstream anthropics/claude-code#27755-class; issue #60). The
+verdict a reviewer returns in-report therefore never reaches `verdicts.jsonl` through that hook. Two
+things now stop the waiver from being blind ceremony:
+
+1. **The waiver is DISCRIMINATING.** `dispatch.jsonl` (written on `PreToolUse[Agent]`, the **reliable**
+   channel) records fact-of-dispatch. `check-role-verdict.sh --gate` uses it to split the old ambiguity:
+   - **capture-dropped** — every required role IS in `dispatch.jsonl`, but no verdict landed. This is the
+     *only* case `role_verdict_waiver` may relieve. Diagnosis: `capture-channel-did-not-fire` (or
+     `captured-then-lost` per #46) in `.runs/<run>/verdict-capture.jsonl`.
+   - **skipped** — a required role is **absent** from `dispatch.jsonl` (it was never dispatched). Diagnosis
+     `role-not-dispatched` (partial) or `no-reviewer-dispatched` (nothing at all). This case is **never
+     waivable**: the gate returns non-zero *before* consulting the waiver, so a valid `role_verdict_waiver`
+     cannot pass a batch that skipped a review. Dispatch the missing role — do not reach for the waiver.
+
+2. **A synchronous channel that does not need `SubagentStop`.** Instead of waiting for a hook that will
+   not fire, record each reviewer's verdict **explicitly, after it returns**:
+
+   ```bash
+   printf '%s' '<the reviewer's typed verdict JSON>' | bin/check-role-verdict.sh --record <role>
+   ```
+
+   This validates the verdict against the role's required shape in `role-output.schema.json` (a shapeless
+   "looks fine" is blocked, exit 2, exactly as the hook path blocks it), refuses to record a verdict for a
+   role that has **no** `dispatch.jsonl` record (you cannot manufacture evidence for a review that never
+   ran), and on success writes the same `verdicts.jsonl` line the gate reads — so `--gate` then confirms
+   the batch **with no waiver at all**. `commands/deliver.md` instructs the orchestrator to call this after
+   the review fan-out returns.
+
+   **Honest limit:** this is *orchestrator-recorded*, not host-forced. Nothing in the host compels the
+   `--record` call; a run that skips it lands back on the capture-dropped waiver above. What it is **not**
+   is transcript-scraping or a flaky async hook — when the orchestrator does call it, the write provably
+   happens and the gate provably reads it. Its forgery bar is the existing one (ADR-0006/0008): the verdict
+   must carry its role's declared shape, and a well-formed lie still passes. Recording the verdict of a
+   review that actually ran is correct; the discriminating waiver above remains the sanctioned path for the
+   genuine host-drop case.
