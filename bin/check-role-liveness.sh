@@ -94,10 +94,15 @@ if [ "${1:-}" = "--self-test" ]; then
 
   # The declared-count check must actually be able to fail — otherwise this gate has the very defect
   # it was written to detect in the eval.
-  T="$(mktemp -d)"; mkdir -p "$T/bin"
+  T="$(mktemp -d)"; mkdir -p "$T/bin" "$T/profiles"
   cp "$here/bin/eval-role.sh" "$T/bin/"
   printf '| Live role bindings (`bin/eval-role.sh --liveness`) | 999 | x |\n' > "$T/constitution.md"
-  ln -s "$here/profiles" "$T/profiles" 2>/dev/null || cp -R "$here/profiles" "$T/profiles"
+  # ONE binding, not the shipped profile. --liveness mutates every routed binding in turn, so
+  # symlinking the real profiles/ made this fixture pay the whole eval over all eleven of them —
+  # twice, since _run evaluates the dead-profile variant too — for an assertion about a number.
+  # 999 != 1 exercises the same comparison as 999 != 11, and the REAL measurement is untouched:
+  # _run "$here" above still evaluates every shipped binding, which is the P12 claim itself.
+  { grep -E '^tier:' "$here/profiles/default.map"; printf 'security/auth\tsecurity-reviewer\n'; } > "$T/profiles/default.map"
   ln -s "$here/references" "$T/references" 2>/dev/null || cp -R "$here/references" "$T/references"
   ln -s "$here/agents" "$T/agents" 2>/dev/null || cp -R "$here/agents" "$T/agents"
   for b in delivery-lib.sh select-pipeline.sh; do cp "$here/bin/$b" "$T/bin/"; done
