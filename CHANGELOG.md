@@ -2,6 +2,28 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.0] — 2026-08-28
+
+**Test-infrastructure + delivery-integrity batch (#53–#81).** Ten issues from the spec-176 live run and a 3.6.0 test-cost analysis, integrated with one acceptance-caught stale-green fixed on the way in.
+
+### Fixed
+
+- **check-delivery understands a withdrawn batch** (#75): a pre-code reviewer no_go is recorded as `status:withdrawn`; the gate now resolves each id to its latest status (withdrawn = terminal, like closed) instead of reading the withdrawal as "a later batch ⇒ abandoned" and fail-closing the run. `deliver.md` documents withdrawal as the sanctioned no_go response. Caught live on spec-176, where it forced a manual ledger reset.
+- **Nested marker objects tolerate spaced JSON** (#80): the presence detectors for `precond`/`preflight` (and the write-guards) route through one whitespace-tolerant `obj_present`, so a `json.dump`-spaced marker no longer false-blocks delivery with "Phase-0 gate never ran".
+- **Role-verdict waiver discriminates dropped-capture from skipped-role** (#81): a required role absent from `dispatch.jsonl` (skipped) stays blocked even with a waiver; only a dispatched-but-uncaptured role (host SubagentStop didn't fire, #60) is waivable. Adds a synchronous `check-role-verdict --record` channel the orchestrator calls after a review returns — verdict capture independent of the flaky hook (orchestrator-recorded, documented as such, not machine-forced).
+
+### Added / performance
+
+- **Selective test runs** (#76): `run-tests.sh --changed` runs only the members an edit could affect; `<glob>` runs named members; the full run stays the default. A `--changed` run agrees with a full run on shared members.
+- **Result cache** (#77): opt-in `--cache` skips members whose inputs are unchanged since their last green; `--no-cache` forces full; green-only, input-keyed, so a cached pass can't mask a failure.
+- **Parallel-runner test shrunk** (#78): 17s → ~3s, gated to run only when the runner changes.
+- **De-forked integration gates** (#79): wiring tests inspect the call site instead of re-forking peers' `--self-test`; per-role evals batched/cached. ~28s off the serial suite, no gate weakened (mutation gates still redden). *Acceptance note: #79's liveness cache keyed on the repo tree, not the invoked root, colliding across test fixtures — fixed to engage only for the repo's own root (`verify-batch` invocation), preserving the delivery-retry dedup.*
+- **CI runs the declared Test: suite** (#53/#54): a matrix job runs `bin/run-tests.sh` (+ the runner's own two proofs) on macOS (required, green) and ubuntu (informational, `continue-on-error`) with `fetch-depth: 0`. Linux portability of a few members (#59) stays a data-driven follow-up the informational leg now surfaces per-member.
+
+### Notes
+- Activation needs a plugin reinstall at 3.7.0.
+- #59 (full ubuntu-green) remains open; the CI job makes its failures visible without blocking.
+
 ## [3.6.0] — 2026-08-28
 
 **Friction cluster from three live retrospectives.** Eleven fixes to the delivery gates and doctrine surfaced by real `/deliver` runs (specs 185, 097, 178-179) — one a regression from 3.4.0, the rest long-standing sharp edges where the machinery assumed a shape the real work didn't hold.
