@@ -108,6 +108,10 @@
         "hooks": [
           {
             "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/delivery-resize.sh"
+          },
+          {
+            "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/bin/check-review-batch.sh"
           }
         ]

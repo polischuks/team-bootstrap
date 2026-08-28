@@ -200,39 +200,16 @@ if [ -f "$marker" ]; then
   # where the orchestrator hand-edited the marker to `full`: it was doing the harness's job because the
   # harness had stopped doing it, and `tier_source` went on claiming the harness had decided.
   #
-  # Narrow on purpose. Only a run whose sizing DEGRADED is recomputed, and only the fields the hook
-  # owns are spliced (splice_marker_fields preserves precond / preflight / repro_env / the acks, and
-  # never touches baseline_sha). A run that sized successfully is left alone: re-deciding a settled
-  # tier on every prompt would make the verdict a moving target for the gates that read it.
-  #
-  # HARNESS ONLY (issue #47). This branch RECOMPUTES the tier, so it must never run over an
-  # operator-declared one — the harness must not overrule a human. The operator path is handled and
-  # returned above; the explicit guard here states the invariant rather than relying on control flow.
-  if [ "$_prev_src" != "operator" ] && [ -n "$_prev_degraded" ] && [ -n "$_prev_spec" ] && [ -f "$_prev_spec" ]; then
-    _rs="$("$(dirname "$0")/size-from-spec.sh" "$_prev_spec" 2>/dev/null || true)"
-    _rs_t="$(printf '%s\n' "$_rs" | sed -n 's/^tier=//p' | head -1)"
-    case "$_rs_t" in
-      single-thread|mvp|full)
-        _rs_depth="$(review_depth_for_tier "$_rs_t")"
-        _rs_reasons="$(printf '%s\n' "$_rs" | sed -n 's/^reasons=//p' | head -1)"
-        _rs_cats="$(risk_categories_only "$_rs_reasons")"
-        _rs_roles="$(printf '%s\n' "$_rs" | sed -n 's/^roles=//p' | head -1)"
-        # TWO strings, deliberately. What is STORED states the settled facts, because every later arm
-        # re-emits it and a stored "RE-SIZED" would keep announcing, on every prompt for the rest of
-        # the run, an event that happened once. What is EMITTED NOW adds the notice, at the only
-        # moment it is news.
-        _rs_ctx="team-bootstrap harness sizing for run $run: pipeline=$_rs_t, tier_source=$tier_source, marker=$marker. Review depth: $_rs_depth (the /code-review low-medium-high scale). Sizing reasons: ${_rs_reasons:-none}. Risk categories detected: ${_rs_cats:-none}. Assigned review roles for this run: ${_rs_roles:-none}."
-        _rs_note="$_rs_ctx The run was RE-SIZED just now: the first verdict degraded ($_prev_degraded) because the artefacts it needed did not exist yet, and they do now."
-        [ "$_prev_pipe" = "$_rs_t" ] || _rs_note="$_rs_note The stored pipeline was $_prev_pipe."
-        if splice_marker_fields "$marker" \
-             "pipeline=$_rs_t" "review_depth=$_rs_depth" "sizing_degraded=" \
-             "sizing_reasons=$_rs_reasons" "risk_categories=$_rs_cats" \
-             "assigned_roles=$_rs_roles" "harness_context=$(_json_esc "$_rs_ctx")"; then
-          _emit_ctx "$(_json_esc "$_rs_note")"
-          exit 0
-        fi
-        ;;
-    esac
+  # The recompute is resize_degraded_marker (delivery-lib.sh) — ONE definition, shared with the mid-turn
+  # hook (delivery-resize.sh, PostToolBatch) so the same recovery fires whether a new prompt arrives OR
+  # the artefacts land inside one agentic turn (issue #48). It is narrow: only a DEGRADED run is
+  # recomputed, only the fields the hook owns are spliced (precond / preflight / repro_env / the acks
+  # survive; baseline_sha is never touched), and a run that sized cleanly is left alone. On a re-size it
+  # returns the RE-SIZED notice; empty ⇒ nothing to recompute, so re-state the stored verdict.
+  _rs_note="$(resize_degraded_marker "$marker" "$tier_source" "$run")"
+  if [ -n "$_rs_note" ]; then
+    _emit_ctx "$(_json_esc "$_rs_note")"
+    exit 0
   fi
   _emit_ctx "$_prev_ctx"
   exit 0
