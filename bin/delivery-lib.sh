@@ -1246,6 +1246,40 @@ reviewer_dispatch_count() {
   printf '%s' "$n"
 }
 
+# reviewers_in_flight → rc 0 IFF the IN-FLIGHT announced kind:code batch has >=1 reviewer-typed dispatch
+# recorded for it and has not closed. The observable that tells "waiting for dispatched reviewers" apart
+# from "abandoned Phase B" (issue #65).
+#
+# WHY THIS SIGNAL. The Stop hook blocked every Stop while an announced-unclosed kind:code batch existed
+# — the correct posture for a run that skipped Phase B, but ALSO the normal state while the orchestrator
+# waits for review subagents it already dispatched for that batch. The two were indistinguishable, so
+# each Stop during a legitimate review wait burned an exit-2 cycle (and, per #60, a full conversation
+# re-scan). The existing D7 relaxation covers only the "no code has moved" wait (waiting for an operator
+# before Phase B); a batch whose code IS committed reads as `code` there and does not qualify.
+#
+# GROUNDED IN dispatch.jsonl, NEVER DECLARED (R3). "A reviewer is in flight" is read from the same
+# harness-recorded reviewer tally the run-close floor uses (reviewer_dispatch_count ← record-dispatch.sh,
+# PreToolUse[Agent]) for the batch inflight_batch names — not from any marker field the orchestrator
+# writes, which the same mind this gate checks could forge. A run that dispatched NO reviewer for its
+# open batch has count 0 and never arms: the abandoned case still blocks.
+#
+# HONEST LIMIT (the disclosed ADR-0006/0008 ceiling, not a new hole). record-dispatch is PreToolUse, so
+# "in flight" means a review was ATTEMPTED and the batch has not closed; there is no return/verdict
+# observable (SubagentStop is flaky #27755, subagents run background). So a run that dispatched a
+# reviewer, received a verdict, and THEN abandoned reads as waiting. That is the SAME forgeability the
+# reviewer floor already runs at — and it is strictly narrower than the class the gate exists to catch,
+# which is a batch with ZERO reviewer dispatch. It also cannot mask the two hardest-failing shapes: a
+# run with no ledger at all (no announced batch → never arms) and a batch whose only dispatch is a
+# builder or is credited to a different id (reviewer_dispatch_count is 0 → never arms).
+reviewers_in_flight() {
+  local line bid
+  line="$(inflight_batch)"; [ -n "$line" ] || return 1
+  [ "$(field_str "$line" kind)" = "code" ] || return 1
+  [ "$(field_str "$line" status)" = "announced" ] || return 1
+  bid="$(field_str "$line" id)"; [ -n "$bid" ] || return 1
+  [ "$(reviewer_dispatch_count "$bid")" -ge 1 ]
+}
+
 # risk_rank_int NAME → integer rank (higher = more load-bearing); empty if unknown.
 risk_rank_int() {
   case "$1" in
