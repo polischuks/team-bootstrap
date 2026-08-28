@@ -16,13 +16,30 @@ here="$(cd "$(dirname "$0")/.." && pwd)"
 fail=0
 _chk() { if [ "$2" = "$3" ]; then echo "  PASS (exit $2) $1"; else echo "  FAIL (exit $2 want $3) $1" >&2; fail=$((fail + 1)); fi; }
 
-# --- AC-5: both new scripts exist and pass their own --self-test ----------------
+# --- AC-5: both new scripts exist and DECLARE a --self-test --------------------
+# This loop used to RUN each script's --self-test here. bin/run-tests.sh already runs every
+# bin/*.sh --self-test as its own member, so re-executing them inside this integration test re-ran work
+# the suite had just done and added only forks (issue #79 — the same dedup #51 applied to gates-wiring).
+# check-role-dispatch --self-test in particular builds git fixtures and is not cheap. What is unique to
+# THIS file is the end-to-end recorder→gate wiring exercised below; the peer self-tests' PASS/FAIL is
+# answered once, in the sweep. Here we assert only the wiring fact: the script exists and is
+# self-testable (a script that lost its --self-test drops out of the sweep silently).
 for s in record-dispatch check-role-dispatch; do
   if [ -x "$here/bin/$s.sh" ] || [ -f "$here/bin/$s.sh" ]; then
-    if bash "$here/bin/$s.sh" --self-test >/dev/null 2>&1; then echo "  PASS AC-5 $s --self-test"; else
-      echo "  FAIL AC-5 $s --self-test" >&2; fail=$((fail + 1)); fi
+    # Matched with run-tests' OWN detection pattern — a real dispatch on the flag, not a mere mention.
+    if grep -qE -- '(--self-test\)|= "--self-test" \]|=--self-test)' "$here/bin/$s.sh" 2>/dev/null; then
+      echo "  PASS AC-5 $s declares a --self-test (run-tests runs it)"; else
+      echo "  FAIL AC-5 $s declares no --self-test dispatch — it would drop out of the run-tests sweep" >&2; fail=$((fail + 1)); fi
   else echo "  FAIL AC-5 $s missing" >&2; fail=$((fail + 1)); fi
 done
+
+# Dropping the re-run above is safe ONLY because run-tests really sweeps every bin/*.sh --self-test.
+# Assert that, rather than assuming it (mirrors gates-wiring / issue #51).
+if grep -qE 'bin/\*\.sh|for f in .*bin' "$here/bin/run-tests.sh" 2>/dev/null \
+   && grep -q -- '--self-test' "$here/bin/run-tests.sh" 2>/dev/null; then
+  echo "  PASS AC-5 run-tests sweeps bin/*.sh --self-test (so this file need not re-run them)"; else
+  echo "  FAIL AC-5 run-tests does NOT sweep bin/*.sh --self-test — dropping the self-tests here loses coverage" >&2
+  fail=$((fail + 1)); fi
 
 # --- AC-5: the gate is wired into verify-batch.sh -------------------------------
 if grep -q 'check-role-dispatch.sh' "$here/bin/verify-batch.sh"; then echo "  PASS AC-5 gate wired into verify-batch"; else

@@ -165,8 +165,17 @@ rm -rf "$S"
 echo "AC-2 — check-context-phrasing.sh exists, self-tests, and is wired:"
 _chk "$([ -x "$here/bin/check-context-phrasing.sh" ] && echo yes || echo no)" yes \
   "bin/check-context-phrasing.sh exists and is executable"
-_chk "$( "$here/bin/check-context-phrasing.sh" --self-test >/dev/null 2>&1 && echo pass || echo fail )" pass \
-  "check-context-phrasing.sh --self-test passes"
+# Its --self-test is run once by run-tests' bin/*.sh --self-test sweep; re-running it here only re-forked
+# it (issue #79 — the dedup #51 applied to gates-wiring). Assert the wiring fact (it declares a
+# --self-test, so the sweep picks it up) instead of the re-run. The two behavioural checks this file
+# UNIQUELY owns — the gate against this repo's shipped producers (next) and against a bad fixture
+# (AC-2b) — are not re-runs of the self-test and stay.
+_chk "$(grep -qE -- '(--self-test\)|= "--self-test" \]|=--self-test)' "$here/bin/check-context-phrasing.sh" && echo yes || echo no)" yes \
+  "check-context-phrasing.sh declares a --self-test (run-tests runs it)"
+# Dropping the re-runs here (and the check-tdd / check-version-sync self-test re-runs below) is safe ONLY
+# because run-tests really sweeps every bin/*.sh --self-test. Assert that once, rather than assuming it.
+_chk "$(grep -qE 'bin/\*\.sh|for f in .*bin' "$here/bin/run-tests.sh" && grep -q -- '--self-test' "$here/bin/run-tests.sh" && echo yes || echo no)" yes \
+  "run-tests sweeps bin/*.sh --self-test (so this file need not re-run peer self-tests)"
 _chk "$( "$here/bin/check-context-phrasing.sh" "$here" >/dev/null 2>&1 && echo pass || echo fail )" pass \
   "the shipped additionalContext producers are clean under the gate"
 
@@ -253,8 +262,16 @@ while read -r cat _rest; do
 done < "$here/profiles/default.map"
 
 echo "AC-27 — every routed binding is ALIVE (removing it turns something red):"
-_chk "$( "$here/bin/eval-role.sh" --liveness >/dev/null 2>&1 && echo alive || echo dead )" alive \
-  "eval-role --liveness reports every binding load-bearing"
+# The eval that PROVES this — eval-role --liveness going red when a binding is not load-bearing — is a
+# ~9s full-tree mutation over every binding. It is OWNED by two standalone members that run-tests already
+# runs: tests/role-liveness.test.sh (asserts it is green on the shipped profile AND can say DEAD) and
+# bin/check-role-liveness.sh (the P12 gate, swept via --self-test). Re-running the whole eval a third
+# time here duplicated ~9s of work (issue #79). Assert instead that the canonical coverage EXISTS: if a
+# dead binding is introduced, role-liveness.test.sh turns red — this file need not re-prove it.
+_chk "$(grep -qE 'eval-role\.sh"? *--liveness' "$here/tests/role-liveness.test.sh" && echo yes || echo no)" yes \
+  "AC-27 is owned by tests/role-liveness.test.sh (it runs eval-role --liveness; a dead binding reddens THERE)"
+_chk "$(grep -q 'check-role-liveness.sh' "$here/bin/verify-batch.sh" && echo yes || echo no)" yes \
+  "…and by the check-role-liveness gate, wired into verify-batch so every delivery re-checks liveness"
 
 echo "AC-10c — the new slugs collide with nothing (R10):"
 _chk "$(awk -F'\t' '!/^#/ && NF && $1!="" {print $1}' "$here/references/review-types.txt" | sort | uniq -d | tr '\n' ' ' | sed 's/ *$//')" "" \
@@ -276,8 +293,11 @@ echo "AC-29 — the separate driver script is gone and the gate carries the obse
 _chk "$([ -e "$here/bin/tdd-red.sh" ] && echo present || echo absent)" absent "bin/tdd-red.sh is deleted"
 _chk "$(grep -q -- '--record-red' "$here/bin/check-tdd.sh" && echo yes || echo no)" yes \
   "check-tdd.sh carries a --record-red entry point"
-_chk "$( "$here/bin/check-tdd.sh" --self-test >/dev/null 2>&1 && echo pass || echo fail )" pass \
-  "check-tdd --self-test still passes"
+# check-tdd --self-test is run once by run-tests' sweep (asserted above); re-running it here only
+# re-forked it (issue #79). Assert the wiring fact. The --record-red behaviour this AC actually cares
+# about is exercised end-to-end in the fixtures below (AC-29b/c/d) — those are not self-test re-runs.
+_chk "$(grep -qE -- '(--self-test\)|= "--self-test" \]|=--self-test)' "$here/bin/check-tdd.sh" && echo yes || echo no)" yes \
+  "check-tdd.sh declares a --self-test (run-tests runs it)"
 
 echo "AC-29e — no command playbook still instructs the deleted driver:"
 # Deleting the producer while commands/deliver.md kept telling the model to run it left the red step
@@ -436,8 +456,11 @@ _chk "$( . "$here/bin/delivery-lib.sh"; role_floor_mode )" enforce \
 echo "AC-37 — a version literal in README.md cannot drift from VERSION:"
 _chk "$(grep -q 'README' "$here/bin/check-version-sync.sh" && echo yes || echo no)" yes \
   "check-version-sync.sh covers README.md"
-_chk "$( "$here/bin/check-version-sync.sh" --self-test >/dev/null 2>&1 && echo pass || echo fail )" pass \
-  "check-version-sync --self-test passes (with the README case)"
+# check-version-sync --self-test is run once by run-tests' sweep (asserted above); re-running it here
+# only re-forked it (issue #79). The README-coverage fact this AC names is the grep on the line above;
+# assert the wiring fact here instead of re-running the whole self-test.
+_chk "$(grep -qE -- '(--self-test\)|= "--self-test" \]|=--self-test)' "$here/bin/check-version-sync.sh" && echo yes || echo no)" yes \
+  "check-version-sync.sh declares a --self-test (run-tests runs it, with the README case)"
 _p8=no
 grep -qF 'P1–P8' "$here/README.md" && _p8=yes
 grep -qF 'P1-P8' "$here/README.md" && _p8=yes
