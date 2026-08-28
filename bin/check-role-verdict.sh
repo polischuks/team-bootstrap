@@ -74,6 +74,20 @@ _tallied_for() {
   marker_list verdicts_captured 2>/dev/null | grep -oE "\"$1/[^\"]*\"" | grep -c . || true
 }
 
+# _persist_verdict BATCH ROLE RUNDIR — the ONE write that makes a confirmed verdict a fact the --gate
+# reader sees: append the gate's own shape line to verdicts.jsonl (idempotent per batch+role) AND mirror
+# it into the durable, tamper-evident marker tally (#46). Shared by BOTH capture paths — the SubagentStop
+# hook (_hook_mode) and the synchronous orchestrator channel (_record_mode, #81) — so the two write
+# byte-identical records and the gate cannot tell (or need to tell) which channel produced a verdict.
+_persist_verdict() {
+  local bid="$1" role="$2" rundir="$3"
+  [ -n "$bid" ] && [ -n "$role" ] && [ -n "$rundir" ] && [ -d "$rundir" ] || return 0
+  if ! grep -qF "{\"batch\":\"$bid\",\"role\":\"$role\",\"fields_ok\":true}" "$rundir/verdicts.jsonl" 2>/dev/null; then
+    printf '{"batch":"%s","role":"%s","fields_ok":true}\n' "$bid" "$role" >> "$rundir/verdicts.jsonl" 2>/dev/null || true
+  fi
+  _record_verdict_tally "$bid" "$role"   # ISSUE #46 — durable, tamper-evident twin of the append above
+}
+
 # _record_capture_decline RUNDIR BATCH "REQUIRED" "DISPATCHED" DIAG — ISSUE #60. Append a diagnostic
 # trace to .runs/<run>/verdict-capture.jsonl, written by THIS gate — a path that PROVENLY fires
 # (verify-batch calls it at every batch close, and CI runs it). Before this, a seen==0 close left NOTHING
@@ -210,14 +224,75 @@ _hook_mode() {
   [ -n "$bid" ] || exit 0   # gate-integrity: sanctioned — no in-flight batch to confirm roles for
   rundir="$(dirname "$(resolve_marker 2>/dev/null || true)")"
   [ -n "$rundir" ] && [ -d "$rundir" ] || exit 0   # gate-integrity: sanctioned — no run directory: out of scope, and the --gate pass fails closed on a missing capture
-  # ISSUE #60 — record once. Both the frontmatter Stop (as SubagentStop) AND the plugin-level SubagentStop
-  # can fire for the same finished subagent; without this guard that one review would append two identical
-  # verdict lines. The gate only needs >=1 per role, so a duplicate is harmless to correctness — but a
-  # bloated ledger is not free, and the durable tally is already a set, so make the file match it.
-  if ! grep -qF "{\"batch\":\"$bid\",\"role\":\"$role\",\"fields_ok\":true}" "$rundir/verdicts.jsonl" 2>/dev/null; then
-    printf '{"batch":"%s","role":"%s","fields_ok":true}\n' "$bid" "$role" >> "$rundir/verdicts.jsonl" 2>/dev/null || true
+  # ISSUE #60 — record once (idempotent). Both the frontmatter Stop (as SubagentStop) AND the plugin-level
+  # SubagentStop can fire for the same finished subagent; _persist_verdict de-dupes so that one review
+  # appends one line. The gate only needs >=1 per role, so a duplicate is harmless to correctness — but a
+  # bloated ledger is not free, and the durable tally is already a set, so the file matches it.
+  _persist_verdict "$bid" "$role" "$rundir"
+  exit 0
+}
+
+# _record_mode SLUG — ISSUE #81, the SYNCHRONOUS verdict channel. The gate cannot read the conversation,
+# and SubagentStop does not fire for Agent-tool-dispatched review subagents (#60, proven host limit), so
+# the verdict a reviewer returns in-report never reaches verdicts.jsonl on its own. This entry is the
+# sanctioned write: after a review returns, the orchestrator pipes the reviewer's typed verdict object
+# (role-output.schema.json shape) to `--record ROLE`, and this records it in EXACTLY the shape --gate
+# reads — the same shape, validation, and durable tally as the hook path, via _persist_verdict.
+#
+# HONEST MECHANISM (do not overstate it): this is ORCHESTRATOR-recorded, not host-forced. Nothing in the
+# host makes the orchestrator call it — commands/deliver.md instructs it to, and a run that skips the call
+# simply lands back on the capture-dropped waiver. What it is NOT is transcript-scraping or a flaky async
+# hook: when the orchestrator DOES call it, the write provably happens and --gate provably reads it. Its
+# forgery bar is the existing one (ADR-0006/0008): the verdict must carry its role's required shape, and a
+# well-formed lie still passes — the same limit the SubagentStop path already had.
+#
+# TIED TO THE RELIABLE DISPATCH RECORD. A verdict is recordable ONLY for a role that dispatch.jsonl shows
+# was dispatched for the in-flight batch (the reliable PreToolUse[Agent] channel). Recording a verdict for
+# an UNDISPATCHED role would forge a review that never ran — the exact "skipped" case #81's discriminating
+# waiver keeps blocked — so it is refused here too. Defense in depth: the synchronous channel cannot be
+# used to manufacture the evidence the gate exists to demand.
+_record_mode() {
+  local slug="${1:-}" role payload tmp obj missing f bline bid rundir dispatched
+  if [ -z "$slug" ]; then
+    echo "usage: $(basename "$0") --record ROLE   (the role's typed verdict JSON on stdin)" >&2
+    echo "  records a confirmed verdict to .runs/<run>/verdicts.jsonl for the in-flight batch (#81)." >&2
+    exit 64
   fi
-  _record_verdict_tally "$bid" "$role"   # ISSUE #46 — durable, tamper-evident twin of the append above
+  role="$(role_of_slug "$slug" 2>/dev/null || true)"      # slug → attributed role; a bare role name maps to itself
+  [ -n "$role" ] || role="$slug"
+  payload="$(head -c 1048576 2>/dev/null || true)"
+  [ -n "$payload" ] || { echo "check-role-verdict --record: no verdict JSON on stdin for '$role' — nothing to record." >&2; exit 64; }
+  tmp="$(mktemp 2>/dev/null)" || { echo "check-role-verdict --record: could not create a temp file." >&2; exit 1; }
+  printf '%s' "$payload" > "$tmp"
+  obj="$(_verdict_obj "$tmp" "$role")"      # SAME extractor the hook path uses: the object must carry "role":"<role>"
+  rm -f "$tmp" 2>/dev/null || true
+  if [ -z "$obj" ]; then
+    echo "check-role-verdict --record: BLOCKED — stdin carried no JSON object with \"role\":\"$role\". A recorded verdict must be that role's own typed object (references/schemas/role-output.schema.json), not a summary or another role's object." >&2
+    exit 2
+  fi
+  missing=""
+  for f in $(required_fields_for "$role"); do
+    printf '%s' "$obj" | grep -qE "\"$f\"[[:space:]]*:" || missing="${missing:+$missing }$f"
+  done
+  if [ -n "$missing" ]; then
+    echo "check-role-verdict --record: BLOCKED — the '$role' verdict is missing the field(s) its own contract requires: [$missing]." >&2
+    echo "  references/schemas/role-output.schema.json requires them of this role. A verdict without them is not a review result — it is a shape the closure gate cannot confirm (same bar as the SubagentStop path)." >&2
+    exit 2
+  fi
+  bline="$(inflight_batch 2>/dev/null || true)"; bid="$(field_str "$bline" id)"
+  [ -n "$bid" ] || { echo "check-role-verdict --record: no in-flight batch to attribute the '$role' verdict to — is a delivery run armed with a kind:code batch announced?" >&2; exit 1; }
+  rundir="$(dirname "$(resolve_marker 2>/dev/null || true)")"
+  [ -n "$rundir" ] && [ -d "$rundir" ] || { echo "check-role-verdict --record: no active run directory to record into." >&2; exit 1; }
+  # The reliable-dispatch tie (see the header): refuse a verdict for a role with no dispatch record.
+  dispatched="$(roles_covered "$bid" 2>/dev/null || true)"
+  case " $dispatched " in
+    *" $role "*) : ;;
+    *)
+      echo "check-role-verdict --record: REFUSED — '$role' has no dispatch record in .runs/<run>/dispatch.jsonl for batch '$bid'. A synchronous verdict is recordable only for a role actually dispatched (the reliable PreToolUse[Agent] channel); recording one for an undispatched role would forge a review that never ran (#81)." >&2
+      exit 2 ;;
+  esac
+  _persist_verdict "$bid" "$role" "$rundir"
+  echo "check-role-verdict --record: recorded a well-formed '$role' verdict for batch '$bid' → .runs/<run>/verdicts.jsonl (synchronous channel, #81). The --gate reader confirms it with no waiver." >&2
   exit 0
 }
 
@@ -259,17 +334,40 @@ _gate_mode() {
     # ("did not run" vs "ran but could not read"). Write the finding to verdict-capture.jsonl by this gate
     # (a proven-firing path), and print a message grounded in that observable rather than the guess.
     dispatched="$(roles_covered "$bid" 2>/dev/null || true)"
+    # ISSUE #81 — QUALIFY the waiver with the RELIABLE dispatch record so it can no longer bless a skipped
+    # role. dispatch.jsonl (PreToolUse[Agent], record-dispatch.sh) records fact-of-dispatch reliably, so
+    # the required roles ABSENT from it are the ones that were never dispatched — SKIPPED, not dropped.
+    # A required role PRESENT in dispatch.jsonl but with no verdict is a capture that DROPPED (the flaky
+    # SubagentStop channel), which is the only case the governed, expiring waiver may relieve. Before #81
+    # a single blanket waiver covered both, so a batch that dispatched code-reviewer and simply skipped
+    # integration-verifier could still be waved through as "capture dropped".
+    local skipped=""
+    for r in $req; do
+      case " $dispatched " in *" $r "*) : ;; *) skipped="${skipped:+$skipped }$r" ;; esac
+    done
     if [ "$tallied" -gt 0 ]; then diag="captured-then-lost"
-    elif [ -n "$dispatched" ]; then diag="capture-channel-did-not-fire"
-    else diag="no-reviewer-dispatched"; fi
+    elif [ -z "$dispatched" ]; then diag="no-reviewer-dispatched"   # nothing dispatched at all → skipped
+    elif [ -n "$skipped" ]; then diag="role-not-dispatched"          # some dispatched, but a required role was NOT → skipped
+    else diag="capture-channel-did-not-fire"; fi                     # every required role dispatched, none captured → dropped
     _record_capture_decline "$rundir" "$bid" "$req" "$dispatched" "$diag"
     case "$diag" in
       capture-channel-did-not-fire)
         echo "check-role-verdict: UNVERIFIED — batch '$bid' required [$req]; dispatch.jsonl records reviewer dispatch(es) for [$dispatched], but .runs/<run>/verdicts.jsonl holds zero verdicts and no per-role decline was traced. The verdict-capture hook did not fire (or fired blind) for these Agent-tool dispatches — role confirmation is UNVERIFIED, not satisfied. Diagnosis recorded in .runs/<run>/verdict-capture.jsonl (#60)." >&2 ;;
       captured-then-lost)
         echo "check-role-verdict: UNVERIFIED — batch '$bid' (required: [$req]) had verdict(s) captured (durable marker tally) then REMOVED from verdicts.jsonl; see the durability breach above. Role confirmation is UNVERIFIED, not satisfied. Diagnosis recorded in .runs/<run>/verdict-capture.jsonl (#46/#60)." >&2 ;;
+      role-not-dispatched)
+        echo "check-role-verdict: UNVERIFIED — batch '$bid' required [$req]; dispatch.jsonl records dispatch(es) for [$dispatched] but NOT for [$skipped]. A required role was never dispatched (SKIPPED, not a dropped capture) — role_verdict_waiver relieves a dropped capture only and CANNOT pass a skipped role. This batch stays BLOCKED. Diagnosis recorded in .runs/<run>/verdict-capture.jsonl (#81)." >&2 ;;
       *)
-        echo "check-role-verdict: UNVERIFIED — batch '$bid' required [$req] but no reviewer dispatch is recorded and no verdict was captured; role confirmation is UNVERIFIED for this batch, not satisfied. Diagnosis recorded in .runs/<run>/verdict-capture.jsonl (#60)." >&2 ;;
+        echo "check-role-verdict: UNVERIFIED — batch '$bid' required [$req] but no reviewer dispatch is recorded and no verdict was captured; every required role was SKIPPED, not dropped. role_verdict_waiver cannot pass a skipped batch — this stays BLOCKED. Diagnosis recorded in .runs/<run>/verdict-capture.jsonl (#81)." >&2 ;;
+    esac
+
+    # ISSUE #81 — the waiver is grantable ONLY for the dropped-capture cases (every required role IS on
+    # the reliable dispatch channel; only the verdict CONTENT was lost). A skipped role — one with no
+    # dispatch record — is never waivable, so we return before the waiver is consulted. This is the whole
+    # point of splitting the diagnosis: the "skipped" case can never be waved through.
+    case "$diag" in
+      no-reviewer-dispatched|role-not-dispatched)
+        return 1 ;;
     esac
 
     # AC-7 — the waiver is consulted AFTER the finding is printed, never instead of it: a governed
@@ -282,7 +380,7 @@ _gate_mode() {
          "$(field_in_obj "$mk" role_verdict_waiver by)" \
          "$(field_in_obj "$mk" role_verdict_waiver reason)" \
          "$(field_in_obj "$mk" role_verdict_waiver expires)"; then
-      echo "check-role-verdict: WAIVED by a governed role_verdict_waiver (finding surfaced above; by/reason/expires recorded, expiry forces re-review) — exit 0. See references/enforcement.md for the procedure." >&2
+      echo "check-role-verdict: WAIVED by a governed role_verdict_waiver (capture-dropped case: every required role was dispatched; finding surfaced above; by/reason/expires recorded, expiry forces re-review) — exit 0. See references/enforcement.md for the procedure." >&2
       return 0
     fi
     return 1
@@ -330,6 +428,10 @@ case "${1:-}" in
             cd "$1" 2>/dev/null || { echo "check-role-verdict: bad project dir '$1'" >&2; exit 64; }
           fi
           _gate_mode; exit $? ;;
+  # --record ROLE (verdict JSON on stdin): the SYNCHRONOUS orchestrator channel (#81). Writes a confirmed
+  # verdict to verdicts.jsonl at a point that reliably happens (the orchestrator, after a review returns),
+  # independent of the flaky SubagentStop. See _record_mode's header for the honest mechanism.
+  --record) shift; _record_mode "${1:-}" ;;
   # --hook-role SLUG: the SubagentStop hook that KNOWS its own role (declared in a review agent's
   # frontmatter). SLUG is resolved through role_of_slug exactly like the payload path, so the two agree.
   --hook-role) shift; _hook_mode "${1:-}" ;;
