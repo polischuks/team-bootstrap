@@ -105,11 +105,22 @@ print(json.dumps(found) if found else "")' "$1" "$2" 2>/dev/null || true
 }
 
 _hook_mode() {
-  local payload role tr obj missing f rundir bid bline
+  local explicit_slug="${1:-}" payload role tr obj missing f rundir bid bline
   payload="$(cat 2>/dev/null || true)"
-  role="$(printf '%s' "$payload" \
-    | grep -oE '"(agent_type|subagent_type|agentType|subagentType)"[[:space:]]*:[[:space:]]*"[^"]*"' \
-    | head -1 | sed -E 's/.*"([^"]*)"[[:space:]]*$/\1/')"
+  # ISSUE #44 — where the role comes from. A SubagentStop/Stop payload does NOT carry the dispatched
+  # subagent_type (that field lives in the PreToolUse[Agent] tool_input, which is exactly why
+  # record-dispatch.sh reads it THERE and not here). So recovering the role from a payload field was
+  # 0-of-7 in practice: role came back empty and this hook exited before reading a transcript or writing
+  # a single verdict. The declaring frontmatter already KNOWS its role, so it names it: each review
+  # agent's `Stop` hook is `check-role-verdict.sh --hook-role <its-own-slug>`. When that slug is given we
+  # use it; the payload scan stays only as a back-compat fallback for a caller that does carry the field.
+  if [ -n "$explicit_slug" ]; then
+    role="$explicit_slug"
+  else
+    role="$(printf '%s' "$payload" \
+      | grep -oE '"(agent_type|subagent_type|agentType|subagentType)"[[:space:]]*:[[:space:]]*"[^"]*"' \
+      | head -1 | sed -E 's/.*"([^"]*)"[[:space:]]*$/\1/')"
+  fi
   [ -n "$role" ] || exit 0   # gate-integrity: sanctioned — not a team-bootstrap review role: out of scope for this hook
   role="$(role_of_slug "$role" 2>/dev/null || true)"      # slug → attributed role; empty ⇒ not a review type
   [ -n "$role" ] || exit 0   # gate-integrity: sanctioned — not a team-bootstrap review role: out of scope for this hook
@@ -225,5 +236,8 @@ case "${1:-}" in
             cd "$1" 2>/dev/null || { echo "check-role-verdict: bad project dir '$1'" >&2; exit 64; }
           fi
           _gate_mode; exit $? ;;
+  # --hook-role SLUG: the SubagentStop hook that KNOWS its own role (declared in a review agent's
+  # frontmatter). SLUG is resolved through role_of_slug exactly like the payload path, so the two agree.
+  --hook-role) shift; _hook_mode "${1:-}" ;;
   *)      _hook_mode ;;
 esac
