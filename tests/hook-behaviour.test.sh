@@ -227,15 +227,34 @@ _chk "$(_msg45 "$F" | grep -qiE 'not applicable|nothing to check|no role registr
 _chk "$(bash "$here/bin/check-version-sync.sh" "$F" >/dev/null 2>&1; echo $?)" 0 "  parity: check-version-sync skips the same dir"
 _chk "$(bash "$here/bin/check-context-phrasing.sh" "$F" >/dev/null 2>&1; echo $?)" 0 "  parity: check-context-phrasing skips the same dir"
 
-# The skip is NARROW: on team-bootstrap itself the gate must still run and still pass.
-_chk "$(_rc45 "$here")" 0 "on team-bootstrap itself the gate still passes"
-_chk "$(bash "$here/bin/check-role-liveness.sh" "$here" 2>&1 | grep -qF 'binding(s) alive' && echo ran || echo skipped)" ran \
-  "  …and it really RAN there — not the same skip path"
+# The skip is NARROW: where the subject EXISTS the gate must really run, not take the same exit.
+#
+# Proven on a fixture, not on the real tree. Running it against "$here" costs a full liveness eval
+# over ten routed bindings (~62s) — which bin/check-role-liveness.sh --self-test already does, once,
+# in run-tests. Asserting it a second time here is the exact duplication removed from
+# gates-wiring.test.sh in #51; repeating it in this file would be the same mistake with a new name.
+S45="$(mktemp -d)"; mkdir -p "$S45/bin" "$S45/profiles"
+for f in eval-role.sh delivery-lib.sh select-pipeline.sh; do cp "$here/bin/$f" "$S45/bin/" 2>/dev/null; done
+for d in references agents; do cp -R "$here/$d" "$S45/$d" 2>/dev/null; done
+{ grep -E '^tier:' "$here/profiles/default.map"; printf 'security/auth\tsecurity-reviewer\n'; } > "$S45/profiles/default.map"
+printf '| Live role bindings (`bin/eval-role.sh --liveness`) | 1 | x |\n' > "$S45/constitution.md"
+_chk "$(_rc45 "$S45")" 0 "where the subject exists and the claim is true, the gate passes"
+_chk "$(bash "$here/bin/check-role-liveness.sh" "$S45" 2>&1 | grep -qF 'binding(s) alive' && echo ran || echo skipped)" ran \
+  "  …and it really RAN — its output reports live bindings, not the NOT-APPLICABLE skip"
+rm -rf "$S45"
 
 # MUTATION: subject PRESENT but the claim false must still block, or the fix swallowed a real failure.
 M="$(mktemp -d)"; mkdir -p "$M/bin"
 for f in eval-role.sh delivery-lib.sh select-pipeline.sh; do cp "$here/bin/$f" "$M/bin/" 2>/dev/null; done
-for d in profiles references agents; do cp -R "$here/$d" "$M/$d" 2>/dev/null; done
+for d in references agents; do cp -R "$here/$d" "$M/$d" 2>/dev/null; done
+# ONE routed binding, not the shipped ten. eval-role --liveness mutates every routed binding in turn,
+# so a ten-role profile makes this case run the whole mutation eval ten times — ~60s for an assertion
+# that needs one. The claim under test is "declared count disagrees with measured count ⇒ still
+# blocks", and 999 ≠ 1 tests it exactly as well as 999 ≠ 10, at a tenth of the cost. The binding kept
+# is a live one, so the gate's first check (the eval passes on this profile) still exercises a real
+# pass rather than an empty one.
+mkdir -p "$M/profiles"
+{ grep -E '^tier:' "$here/profiles/default.map"; printf 'security/auth\tsecurity-reviewer\n'; } > "$M/profiles/default.map"
 printf '| Live role bindings (`bin/eval-role.sh --liveness`) | 999 | x |\n' > "$M/constitution.md"
 _chk "$([ "$(_rc45 "$M")" -ne 0 ] && echo blocks || echo passes)" blocks \
   "  MUTATION: subject present but the declared count false ⇒ still blocks"
