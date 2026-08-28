@@ -207,9 +207,27 @@ Then, for **each batch, one at a time**:
    `kind:code` batch closing **after** a lower-rank one (order by risk, bleeding-stopper first). This
    is the *record* of intent, not closure: only `verify-batch.sh` can flip it to `closed`
    (see [../references/enforcement.md](../references/enforcement.md), delivery-occurred layer).
-2. **WAIT** for the user to confirm (e.g. "fire" / "continue"). Do **not** auto-run the next
-   batch — this is step-by-step by design.
-3. On confirmation, run the batch through the chosen pipeline:
+2. **Default NON-STOP — the stop is a mechanism, not this prose (#56).** A **reversible** batch
+   (`risk_rank: feature|doc`, no role question) needs no operator prompt: announce it, then proceed to
+   run it. The pause that matters is enforced deterministically by
+   [../bin/check-batch-confirm.sh](../bin/check-batch-confirm.sh), a `PreToolUse[Bash]` gate that reads
+   the ledger, so it does **not** depend on you remembering to check the rank:
+   - When the in-flight batch's declared `risk_rank ∈ {irreversible, run-rate}` **or** it carries
+     `manual_approval_requested: true` (a role flagged a genuine question), the gate **blocks the
+     `git commit`/`git merge`** (exit 2) until a confirmation for that batch is recorded — the human is
+     pulled in exactly when the cost is unrecoverable-by-`reset` or a role asked, and never when
+     `git reset` fixes everything.
+   - **Recording a confirmation** is what the operator's "fire" / "continue" authorizes: append one line
+     to `.runs/<run>/batches.jsonl` — `{"confirm":"<this batch id>"}` — then the commit proceeds. Write
+     it **only** on the operator's explicit go, never pre-emptively; it is an auditable ledger fact, not
+     a self-issued waiver.
+   - This checkpoint only ever **adds friction above** the action-class layer. `risk_rank` is
+     self-declared and forgeable (ADR-0006), so a batch that forges a lower rank escapes *this* gate —
+     but its irreversible **actions** are still caught: a commit on the default branch by
+     [../bin/guard-git.sh](../bin/guard-git.sh), and push/deploy by the remote's branch-protection
+     ([../references/irreversibility.md](../references/irreversibility.md)). Never treat `risk_rank` as
+     the sole guard for irreversibility.
+3. Run the batch through the chosen pipeline:
    `/team-bootstrap PIPELINE "<batch scope: cite the task IDs + point at spec.md/plan.md/tasks.md>"`
    **"fire" means code, not another review.** The required response to a delivery confirmation is a
    pipeline run that produces committed code (a stamped `code_delta > 0`) — not fresh analysis, more
@@ -319,7 +337,9 @@ Then, for **each batch, one at a time**:
    it.** A batch is closed only if its entry says so; if it still reads `announced`, the pipeline did
    not run and the batch is **not** closed — do not present the next batch. On real closure, mark its
    tasks `[x]` in `tasks.md`, report the stamped SHA(s) and gate results (E2E + 0 orphans + 0 drift +
-   0 regressions), and any catches. Then present the **next** batch and **WAIT** again.
+   0 regressions), and any catches. Then present the **next** batch and proceed (step 2): reversible
+   batches roll on non-stop; only an `irreversible`/`run-rate` or role-flagged batch stops for a recorded
+   confirmation, enforced by `check-batch-confirm.sh` rather than by a prose pause here.
 
 **Milestone finalization (hard, before declaring done).** After the final batch closes, run
 `/Users/sergey_polishchuk/.claude/plugins/cache/team-bootstrap/team-bootstrap/2.18.1/bin/check-completeness.sh --final` — the closure-fidelity completeness
