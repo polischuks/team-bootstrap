@@ -614,6 +614,61 @@ splice_marker_fields() {
   return 0
 }
 
+# resize_degraded_marker MARKER TIER_SOURCE RUN → recompute a DEGRADED run's sizing NOW that its spec is
+# on disk, splice the harness-owned fields back into MARKER, and echo the human-readable RE-SIZED note
+# (plain text; the caller json_esc's it and emits it on ITS OWN event channel). Echoes nothing and
+# returns 1 when no re-size happens: not degraded, no spec_path, the spec is absent, size-from-spec did
+# not resolve a tier, or the splice failed.
+#
+# ONE DEFINITION (the drift discipline this file exists to hold). This block used to live inline in
+# delivery-marker-init.sh's `[ -f "$marker" ]` branch, reachable ONLY on UserPromptSubmit — so within a
+# single agentic turn (Phase A -> Phase B, no new prompt) it never fired and the run stayed stuck at
+# `pipeline=auto` with a sizable tasks.md beside it (issue #48, run 176-withgauge-platform-integration).
+# Hoisting it here lets the mid-turn hook (delivery-resize.sh, PostToolBatch) reach the identical
+# recompute the moment the artefacts land, without duplicating the logic or re-deriving the note.
+#
+# IDEMPOTENT BY CONSTRUCTION: a successful splice CLEARS sizing_degraded, so the next call — a later
+# prompt, or a later PostToolBatch in the same turn — returns 1 immediately and touches nothing. A run
+# that sized cleanly (no sizing_degraded) is never entered, so a settled verdict is never re-decided.
+# Narrow on purpose: only the fields the hook owns are spliced; splice_marker_fields preserves precond /
+# preflight / repro_env / the acks and never touches baseline_sha.
+resize_degraded_marker() {
+  local mk="$1" tier_source="$2" run="$3"
+  [ -n "$mk" ] && [ -f "$mk" ] || return 1
+  local prev prev_degraded prev_spec prev_pipe rs rs_t rs_depth rs_reasons rs_cats rs_roles rs_ctx rs_note
+  prev="$(cat "$mk" 2>/dev/null || true)"
+  [ -n "$prev" ] || return 1
+  # Never overrule a human-declared tier (issue #47). This recompute REPLACES the tier, so it must not
+  # run over an operator marker. The marker-init prompt path already returns on the operator branch
+  # before calling here, but the PostToolBatch mid-turn hook (delivery-resize.sh, issue #48) calls this
+  # function DIRECTLY — so the guard lives INSIDE the function, keyed on the marker's own stored
+  # tier_source, and holds for every caller rather than depending on each one to check first.
+  case "$(field_str "$prev" tier_source)" in operator) return 1 ;; esac
+  prev_degraded="$(field_str "$prev" sizing_degraded)"
+  prev_spec="$(field_str "$prev" spec_path)"
+  [ -n "$prev_degraded" ] && [ -n "$prev_spec" ] && [ -f "$prev_spec" ] || return 1
+  rs="$("$(dirname "${BASH_SOURCE[0]}")/size-from-spec.sh" "$prev_spec" 2>/dev/null || true)"
+  rs_t="$(printf '%s\n' "$rs" | sed -n 's/^tier=//p' | head -1)"
+  case "$rs_t" in single-thread|mvp|full) : ;; *) return 1 ;; esac
+  rs_depth="$(review_depth_for_tier "$rs_t")"
+  rs_reasons="$(printf '%s\n' "$rs" | sed -n 's/^reasons=//p' | head -1)"
+  rs_cats="$(risk_categories_only "$rs_reasons")"
+  rs_roles="$(printf '%s\n' "$rs" | sed -n 's/^roles=//p' | head -1)"
+  # TWO strings, deliberately. What is STORED states the settled facts, because every later arm re-emits
+  # it and a stored "RE-SIZED" would keep announcing, on every prompt for the rest of the run, an event
+  # that happened once. What is RETURNED adds the notice, at the only moment it is news.
+  rs_ctx="team-bootstrap harness sizing for run $run: pipeline=$rs_t, tier_source=$tier_source, marker=$mk. Review depth: $rs_depth (the /code-review low-medium-high scale). Sizing reasons: ${rs_reasons:-none}. Risk categories detected: ${rs_cats:-none}. Assigned review roles for this run: ${rs_roles:-none}."
+  prev_pipe="$(field_str "$prev" pipeline)"
+  rs_note="$rs_ctx The run was RE-SIZED just now: the first verdict degraded ($prev_degraded) because the artefacts it needed did not exist yet, and they do now."
+  [ "$prev_pipe" = "$rs_t" ] || rs_note="$rs_note The stored pipeline was $prev_pipe."
+  splice_marker_fields "$mk" \
+    "pipeline=$rs_t" "review_depth=$rs_depth" "sizing_degraded=" \
+    "sizing_reasons=$rs_reasons" "risk_categories=$rs_cats" \
+    "assigned_roles=$rs_roles" "harness_context=$(json_esc "$rs_ctx")" || return 1
+  printf '%s' "$rs_note"
+  return 0
+}
+
 # record_required_roles BATCH_ID → compute the batch's role set and splice it into ITS ledger line as
 # a flat "required_roles":[…] array.
 #

@@ -6,7 +6,7 @@ hooks:
   Stop:
     - hooks:
         - type: command
-          command: "${CLAUDE_PLUGIN_ROOT}/bin/check-role-verdict.sh"
+          command: "${CLAUDE_PLUGIN_ROOT}/bin/check-role-verdict.sh --hook-role legal-compliance-checker"
         - type: prompt
           timeout: 30
           prompt: >-

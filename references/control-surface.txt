@@ -32,6 +32,11 @@ bin/record-dispatch.sh
 # are HOOK bodies, so a gutting is caught only at the NEXT batch close, weaker than a verify-batch gate —
 # see ADR-0014 / AC-C4 KNOWN GAP.)
 bin/guard-git.sh
+# per-batch operator-confirmation checkpoint (issue #56): a PreToolUse[Bash] hook body like guard-git —
+# gutting it to `exit 0` would silently remove the irreversible/run-rate confirmation stop. Also matched
+# by the bin/check-*.sh glob above; named here too so the "every hook body is control surface" invariant
+# (harness-context-delivery AC-19, a fixed-string check) sees it.
+bin/check-batch-confirm.sh
 bin/quality-gate.sh
 bin/delivery-stop-hook.sh
 bin/delivery-marker-init.sh
@@ -42,10 +47,16 @@ bin/check-role-verdict.sh
 bin/judge-tier.sh
 # read-only reporter over the ledgers; listed because shrinking a metric hides a regression
 bin/delivery-metrics.sh
+# the declared Test: runner — decides red/green for every gate's evidence; loosening its member
+# matcher or dropping its failure propagation reports green while running less than it claims (#54)
+bin/run-tests.sh
 # session / compaction / batch / task hook bodies (roles-alive item 2)
 bin/session-context.sh
 bin/check-review-batch.sh
 bin/record-task.sh
+# mid-turn degraded-sizing recompute — a PostToolBatch hook body (issue #48); gutting it to `exit 0`
+# silently re-strands a description-form run at pipeline=auto, so it is ack-required control surface.
+bin/delivery-resize.sh
 
 # hook registrations (glob spans '/', so hooks/nested/*.json is covered too)
 hooks/*.json

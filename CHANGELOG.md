@@ -2,6 +2,44 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.0] — 2026-08-28
+
+**Batch: eight open issues.** Verdict capture, sizing honesty, guard scoping, delivery flow, and the
+first CI enforcement of the test suite itself.
+
+### Fixed
+
+- **Verdict capture identifies its role from the agent frontmatter** (`--hook-role <slug>`), not from a
+  payload field a real `SubagentStop` does not carry — the cause of 0-of-7 capture (#44). A captured
+  verdict is also mirrored durably into the run marker, so an external wipe of `verdicts.jsonl` is
+  reported as a *durability breach* naming the loss rather than reverting silently to "unverified" (#46).
+- **An operator-declared tier reconciles its dependent sizing fields** instead of leaving `review_depth`,
+  `risk_categories`, and `assigned_roles` describing the superseded computation; the harness re-size no
+  longer overrules a human-set tier (#47).
+- **The degraded-sizing re-size fires mid-turn** on `PostToolBatch` (`bin/delivery-resize.sh`), so a run
+  whose artefacts land inside one agentic turn recovers without waiting for the next prompt (#48).
+- **guard-git judges the target repository** of the git command (`git -C`, `cd … && git`), not the
+  session repo, failing closed to the session on an unresolvable target (#49).
+- **Per-batch delivery is non-stop by default**; the stop is a mechanism (`bin/check-batch-confirm.sh`,
+  PreToolUse[Bash]) that blocks commit when `risk_rank ∈ {irreversible, run-rate}` or a role requested
+  approval and no ledger confirmation exists — reading the field rather than asking the model to
+  remember. The action-class backstop (guard-git + remote protection) remains the real guard against a
+  forged-low rank (#56).
+
+### Added
+
+- **The test runner is now control surface** — `bin/run-tests.sh` is declared in
+  `references/control-surface.txt`, so narrowing its member selection or dropping its failure
+  propagation becomes an ack-required, independently-reviewed edit rather than a silent one (#54).
+
+### Notes
+
+- The three new hook bodies (`delivery-resize`, `check-batch-confirm`) and the frontmatter `--hook-role`
+  wiring activate only after the plugin is reinstalled at 3.4.0.
+- **#53 (CI runs the declared `Test:` suite) is deferred to #59.** Adding the job revealed the suite is
+  not green on any GitHub runner — a pre-existing portability gap (bash/coreutils/shallow-checkout), not
+  a regression here. It lands once #59 makes the suite CI-green on a macOS+ubuntu matrix.
+
 ## [3.3.0] — 2026-08-27
 
 **Dispatch and gate integrity** (`specs/021-dispatch-and-gate-integrity`). Two independent defects let

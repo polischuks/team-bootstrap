@@ -45,6 +45,35 @@ here="$(cd "$(dirname "$0")" && pwd)"
 . "$here/delivery-lib.sh" 2>/dev/null || { echo "$(basename "$0"): delivery-lib.sh is unreadable — this gate cannot evaluate and is NOT passing; it is absent (AC-48)." >&2; exit 0; }
 SCHEMA="$here/../references/schemas/role-output.schema.json"
 
+# _record_verdict_tally BATCH ROLE — ISSUE #46: mirror a confirmed capture into a DURABLE, tamper-evident
+# record that survives a removal of verdicts.jsonl. That file lost 4 records mid-run (run 096) while the
+# RUN marker survived, and the loss was INVISIBLE: the gate simply reverted to "unverified". This plugin
+# never deletes verdicts.jsonl itself — every run-file rewrite is a temp+mv on ONE named file (RUN,
+# batches.jsonl, the marker), never a whole-dir operation — so it cannot PREVENT an external removal
+# (cleanup, worktree teardown, a `rm -rf .runs`). What it can do is leave a record the removal does not
+# erase: an append-only `verdicts_captured` set in the marker (rewritten atomically like every other
+# marker field, via record_marker_list). The gate then reads the two together and can tell "captured
+# then lost" from "never captured" — the same durability the project already gives gate outcomes.
+_record_verdict_tally() {
+  local bid="$1" role="$2" token cur body
+  [ -n "$bid" ] && [ -n "$role" ] || return 0
+  token="\"$bid/$role\""
+  cur="$(marker_list verdicts_captured 2>/dev/null || true)"
+  [ -n "$cur" ] || cur="[]"
+  case "$cur" in *"$token"*) return 0 ;; esac      # the list is a set: never double-count a re-run
+  if [ "$cur" = "[]" ]; then
+    record_marker_list verdicts_captured "[$token]" 2>/dev/null || true
+  else
+    body="${cur%]}"
+    record_marker_list verdicts_captured "$body,$token]" 2>/dev/null || true
+  fi
+}
+
+# _tallied_for BATCH → count of verdicts_captured entries recorded for BATCH (durable, marker-side).
+_tallied_for() {
+  marker_list verdicts_captured 2>/dev/null | grep -oE "\"$1/[^\"]*\"" | grep -c . || true
+}
+
 # --- the operator door (spec 021 AC-7, T027) ---------------------------------
 # `--waive BY REASON EXPIRES` records the governed waiver this gate reads. It exists because a waiver
 # reachable only by hand-editing JSON inside a run marker is not a governed escape — nothing records
@@ -105,11 +134,22 @@ print(json.dumps(found) if found else "")' "$1" "$2" 2>/dev/null || true
 }
 
 _hook_mode() {
-  local payload role tr obj missing f rundir bid bline
+  local explicit_slug="${1:-}" payload role tr obj missing f rundir bid bline
   payload="$(cat 2>/dev/null || true)"
-  role="$(printf '%s' "$payload" \
-    | grep -oE '"(agent_type|subagent_type|agentType|subagentType)"[[:space:]]*:[[:space:]]*"[^"]*"' \
-    | head -1 | sed -E 's/.*"([^"]*)"[[:space:]]*$/\1/')"
+  # ISSUE #44 — where the role comes from. A SubagentStop/Stop payload does NOT carry the dispatched
+  # subagent_type (that field lives in the PreToolUse[Agent] tool_input, which is exactly why
+  # record-dispatch.sh reads it THERE and not here). So recovering the role from a payload field was
+  # 0-of-7 in practice: role came back empty and this hook exited before reading a transcript or writing
+  # a single verdict. The declaring frontmatter already KNOWS its role, so it names it: each review
+  # agent's `Stop` hook is `check-role-verdict.sh --hook-role <its-own-slug>`. When that slug is given we
+  # use it; the payload scan stays only as a back-compat fallback for a caller that does carry the field.
+  if [ -n "$explicit_slug" ]; then
+    role="$explicit_slug"
+  else
+    role="$(printf '%s' "$payload" \
+      | grep -oE '"(agent_type|subagent_type|agentType|subagentType)"[[:space:]]*:[[:space:]]*"[^"]*"' \
+      | head -1 | sed -E 's/.*"([^"]*)"[[:space:]]*$/\1/')"
+  fi
   [ -n "$role" ] || exit 0   # gate-integrity: sanctioned — not a team-bootstrap review role: out of scope for this hook
   role="$(role_of_slug "$role" 2>/dev/null || true)"      # slug → attributed role; empty ⇒ not a review type
   [ -n "$role" ] || exit 0   # gate-integrity: sanctioned — not a team-bootstrap review role: out of scope for this hook
@@ -136,11 +176,12 @@ _hook_mode() {
   rundir="$(dirname "$(resolve_marker 2>/dev/null || true)")"
   [ -n "$rundir" ] && [ -d "$rundir" ] || exit 0   # gate-integrity: sanctioned — no run directory: out of scope, and the --gate pass fails closed on a missing capture
   printf '{"batch":"%s","role":"%s","fields_ok":true}\n' "$bid" "$role" >> "$rundir/verdicts.jsonl" 2>/dev/null || true
+  _record_verdict_tally "$bid" "$role"   # ISSUE #46 — durable, tamper-evident twin of the append above
   exit 0
 }
 
 _gate_mode() {
-  local marker mk bline bid pipeline rundir recorded req r missing seen
+  local marker mk bline bid pipeline rundir recorded req r missing seen tallied lost
   marker="$(resolve_marker 2>/dev/null || true)"
   [ -n "$marker" ] && [ -f "$marker" ] || { echo "check-role-verdict: no active delivery run — skipping."; return 0; }
   mk="$(cat "$marker" 2>/dev/null || true)"
@@ -157,7 +198,17 @@ _gate_mode() {
   [ -n "$req" ] || req="$(required_roles_for_batch "$bid" 2>/dev/null || true)"
   [ -n "$req" ] || { echo "check-role-verdict: batch '$bid' requires no review roles — nothing to confirm."; return 0; }
 
+  # ISSUE #46 — durability cross-check. verdicts_captured lives in the RUN marker, a DIFFERENT file from
+  # verdicts.jsonl, so it survives a removal of the latter. A batch that was captured (tally > 0) but
+  # whose file records are now gone (seen < tally) was TAMPERED WITH after the fact — a distinct, named
+  # failure from one that was never captured. Both still refuse to pass; the difference is that the loss
+  # is no longer silent.
+  tallied="$(_tallied_for "$bid")"; tallied="${tallied:-0}"
+
   if [ "${seen:-0}" -eq 0 ]; then
+    if [ "$tallied" -gt 0 ]; then
+      echo "check-role-verdict: DURABILITY BREACH (#46) — $tallied verdict record(s) for batch '$bid' were captured and are still recorded in the RUN marker (verdicts_captured), but .runs/<run>/verdicts.jsonl is now empty or REMOVED. The evidence was lost AFTER capture; the marker retains proof it existed. This gate cannot re-confirm from a deleted file and does not pass on it — the removal is reported, not swallowed." >&2
+    fi
     # A gate that declares its own blindness and then passes is the green-by-skip this whole tree exists
     # to refuse (spec 021 D3, AC-6; F1; constitution P10). The sentence below is UNCHANGED — it was
     # always right, and "UNVERIFIED for this batch, not satisfied" is a description of a failure. Only
@@ -186,13 +237,17 @@ _gate_mode() {
     fi
     return 1
   fi
-  missing=""
+  missing=""; lost=""
   for r in $req; do
-    grep -qF "\"batch\":\"$bid\",\"role\":\"$r\"" "$rundir/verdicts.jsonl" 2>/dev/null \
-      || missing="${missing:+$missing }$r"
+    if grep -qF "\"batch\":\"$bid\",\"role\":\"$r\"" "$rundir/verdicts.jsonl" 2>/dev/null; then continue; fi
+    missing="${missing:+$missing }$r"
+    # ISSUE #46 — a role in the marker's verdicts_captured set but absent from verdicts.jsonl was
+    # captured and then LOST, not one that never ran. Name the two apart.
+    marker_list verdicts_captured 2>/dev/null | grep -q "\"$bid/$r\"" && lost="${lost:+$lost }$r"
   done
   if [ -n "$missing" ]; then
     echo "check-role-verdict: FAIL — batch '$bid' captured verdicts, but not from every required role. MISSING: [$missing] (required: [$req])." >&2
+    [ -n "$lost" ] && echo "check-role-verdict: DURABILITY BREACH (#46) — of the missing, [$lost] WERE captured earlier (still in the RUN marker's verdicts_captured) and have since been REMOVED from verdicts.jsonl — a lost record, not a review that never ran." >&2
     return 1
   fi
   echo "check-role-verdict: batch '$bid' — every required role returned a well-formed typed verdict [$req]. OK."
@@ -225,5 +280,8 @@ case "${1:-}" in
             cd "$1" 2>/dev/null || { echo "check-role-verdict: bad project dir '$1'" >&2; exit 64; }
           fi
           _gate_mode; exit $? ;;
+  # --hook-role SLUG: the SubagentStop hook that KNOWS its own role (declared in a review agent's
+  # frontmatter). SLUG is resolved through role_of_slug exactly like the payload path, so the two agree.
+  --hook-role) shift; _hook_mode "${1:-}" ;;
   *)      _hook_mode ;;
 esac

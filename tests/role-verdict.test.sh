@@ -91,6 +91,67 @@ for _a in "$here"/agents/*.md; do
 done
 _chk "${_inert:-none}" none "no role carries a verdict hook that cannot fail"
 
+echo "#44 — the hook identifies its role from the frontmatter, NOT from a payload field a real SubagentStop lacks:"
+# The 0-of-7 root cause: _hook_mode recovered the role ONLY from an agent_type/subagent_type field in
+# the hook stdin. A real SubagentStop/Stop payload does not carry that field (the same reason
+# record-dispatch.sh uses PreToolUse, which DOES). The frontmatter knows its own role, so it passes it
+# with --hook-role <slug>; the old tests hid the gap by fabricating agent_type in the synthetic payload.
+R44="$(mktemp -d)"
+( cd "$R44" || exit 1; git init -q; git config user.email a@b.c; git config user.name t
+  printf 'x\n' > s.txt; git add -A; git commit -q -m b; mkdir -p .runs/r
+  printf '{"run":"r","pipeline":"full","intends_code":true}\n' > .runs/r/RUN
+  printf '{"id":"B1","kind":"code","status":"announced"}\n' > .runs/r/batches.jsonl ) >/dev/null 2>&1
+printf '%s\n' '{"role":"security-reviewer","status":"completed","severity_counts":{"critical":0,"high":0,"medium":0,"low":0},"secrets_audit_passed":true}' > "$R44/tr.jsonl"
+# A realistic SubagentStop payload: transcript_path + event name, and NO agent_type/subagent_type.
+REAL_PAYLOAD="$(printf '{"hook_event_name":"SubagentStop","session_id":"s","stop_hook_active":false,"cwd":"%s","transcript_path":"%s"}' "$R44" "$R44/tr.jsonl")"
+
+rm -f "$R44/.runs/r/verdicts.jsonl"
+( cd "$R44" || exit 1; printf '%s' "$REAL_PAYLOAD" | TEAM_BOOTSTRAP_RUN=r "$V" --hook-role security-reviewer >/dev/null 2>&1 )
+_chk "$(grep -c '"role":"security-reviewer"' "$R44/.runs/r/verdicts.jsonl" 2>/dev/null || echo 0)" 1 \
+  "--hook-role names the role from the frontmatter → a realistic SubagentStop payload is captured"
+_chk "$(grep -c '"batch":"B1"' "$R44/.runs/r/verdicts.jsonl" 2>/dev/null || echo 0)" 1 \
+  "  …attributed to the in-flight batch"
+# Documents the honest limit: with no --hook-role AND a payload that lacks the type field, nothing is
+# captured — which is exactly the 0-of-7 production behaviour this fix removes.
+rm -f "$R44/.runs/r/verdicts.jsonl"
+( cd "$R44" || exit 1; printf '%s' "$REAL_PAYLOAD" | TEAM_BOOTSTRAP_RUN=r "$V" >/dev/null 2>&1 )
+_chk "$([ -f "$R44/.runs/r/verdicts.jsonl" ] && echo present || echo absent)" absent \
+  "no --hook-role and no type in the payload → nothing captured (the pre-fix production behaviour)"
+# Every review agent's frontmatter passes its own slug to --hook-role (no reliance on the payload):
+for _fa in "$here"/agents/*.md; do
+  awk '/^---$/{n++; next} n==1' "$_fa" | grep -qE '^[[:space:]]*command:.*check-role-verdict\.sh' || continue
+  _fs="${_fa##*/}"; _fs="${_fs%.md}"
+  _chk "$(awk '/^---$/{n++; next} n==1' "$_fa" | grep -qE "check-role-verdict\.sh --hook-role[[:space:]]+$_fs([[:space:]\"]|$)" && echo yes || echo no)" yes \
+    "agents/$_fs.md passes --hook-role $_fs"
+done
+rm -rf "$R44"
+
+echo "#46 — a captured verdict leaves a durable, tamper-evident record; losing verdicts.jsonl is DETECTED, not silent:"
+# Run 096 lost verdicts.jsonl mid-run while the RUN marker survived, and the loss was invisible — the
+# gate merely reverted to "unverified". The plugin never deletes the file itself, so it cannot prevent
+# an external removal; it CAN leave a record the removal does not erase. Each capture is mirrored into
+# the marker's append-only verdicts_captured list, and the gate names the loss when the file is gone.
+R46="$(mktemp -d)"
+( cd "$R46" || exit 1; git init -q; git config user.email a@b.c; git config user.name t
+  printf 'x\n' > s.txt; git add -A; git commit -q -m b; mkdir -p .runs/r
+  printf '{"run":"r","pipeline":"full","intends_code":true}\n' > .runs/r/RUN
+  printf '{"id":"B1","kind":"code","status":"announced","required_roles":["security-reviewer"]}\n' > .runs/r/batches.jsonl ) >/dev/null 2>&1
+printf '%s\n' '{"role":"security-reviewer","status":"completed","severity_counts":{"critical":0,"high":0,"medium":0,"low":0},"secrets_audit_passed":true}' > "$R46/tr.jsonl"
+R46_PAYLOAD="$(printf '{"hook_event_name":"SubagentStop","transcript_path":"%s"}' "$R46/tr.jsonl")"
+# Capture the verdict through the REAL hook (creates verdicts.jsonl AND the durable marker tally):
+( cd "$R46" || exit 1; printf '%s' "$R46_PAYLOAD" | TEAM_BOOTSTRAP_RUN=r "$V" --hook-role security-reviewer >/dev/null 2>&1 )
+_chk "$(grep -c '"role":"security-reviewer"' "$R46/.runs/r/verdicts.jsonl" 2>/dev/null || echo 0)" 1 "capture wrote verdicts.jsonl"
+_chk "$(grep -c 'B1/security-reviewer' "$R46/.runs/r/RUN" 2>/dev/null || echo 0)" 1 "capture ALSO recorded a durable tally in the RUN marker"
+# Sanity: with the file present, the gate confirms and passes.
+_chk "$( ( cd "$R46" || exit 1; TEAM_BOOTSTRAP_RUN=r "$V" --gate >/dev/null 2>&1 ); echo $? )" 0 "gate passes while verdicts.jsonl is present"
+# Now the failure mode from #46: verdicts.jsonl vanishes; the marker survives.
+rm -f "$R46/.runs/r/verdicts.jsonl"
+_gate_err46="$( ( cd "$R46" || exit 1; TEAM_BOOTSTRAP_RUN=r "$V" --gate 2>&1 >/dev/null ) )"
+_chk "$( ( cd "$R46" || exit 1; TEAM_BOOTSTRAP_RUN=r "$V" --gate >/dev/null 2>&1 ); echo $? )" 1 "a removed verdict file cannot pass the gate"
+_chk "$(printf '%s' "$_gate_err46" | grep -ciE 'REMOVED|durability breach')" 1 \
+  "the gate NAMES the loss (durability breach) instead of silently reverting to 'unverified'"
+rm -rf "$R46"
+
 echo "3.1 — the closure gate reads the recorded verdicts:"
 _chk "$(grep -qE '(^|[^a-z-])check-role-verdict\.sh' "$here/bin/verify-batch.sh" && echo yes || echo no)" yes \
   "check-role-verdict is wired into verify-batch"

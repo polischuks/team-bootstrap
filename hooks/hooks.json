@@ -27,6 +27,11 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/bin/guard-git.sh",
             "if": "Bash(git *)"
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/check-batch-confirm.sh",
+            "if": "Bash(git *)"
           }
         ]
       }
@@ -106,6 +111,10 @@
     "PostToolBatch": [
       {
         "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/delivery-resize.sh"
+          },
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/bin/check-review-batch.sh"
