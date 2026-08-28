@@ -957,17 +957,6 @@ field_in_obj() {
   return 0
 }
 
-# obj_present MK OBJ → rc 0 if MK carries a top-level "OBJ":{…} object, tolerating the space a spaced
-# writer (python json.dump's default `": "`) puts between the colon and the opening brace. THE shared,
-# whitespace-tolerant presence test for the nested marker objects (precond / preflight / *_waiver): the
-# write-guards (record_precond_ack, record_preflight_waiver) and check-delivery's "did Phase-0 run"
-# detector all route through it, so a spaced marker is never misread as "object absent". Issue #80: a
-# spaced `{"preflight": {…}}` marker false-blocked delivery with "Phase-0 gate never ran" because the old
-# per-site `*'"preflight":{'*` glob only matched the compact form, while field_in_obj (WS-4) already read
-# it — the presence test and the value read had drifted. The `[[:space:]]*` after the colon mirrors
-# field_str/field_in_obj exactly, so presence and value now agree on the same spaced/compact input.
-obj_present() { printf '%s' "$1" | grep -qE "\"$2\":[[:space:]]*\{"; }
-
 # _marker_strip_obj_key MK KEY → MK with the top-level "KEY":{…} object removed (with one separator
 # comma, so no ',,' '{,' or ',}' remains). POSITION-INDEPENDENT (unlike a `%`-suffix strip): the span is
 # found brace-balanced/string-aware, so an object written after KEY is never over-stripped. Absent KEY ⇒
@@ -1185,7 +1174,7 @@ record_precond_ack() {
   [ -n "$marker" ] && [ -f "$marker" ] || return 1
   mk="$(cat "$marker" 2>/dev/null || true)"
   [ -n "$mk" ] || return 1
-  obj_present "$mk" precond || return 1   # tolerant: compact OR spaced `"precond": {` (issue #80)
+  case "$mk" in *'"precond":{'*) : ;; *) return 1 ;; esac
   newmk="$(_marker_set_obj_scalar "$mk" precond ack "$val")" || return 1
   _marker_json_ok "$newmk" || return 1
   _marker_write "$marker" "$newmk"
@@ -1204,7 +1193,7 @@ record_preflight_waiver() {
   [ -n "$marker" ] && [ -f "$marker" ] || return 1
   mk="$(cat "$marker" 2>/dev/null || true)"
   [ -n "$mk" ] || return 1
-  obj_present "$mk" preflight || return 1   # tolerant: compact OR spaced `"preflight": {` (issue #80)
+  case "$mk" in *'"preflight":{'*) : ;; *) return 1 ;; esac
   newmk="$mk"
   newmk="$(_marker_set_obj_scalar "$newmk" preflight ack true)"            || return 1
   newmk="$(_marker_set_obj_scalar "$newmk" preflight by "\"$by\"")"        || return 1

@@ -176,7 +176,12 @@ fi
 # repeated in-delivery attempts against an unchanged registry are deduped. A stale pass is the ADR-0015
 # fail-open, so every ambiguity resolves toward re-running.
 ck=""
-if command -v gate_cache_key >/dev/null 2>&1; then
+# The gate_cache_key keys on THIS repo's tree (git), not on $root — so it is only valid when we are
+# measuring the repo itself (root="."). Given an explicit foreign root (a test fixture, whose
+# constitution/profiles are NOT in the key), the cache would collide across fixtures and serve a stale
+# pass (acceptance-caught: hook-behaviour's true-count and false-count fixtures shared one key). So the
+# cache engages ONLY for the repo's own liveness; a foreign root always executes. (#79/#64, fixed at integration.)
+if [ "$root" = "." ] && command -v gate_cache_key >/dev/null 2>&1; then
   ck="$(gate_cache_key role-liveness 'eval-role.sh --liveness')"
 fi
 if [ -n "$ck" ]; then
