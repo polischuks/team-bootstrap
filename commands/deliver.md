@@ -207,6 +207,20 @@ Then, for **each batch, one at a time**:
    `kind:code` batch closing **after** a lower-rank one (order by risk, bleeding-stopper first). This
    is the *record* of intent, not closure: only `verify-batch.sh` can flip it to `closed`
    (see [../references/enforcement.md](../references/enforcement.md), delivery-occurred layer).
+   - **Withdrawing an announced batch after a pre-code reviewer no_go (#75).** A reviewer returning
+     `no_go` on an announced batch — *before* any code is committed (e.g. `architecture-reviewer`
+     rejects the plan: wrong sink/source, the effect already exists upstream) — is a **normal,
+     expected** outcome, not a failure of the run. The sanctioned response is to **withdraw** the
+     batch and re-plan, recorded as a first-class ledger fact: **append** one line to
+     `.runs/<run>/batches.jsonl` — `{"id":"<this same batch id>","status":"withdrawn","reason":"<reviewer role> no_go: <why>. Re-planning."}`
+     — leaving the original `announced` line in place (do **not** hand-edit or delete it). This is the
+     terminal counterpart to `closed`: `check-delivery.sh` resolves each id to its **latest** status,
+     so a `withdrawn` id is **terminal** — it earns no delivery credit, and it is **not** an
+     "announced-then-abandoned" batch (nor does it count as an abandoning *later* batch for a prior
+     announced one). Withdraw with a recorded reason rather than silently dropping the announce: a
+     bare announce with no closure and a different later batch is still read as abandonment and
+     fails the run. (Parallels the `{"confirm":…}` and regression-lock records — a legitimate flow
+     action needs a recognized ledger form the gates read, not a manual ledger reset.)
 2. **Default NON-STOP — the stop is a mechanism, not this prose (#56).** A **reversible** batch
    (`risk_rank: feature|doc`, no role question) needs no operator prompt: announce it, then proceed to
    run it. The pause that matters is enforced deterministically by
