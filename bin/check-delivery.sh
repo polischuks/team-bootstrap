@@ -64,7 +64,7 @@ if [ "${1:-}" = "--self-test" ]; then
     if [ "$got" -eq "$exp" ]; then echo "  PASS (exit $got) $desc"
     else echo "  FAIL (exit $got, want $exp) $desc" >&2; fail=$((fail + 1)); fi
   }
-  _dirs="_st_ac1 _st_ac2 _st_ac4a _st_ac4b _st_ac5 _st_f2i _st_f2ii _st_ac7 _st_ac9 _st_ws _st_pfabs _st_pffail _st_pfwaiver _st_pfbareack _st_pfexpired _st_pfbad _st_pfspace_ok _st_pfspace_fail _st_confirm"
+  _dirs="_st_ac1 _st_ac2 _st_ac4a _st_ac4b _st_ac5 _st_f2i _st_f2ii _st_ac7 _st_ac9 _st_ws _st_pfabs _st_pffail _st_pfwaiver _st_pfbareack _st_pfexpired _st_pfbad _st_pfspace_ok _st_pfspace_fail _st_confirm _st_wd _st_wdrepl _st_abandon _st_wdmask"
   for d in $_dirs; do mkdir -p ".runs/$d"; done
   # F-A recompute (no marker → binding off) -----------------------------------
   printf '%s\n' '{"id":"F1","kind":"code","status":"closed","commit_shas":["deadbeef"],"code_delta":137}' > .runs/_st_ac1/batches.jsonl
@@ -152,6 +152,39 @@ if [ "${1:-}" = "--self-test" ]; then
     '{"id":"B1","kind":"code","status":"announced"}' \
     '{"confirm":"B1"}' > .runs/_st_confirm/batches.jsonl
   _expect _st_confirm 0 "#62 — announced batch + trailing confirm line → in flight (not abandoned)"
+  # #75 (a) — an announced code batch FOLLOWED BY that SAME batch's {"status":"withdrawn"} line
+  # (the sanctioned response to a pre-code reviewer no_go) is RESOLVED (terminal), NOT "announced
+  # then abandoned". The withdrawal is a second same-id line; resolving each id to its LATEST status
+  # makes the announce line stale and the id terminal — so the run is re-planning, not fail-closed.
+  printf '%s\n' '{"run":"_st_wd","intends_code":true,"source":"harness","preflight":{"exit":0,"gaps":[],"ack":false}}' > .runs/_st_wd/RUN
+  printf '%s\n%s\n' \
+    '{"id":"b1","kind":"code","status":"announced"}' \
+    '{"id":"b1","status":"withdrawn","reason":"architecture-reviewer no_go: AC-6 mismatch. Re-planning."}' > .runs/_st_wd/batches.jsonl
+  _expect _st_wd 0 "#75(a) — announced code batch + same-id withdrawn line → resolved/terminal (not abandoned)"
+  # #75 (c) — a withdrawn batch FOLLOWED BY a real replacement batch that CLOSES → passes. The
+  # withdrawn id is terminal (skipped), the replacement earns the closure.
+  printf '%s\n' '{"run":"_st_wdrepl","intends_code":true,"source":"harness","preflight":{"exit":0,"gaps":[],"ack":false}}' > .runs/_st_wdrepl/RUN
+  printf '%s\n%s\n%s\n' \
+    '{"id":"b1","kind":"code","status":"announced"}' \
+    '{"id":"b1","status":"withdrawn","reason":"reviewer no_go. Re-planning."}' \
+    '{"id":"b2","kind":"code","status":"closed","commit_shas":["'"$_c"'"],"code_delta":1}' > .runs/_st_wdrepl/batches.jsonl
+  _expect _st_wdrepl 0 "#75(c) — withdrawn batch + replacement batch that closes → delivered"
+  # #75 (b) — FALSE-PASS GUARD: a genuinely abandoned batch (announced b1, a DIFFERENT later batch
+  # b2 with NO resolution — not closed, not withdrawn) must STILL fail-closed. Withdrawal must not
+  # become a way to escape a real abandonment: the "different later non-withdrawn batch" case blocks.
+  printf '%s\n' '{"run":"_st_abandon","intends_code":true,"source":"harness","preflight":{"exit":0,"gaps":[],"ack":false}}' > .runs/_st_abandon/RUN
+  printf '%s\n%s\n' \
+    '{"id":"b1","kind":"code","status":"announced"}' \
+    '{"id":"b2","kind":"code","status":"announced"}' > .runs/_st_abandon/batches.jsonl
+  _expect _st_abandon 1 "#75(b) — announced b1 + DIFFERENT later announced b2 (no withdrawal) → b1 abandoned, blocked"
+  # #75 (b′) — FALSE-PASS GUARD, sharper: an earlier announced b1 abandoned by a later b2 that
+  # CLOSES still fails on b1 (a withdrawal elsewhere must not launder b1's abandonment). b2 closes
+  # cleanly; b1 is the never-resolved abandoned batch.
+  printf '%s\n' '{"run":"_st_wdmask","intends_code":true,"source":"harness","preflight":{"exit":0,"gaps":[],"ack":false}}' > .runs/_st_wdmask/RUN
+  printf '%s\n%s\n' \
+    '{"id":"b1","kind":"code","status":"announced"}' \
+    '{"id":"b2","kind":"code","status":"closed","commit_shas":["'"$_c"'"],"code_delta":1}' > .runs/_st_wdmask/batches.jsonl
+  _expect _st_wdmask 1 "#75(b′) — announced b1 abandoned by a later CLOSING b2 → b1 still blocked"
   # R-2 — a resolvable but UNREACHABLE-from-HEAD commit (dangling / sibling) must not close
   dangling="$(git commit-tree "HEAD^{tree}" -m "dangling probe" 2>/dev/null || true)"
   if [ -n "$dangling" ]; then
@@ -255,34 +288,75 @@ if [ -z "$ledger" ] || [ ! -f "$ledger" ]; then
   exit 0
 fi
 
-# total counts BATCH lines only — those carrying an "id" field. The ledger also holds non-batch
-# records: {"confirm":"<id>"} (the #56 per-batch confirmation append) and any future record kind.
-# Counting every non-empty line (grep -c .) inflated total, so an announced batch followed by its
-# own confirm line was no longer the last line and read as "announced then abandoned" (#62 — the
-# #56/#62 gate conflict). The ordering check below (n -eq total) and F-D likewise reason over
-# batch lines only. `"id"[[:space:]]*:` mirrors field_str's selector; a {"confirm":…} line has no "id".
-total="$(grep -cE '"id"[[:space:]]*:' "$ledger" 2>/dev/null || echo 0)"
-n=0
+# Resolve each DISTINCT batch id to its LATEST status line, then reason over BATCHES — not raw
+# line positions. The ledger is append-only; verify-batch.sh mutates a batch's announce line IN
+# PLACE to "closed", so a batch is normally ONE line. Two same-id lines occur when a batch is
+# WITHDRAWN: {"id":..,"status":"withdrawn","reason":..} is appended after the announce (the
+# sanctioned response to a pre-code reviewer no_go — see commands/deliver.md). #62 showed the old
+# position-based "an announced batch that isn't the last line ⇒ abandoned (a later batch exists)"
+# clause mis-reads a trailing same-id / non-batch record as "a later batch" — it counted b1's OWN
+# withdrawal line as the abandoning batch and fail-closed the run (#75). The cure: a WITHDRAWN id is
+# TERMINAL (like closed — not open, not abandoned) and is NOT an "abandoning later batch" for a
+# prior announced id; only an announced id whose LATEST status is still announced AND that has a
+# later DISTINCT non-withdrawn batch is abandoned. `"id"[[:space:]]*:` mirrors field_str's selector;
+# a {"confirm":…} line has no "id".
 viol=0
 first_kind=""
 any_code=0
 closed_code=0      # count of earned kind:code closures (AC-4 second case)
 inflight_code=0    # a kind:code batch legitimately in flight (bootstrap-safe)
+withdrawn_code=0   # a kind:code batch withdrawn after a reviewer no_go (terminal, re-planning; #75)
 seen_shas=""       # F-2: a commit_sha may be credited to at most one closed batch
 prev_rank=""       # F-E: rank-int of the previously-closed kind:code batch (non-increasing)
+
+# Pass 1 — id-bearing BATCH lines, in order. Non-batch records ({"confirm":…}, #56/#62) carry no
+# "id": they earn no credit and abandon nothing, so they are excluded from `total` and the scan.
+line_arr=(); id_arr=(); _li=0
 while IFS= read -r line; do
   [ -n "$line" ] || continue
   id="$(field_str "$line" id)"
-  # Skip non-batch ledger records before counting: a {"confirm":"<id>"} line (the #56 confirmation
-  # append) carries no "id", earns no delivery credit and abandons nothing. Advancing `n` on it — or
-  # letting it be the last line — is what made a confirmed in-flight batch read as abandoned (#62).
   [ -n "$id" ] || continue
-  n=$((n + 1))
-  kind="$(field_str "$line" kind)"
-  [ "$n" -eq 1 ] && first_kind="$kind"
-  [ "$kind" = "code" ] || continue   # doc batches: no delivery credit
+  line_arr[$_li]="$line"; id_arr[$_li]="$id"; _li=$((_li + 1))
+done < "$ledger"
+total=$_li   # BATCH lines only — F-D / F-P reason over batch lines, as before.
+
+# Pass 2 — one entry per DISTINCT id (first-appearance order), resolved to its LATEST line. kind
+# lives on the announce/closed line; a withdrawn line may omit it, so carry the last-seen kind.
+did_arr=(); dline_arr=(); dstatus_arr=(); dkind_arr=(); dindex_arr=(); dn=0
+_i=0
+while [ "$_i" -lt "$total" ]; do
+  bid="${id_arr[$_i]}"
+  _seen=0; _j=0
+  while [ "$_j" -lt "$dn" ]; do [ "${did_arr[$_j]}" = "$bid" ] && { _seen=1; break; }; _j=$((_j + 1)); done
+  if [ "$_seen" -eq 0 ]; then
+    _latest=-1; _k=""; _m=0
+    while [ "$_m" -lt "$total" ]; do
+      if [ "${id_arr[$_m]}" = "$bid" ]; then
+        _latest=$_m
+        _mk="$(field_str "${line_arr[$_m]}" kind)"; [ -n "$_mk" ] && _k="$_mk"
+      fi
+      _m=$((_m + 1))
+    done
+    did_arr[$dn]="$bid"; dline_arr[$dn]="${line_arr[$_latest]}"
+    dstatus_arr[$dn]="$(field_str "${line_arr[$_latest]}" status)"
+    dkind_arr[$dn]="$_k"; dindex_arr[$dn]="$_latest"; dn=$((dn + 1))
+  fi
+  _i=$((_i + 1))
+done
+first_kind="${dkind_arr[0]:-}"
+
+# Process each distinct batch by its RESOLVED latest status. `_bi` is the current index; `_b` is
+# advanced BEFORE the body so a `continue` inside the closure block (forged SHA, inflation, etc.)
+# can never skip the increment and spin — the closure block keeps its original continue semantics.
+_b=0
+while [ "$_b" -lt "$dn" ]; do
+  _bi=$_b; _b=$((_b + 1))
+  id="${did_arr[$_bi]}"
+  line="${dline_arr[$_bi]}"
+  kind="${dkind_arr[$_bi]}"
+  status="${dstatus_arr[$_bi]}"
+  if [ "$kind" != "code" ]; then continue; fi   # doc batches: no delivery credit
   any_code=1
-  status="$(field_str "$line" status)"
   if [ "$status" = "closed" ]; then
     delta="$(field_num "$line" code_delta)"; case "$delta" in ''|*[!0-9-]*) delta=0 ;; esac
     shas="$(shas_of_line "$line")"
@@ -358,14 +432,32 @@ while IFS= read -r line; do
       fi
     fi
     closed_code=$((closed_code + 1))
-  elif [ "$n" -eq "$total" ]; then
-    inflight_code=1
-    echo "check-delivery: batch '$id' in flight (status=$status) — not yet closed, allowed."
+  elif [ "$status" = "withdrawn" ]; then
+    # TERMINAL, like closed: the batch was withdrawn after a pre-code reviewer no_go. Earns no
+    # closure and abandons nothing — the run is re-planning. Counts as legitimate in-flight
+    # activity so a ledger that is only announce+withdrawn does not read as "no delivery" (#75).
+    withdrawn_code=1
+    echo "check-delivery: batch '$id' withdrawn (reason recorded) — terminal; earns no closure, abandons nothing (re-planning after a reviewer no_go)."
   else
-    echo "  UNEARNED: batch '$id' is kind:code status='$status' — announced then abandoned (a later batch exists, this one never closed)." >&2
-    viol=$((viol + 1))
+    # announced / other non-terminal. Abandoned ONLY if a later DISTINCT batch exists whose LATEST
+    # status is NOT withdrawn — a withdrawn batch is not an abandoning later batch (#75). Otherwise
+    # this is the batch legitimately in flight (bootstrap-safe: one code batch not yet closed).
+    _later=0; _c=0
+    while [ "$_c" -lt "$dn" ]; do
+      if [ "$_c" -ne "$_bi" ] && [ "${dindex_arr[$_c]}" -gt "${dindex_arr[$_bi]}" ] && [ "${dstatus_arr[$_c]}" != "withdrawn" ]; then
+        _later=1; break
+      fi
+      _c=$((_c + 1))
+    done
+    if [ "$_later" -eq 0 ]; then
+      inflight_code=1
+      echo "check-delivery: batch '$id' in flight (status=$status) — not yet closed, allowed."
+    else
+      echo "  UNEARNED: batch '$id' is kind:code status='$status' — announced then abandoned (a later distinct batch exists, this one never closed or withdrawn)." >&2
+      viol=$((viol + 1))
+    fi
   fi
-done < "$ledger"
+done
 
 # first-batch-must-be-code: a run that delivers ANY code must open with code, not
 # docs — the load-bearing code leads, documentation does not front-run it.
@@ -378,7 +470,7 @@ fi
 # earned code closure and nothing in flight — e.g. only kind:doc closures. A run that
 # intends code but delivered none is a failure, not a pass. Bootstrap-safe: a single
 # code batch legitimately in flight (inflight_code) is NOT penalised.
-if [ "$intends" = "true" ] && [ "$closed_code" -eq 0 ] && [ "$inflight_code" -eq 0 ] && [ "$csb" -eq 0 ]; then
+if [ "$intends" = "true" ] && [ "$closed_code" -eq 0 ] && [ "$inflight_code" -eq 0 ] && [ "$withdrawn_code" -eq 0 ] && [ "$csb" -eq 0 ]; then
   echo "  FAIL-CLOSED: active delivery run (intends_code:true) with zero earned kind:code closures, nothing in flight, and no code committed since baseline — no delivery occurred (AC-4)." >&2
   viol=$((viol + 1))
 fi
@@ -400,7 +492,7 @@ fi
 # regressed: those have no code batch here and the clause is inert (D10). Absent preflight on such a run
 # is "the gate never ran" ⇒ fail-closed, not a silent pass (P10 / AC-6). Object-scoped reads (drift #2)
 # keep this from cross-reading precond's exit/ack.
-if [ "$intends" = "true" ] && [ "$((closed_code + inflight_code))" -ge 1 ]; then
+if [ "$intends" = "true" ] && [ "$((closed_code + inflight_code + withdrawn_code))" -ge 1 ]; then
   if [ "$preflight_present" -ne 1 ]; then
     echo "  BLOCKED: Phase-0 setup-readiness gate never ran — no preflight verdict in the run marker, but a kind:code batch is present. Run bin/check-preflight.sh before Phase B (AC-6; a skipped Phase 0 is a failure, not a pass — P10)." >&2
     viol=$((viol + 1))
