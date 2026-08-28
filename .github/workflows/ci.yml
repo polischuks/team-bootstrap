@@ -58,3 +58,24 @@ jobs:
               print("BROKEN LINKS:\n" + "\n".join(broken)); sys.exit(1)
           print(f"  ok  no broken internal links ({len(glob.glob('**/*.md', recursive=True))} files)")
           PY
+
+  suite:
+    name: "Test suite (AGENTS.md Test: bin/run-tests.sh)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The runner decides red/green for every gate, so prove the runner itself FIRST: if it is
+      # broken, the suite result below is meaningless. These two proofs are excluded from the sweep
+      # (to avoid re-entry) and were invoked by nothing until now (issue #54).
+      - name: Test runner's own proofs
+        run: |
+          bash bin/run-tests.sh --self-test
+          bash tests/run-tests.test.sh
+
+      # The declared Test: suite — 36 tests/*.test.sh + 29 bin/*.sh --self-test. A red member exits
+      # non-zero and fails this required check; the runner prints `run-tests: FAIL test — <name>` to
+      # stderr, so the failing member is named in the log (issue #53). --jobs is left to the runner's
+      # auto-detect (CPU count capped at 8); GitHub runners have 2-4 cores.
+      - name: Suite
+        run: bin/run-tests.sh

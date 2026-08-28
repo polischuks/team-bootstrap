@@ -42,6 +42,9 @@ bin/check-role-verdict.sh
 bin/judge-tier.sh
 # read-only reporter over the ledgers; listed because shrinking a metric hides a regression
 bin/delivery-metrics.sh
+# the declared Test: runner — decides red/green for every gate's evidence; loosening its member
+# matcher or dropping its failure propagation reports green while running less than it claims (#54)
+bin/run-tests.sh
 # session / compaction / batch / task hook bodies (roles-alive item 2)
 bin/session-context.sh
 bin/check-review-batch.sh
