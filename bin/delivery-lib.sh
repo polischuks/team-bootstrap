@@ -1351,6 +1351,23 @@ $(grep -vE '^[[:space:]]*(#|$)' "$f" 2>/dev/null)
 EOF
 }
 
+# required_fields_for ROLE → the space-separated field names references/schemas/role-output.schema.json
+# requires of ROLE's typed verdict (empty for a role the schema does not name). ISSUE #88 — the required
+# shape used to be discoverable only by hitting a rejection from --record; lifting the reader into the
+# library lets the reviewer's own brief (subagent-brief.sh) state the shape UPFRONT, from the SAME source
+# check-role-verdict validates against, so a first-time verdict is produced right rather than by round-trip.
+required_fields_for() {
+  local _schema
+  _schema="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../references/schemas/role-output.schema.json"
+  [ -n "$1" ] || return 0
+  python3 -c 'import json,sys
+try: d=json.load(open(sys.argv[1]))["$defs"].get(sys.argv[2],{})
+except Exception: sys.exit(0)
+out=[]
+for b in d.get("allOf",[]): out += b.get("required",[])
+print(" ".join(out))' "$_schema" "$1" 2>/dev/null || true
+}
+
 # mandated_roles PIPELINE → the review roles a pipeline REQUIRES dispatched (space-separated), else empty.
 # full → all four; mvp → the code-reviewer+regression-guardian subset; single-thread/unknown → none.
 mandated_roles() {

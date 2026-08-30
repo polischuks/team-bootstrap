@@ -296,6 +296,11 @@ Then, for **each batch, one at a time**:
    and on success writes the record `verify-batch` reads — so the batch closes on a **real recorded
    verdict, not a waiver**. Record the verdict of a review that genuinely ran; never fabricate one to clear
    the gate (a skipped role stays blocked by design — dispatch it instead).
+   **Know the shape before you record (#88).** Each role requires role-specific fields. Get them upfront —
+   `${CLAUDE_PLUGIN_ROOT}/bin/check-role-verdict.sh --fields <role>` prints exactly what that role's
+   verdict must carry — instead of discovering them by hitting a rejection. The reviewer is also told its
+   own required shape in its dispatch brief (SubagentStart), so a verdict that comes back should already
+   fit; if you must record by hand, `--fields` is the reference.
    *(Caveat: two of them execute test suites — on a machine where those are CPU-bound, expect
    contention rather than a clean 4× win. The saving is in the reasoning time, which dominates.)*
    **Reviewers flag only what affects correctness or the stated requirements.** A reviewer asked to

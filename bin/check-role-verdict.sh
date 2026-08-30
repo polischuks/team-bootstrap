@@ -43,7 +43,8 @@ here="$(cd "$(dirname "$0")" && pwd)"
 # working escape, so it refuses. Absent (exit 0) and stating so is the honest report of a gate that
 # could not start; a gate that CAN start and cannot confirm must refuse.
 . "$here/delivery-lib.sh" 2>/dev/null || { echo "$(basename "$0"): delivery-lib.sh is unreadable — this gate cannot evaluate and is NOT passing; it is absent (AC-48)." >&2; exit 0; }
-SCHEMA="$here/../references/schemas/role-output.schema.json"
+# required_fields_for lives in delivery-lib.sh (#88) — ONE source, shared with subagent-brief.sh so the
+# reviewer's brief can state the verdict shape upfront and this gate validates against the same schema.
 
 # _record_verdict_tally BATCH ROLE — ISSUE #46: mirror a confirmed capture into a DURABLE, tamper-evident
 # record that survives a removal of verdicts.jsonl. That file lost 4 records mid-run (run 096) while the
@@ -166,17 +167,9 @@ if [ "${1:-}" = "--waive" ]; then
 fi
 
 
-# required_fields_for ROLE → space-separated field names role-output.schema.json requires of ROLE.
-# Empty when the role is unknown or declares none (in which case there is nothing to confirm and the
-# role is not eligible for the profile map — see tests/roles-alive.test.sh criterion 6).
-required_fields_for() {
-  python3 -c 'import json,sys
-try: d=json.load(open(sys.argv[1]))["$defs"].get(sys.argv[2],{})
-except Exception: sys.exit(0)
-out=[]
-for b in d.get("allOf",[]): out += b.get("required",[])
-print(" ".join(out))' "$SCHEMA" "$1" 2>/dev/null || true
-}
+# required_fields_for ROLE — moved to delivery-lib.sh (#88) as the single source shared with
+# subagent-brief.sh. Empty when the role is unknown or declares none (nothing to confirm; the role is
+# not eligible for the profile map — see tests/roles-alive.test.sh criterion 6).
 
 # _verdict_obj TRANSCRIPT ROLE → the LAST JSON object in TRANSCRIPT whose "role" is ROLE (empty if none).
 # Scans the raw text rather than assuming a transcript schema: the shape of a transcript file is not a
@@ -459,6 +452,12 @@ case "${1:-}" in
             cd "$1" 2>/dev/null || { echo "check-role-verdict: bad project dir '$1'" >&2; exit 64; }
           fi
           _gate_mode; exit $? ;;
+  # --fields ROLE|SLUG (#88): print the verdict fields the role's own schema requires, WITHOUT needing a
+  # verdict — the upfront lookup that removes the discover-by-rejection round-trip. Accepts a dispatch
+  # slug or a bare role name (resolved through the same role_of_slug the record/hook paths use).
+  --fields) shift
+            _fr="$(role_of_slug "${1:-}" 2>/dev/null || true)"; [ -n "$_fr" ] || _fr="${1:-}"
+            required_fields_for "$_fr"; exit 0 ;;
   # --record ROLE (verdict JSON on stdin): the SYNCHRONOUS orchestrator channel (#81). Writes a confirmed
   # verdict to verdicts.jsonl at a point that reliably happens (the orchestrator, after a review returns),
   # independent of the flaky SubagentStop. See _record_mode's header for the honest mechanism.

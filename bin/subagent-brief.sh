@@ -71,6 +71,12 @@ ctx="$ctx Review roles sized for this batch: ${sized:-unsized}."
 ctx="$ctx Reviewer dispatches recorded so far: ${covered:-none}."
 ctx="$ctx Review depth for this batch: $(review_depth_for_tier "$btier") on the /code-review low-medium-high scale (batch tier ${btier:-unresolved}; run pipeline ${pipeline:-unresolved})."
 ctx="$ctx This batch's diff is the review window; check-role-dispatch reads the recorded set at close."
+# #88 — state the verdict SHAPE upfront so the reviewer emits it right the first time, from the SAME
+# schema check-role-verdict validates against; no discover-by-rejection round-trip. `role` here is the
+# dispatch slug; resolve it to the review-type name the schema keys on. Silent when the role names none.
+_vrole="$(role_of_slug "$role" 2>/dev/null || true)"; [ -n "$_vrole" ] || _vrole="$role"
+_vfields="$(required_fields_for "$_vrole" 2>/dev/null || true)"
+[ -n "$_vfields" ] && ctx="$ctx This role's verdict must be a JSON object carrying \"role\":\"$_vrole\" and the field(s): $_vfields (references/schemas/role-output.schema.json); the orchestrator records it with check-role-verdict --record $_vrole."
 
 # json_esc / emit_hook_context live in delivery-lib.sh. delivery-marker-init.sh keeps private copies on
 # purpose: it runs on EVERY UserPromptSubmit and stays dependency-free, so a defect in the library
