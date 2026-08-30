@@ -468,8 +468,65 @@ profile_roles_for_batch() {
   roles_for_categories "$reasons"
 }
 
+# batch_effective_tier BATCH_ID → the sizing tier this batch's diff has EARNED: single-thread | mvp |
+# full, or EMPTY when it cannot be resolved (no ledger, no line, or a doc batch). It is the per-batch
+# analogue of the run marker's `pipeline` field: select-pipeline reads the batch DIFF, then the
+# spec-plan tier (spec_plan_tier_for_batch) and the model judgement (tier-judgment) each apply as a
+# one-directional FLOOR that may LIFT the tier and never lower it (ADR-0018/0019).
+#
+# Extracted (#84) so DEPTH and ROLES derive from ONE number. required_roles_for_batch used to compute
+# this tier privately for the role set while subagent-brief handed every reviewer the RUN pipeline's
+# depth — so a reversible feature batch inside a `full` run was billed `high` review on the /code-review
+# scale regardless of its own size. Now both callers read this function: a reversible batch is billed
+# its own lower depth, and a batch whose diff or plan names a risk is lifted, in lock-step with roles.
+#
+# EMPTY is deliberate and safe: it is exactly the value the old inline block left `tier` at when
+# select-pipeline said nothing, so tier_base_roles sees the same input as before (roles unchanged), and
+# review_depth_for_tier maps empty → `high` (fail-CLOSED to the strictest depth).
+batch_effective_tier() {
+  local bid="$1" ledger line l kind tier here_ plan ptier prank drank jtier jrank jf
+  [ -n "$bid" ] || return 0
+  ledger="$(resolve_ledger)"; [ -n "$ledger" ] && [ -f "$ledger" ] || return 0
+  line=""
+  # `|| [ -n "$l" ]` is load-bearing: a final line with NO trailing newline is otherwise dropped, and a
+  # freshly-announced entry (authored by the orchestrator) is exactly that.
+  while IFS= read -r l || [ -n "$l" ]; do
+    [ -n "$l" ] || continue
+    [ "$(field_str "$l" id)" = "$bid" ] && line="$l"
+  done < "$ledger"
+  [ -n "$line" ] || return 0
+  kind="$(field_str "$line" kind)"
+  [ "$kind" = "doc" ] && return 0                     # docs earn no review fan-out → no depth
+  here_="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  tier="$("$here_/select-pipeline.sh" --batch "$bid" 2>/dev/null | sed -nE 's/.*RECOMMENDED pipeline: ([a-z-]+).*/\1/p' | tail -1)"
+  # ADR-0018 — the spec-planned tier is a FLOOR the diff may LIFT but never lower. One-directional on
+  # purpose: text-sourced sizing can under-state a risk the spec never names as a path (R2), so the
+  # diff stays the backstop; and a plan that over-states can only cost review, never skip it.
+  plan="$(spec_plan_tier_for_batch "$bid" 2>/dev/null || true)"
+  ptier="$(printf '%s' "$plan" | cut -f1)"
+  if [ -n "$ptier" ]; then
+    prank="$(_tier_rank "$ptier")"; drank="$(_tier_rank "$tier")"
+    [ -n "$prank" ] && [ "$prank" -gt "${drank:-0}" ] && tier="$ptier"
+  fi
+  # Model judgement (bin/judge-tier.sh) applies with the SAME one-directional discipline and for the
+  # same reason: the path classifier is blind to what a milestone DOES, and a judgement that could lower
+  # the tier would turn a blind spot into a bypass. It may raise; it may never lower. Absent, unreadable
+  # or unrecognised ⇒ no effect whatsoever.
+  jf="$(dirname "$(resolve_marker 2>/dev/null || true)")/tier-judgment"
+  if [ -f "$jf" ]; then
+    jtier="$(sed -n 's/^tier=//p' "$jf" 2>/dev/null | head -1)"
+    case "$jtier" in
+      single-thread|mvp|full)
+        jrank="$(_tier_rank "$jtier")"; drank="$(_tier_rank "$tier")"
+        [ -n "$jrank" ] && [ "$jrank" -gt "${drank:-0}" ] && tier="$jtier" ;;
+      *) : ;;                                   # unrecognised ⇒ ignored, never a guess
+    esac
+  fi
+  printf '%s' "$tier"
+}
+
 required_roles_for_batch() {
-  local bid="$1" ledger line l kind tier here_
+  local bid="$1" ledger line l kind tier
   ledger="$(resolve_ledger)"; [ -n "$ledger" ] && [ -f "$ledger" ] || return 0
   line=""
   # `|| [ -n "$l" ]` is load-bearing: a final line with NO trailing newline is otherwise dropped, and a
@@ -485,33 +542,13 @@ required_roles_for_batch() {
   [ -n "$line" ] || { printf 'code-reviewer'; return 0; }
   kind="$(field_str "$line" kind)"
   [ "$kind" = "doc" ] && return 0                     # docs earn no review fan-out
-  here_="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  tier="$("$here_/select-pipeline.sh" --batch "$bid" 2>/dev/null | sed -nE 's/.*RECOMMENDED pipeline: ([a-z-]+).*/\1/p' | tail -1)"
-  # ADR-0018 — the spec-planned tier is a FLOOR the diff may LIFT but never lower. One-directional on
-  # purpose: text-sourced sizing can under-state a risk the spec never names as a path (R2), so the
-  # diff stays the backstop; and a plan that over-states can only cost review, never skip it.
-  local plan ptier proles prank drank base r out=""
+  # The batch's effective tier — select-pipeline diff sizing lifted by the spec-plan and judge floors —
+  # is now the SINGLE source shared with the per-reviewer depth (#84). `proles` (the plan's ROLE list)
+  # is still unioned in below; the plan's TIER is already folded into `tier` by batch_effective_tier.
+  tier="$(batch_effective_tier "$bid")"
+  local plan proles base r out=""
   plan="$(spec_plan_tier_for_batch "$bid" 2>/dev/null || true)"
-  ptier="$(printf '%s' "$plan" | cut -f1)"; proles="$(printf '%s' "$plan" | cut -f2)"
-  if [ -n "$ptier" ]; then
-    prank="$(_tier_rank "$ptier")"; drank="$(_tier_rank "$tier")"
-    [ -n "$prank" ] && [ "$prank" -gt "${drank:-0}" ] && tier="$ptier"
-  fi
-  # Model judgement (bin/judge-tier.sh) applies with the SAME one-directional discipline and for the
-  # same reason: the path classifier is blind to what a milestone DOES, and a judgement that could lower
-  # the tier would turn a blind spot into a bypass. It may raise; it may never lower. Absent, unreadable
-  # or unrecognised ⇒ no effect whatsoever.
-  local jtier jrank jf
-  jf="$(dirname "$(resolve_marker 2>/dev/null || true)")/tier-judgment"
-  if [ -f "$jf" ]; then
-    jtier="$(sed -n 's/^tier=//p' "$jf" 2>/dev/null | head -1)"
-    case "$jtier" in
-      single-thread|mvp|full)
-        jrank="$(_tier_rank "$jtier")"; drank="$(_tier_rank "$tier")"
-        [ -n "$jrank" ] && [ "$jrank" -gt "${drank:-0}" ] && tier="$jtier" ;;
-      *) : ;;                                   # unrecognised ⇒ ignored, never a guess
-    esac
-  fi
+  proles="$(printf '%s' "$plan" | cut -f2)"
   base="$(tier_base_roles "$tier")"
   # roles-alive phase 2 — the tier decides DEPTH; the risk CATEGORIES decide composition. The classifier
   # already computes five (security/auth, data/schema, infra/deploy, api/contract, deps) and used to

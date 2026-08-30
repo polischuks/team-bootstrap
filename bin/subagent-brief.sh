@@ -57,13 +57,19 @@ sized="$(required_roles_recorded "$bid" 2>/dev/null || true)"
 [ -n "$sized" ] || sized="$(required_roles_for_batch "$bid" 2>/dev/null || true)"
 covered="$(roles_covered "$bid" 2>/dev/null || true)"
 pipeline="$(field_str "$mk" pipeline)"
+# Depth follows the BATCH, not the run (#84). batch_effective_tier is the same per-batch tier that sizes
+# the role set above, so depth and roles move together: a reversible feature batch is billed its own
+# lower /code-review depth, a batch whose diff or plan names a risk is lifted. Unresolvable ⇒ fall back
+# to the run pipeline (a known-good default), never silently lower than what the batch resolves to.
+btier="$(batch_effective_tier "$bid" 2>/dev/null || true)"
+[ -n "$btier" ] || btier="$pipeline"
 
 # FACT STATEMENTS, never imperatives: additionalContext phrased as out-of-band instructions trips the
 # prompt-injection defence, after which the text is shown to the user instead of accepted as context.
 ctx="team-bootstrap brief for $role on batch $bid (pipeline=$pipeline)."
 ctx="$ctx Review roles sized for this batch: ${sized:-unsized}."
 ctx="$ctx Reviewer dispatches recorded so far: ${covered:-none}."
-ctx="$ctx Review depth for this tier: $(review_depth_for_tier "$pipeline") on the /code-review low-medium-high scale."
+ctx="$ctx Review depth for this batch: $(review_depth_for_tier "$btier") on the /code-review low-medium-high scale (batch tier ${btier:-unresolved}; run pipeline ${pipeline:-unresolved})."
 ctx="$ctx This batch's diff is the review window; check-role-dispatch reads the recorded set at close."
 
 # json_esc / emit_hook_context live in delivery-lib.sh. delivery-marker-init.sh keeps private copies on
