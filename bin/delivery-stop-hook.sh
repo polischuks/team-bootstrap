@@ -311,6 +311,26 @@ if [ "$announced_code" -gt 0 ]; then
   [ "$waiting" -eq 0 ] && reviewers_in_flight && waiting=1
 fi
 
+# ISSUE #87 — PHASE A IS NOT ABANDONMENT. Before any batch is announced and before any code is
+# committed, an armed run is doing clarify/plan/tasks/architecture-review: it has NOT reached the
+# Phase-B decision point where "finished Phase A, then skipped Phase B" (the failure this hook exists to
+# catch) becomes possible. A Stop here is a legitimate mid-Phase-A yield (a clarify question, a pause),
+# and it was blocked every turn — dozens of wasted exit-2 cycles per run.
+# The OBSERVABLE that tells mid-Phase-A from finished-A-skipped-B (R3, never a declared field): Phase A's
+# terminal artefact tasks.md is not yet on disk beside the milestone. Once tasks.md exists, Phase A is
+# done and this relaxation LIFTS — a run that then announces nothing and ships nothing blocks exactly as
+# before. Scoped to "nothing delivered": no announced/closed code batch AND no code since baseline, so
+# there is never code to lose. A run with no milestone path at all (feature=unknown / the line-116
+# "delivered nothing" shape) is not in Phase A and is unaffected — it still blocks.
+if [ "$waiting" -eq 0 ] && [ "$announced_code" -eq 0 ] && [ "$closed_code" -eq 0 ] && [ "$csb" -eq 0 ]; then
+  _pa_path="$(field_str "$mk" spec_path)"
+  [ -n "$_pa_path" ] || _pa_path="$(field_str "$mk" feature)"
+  case "$_pa_path" in
+    ""|unknown) : ;;                                          # no milestone to plan → not Phase A
+    *) [ -f "$(dirname "$_pa_path")/tasks.md" ] || waiting=1 ;;   # tasks.md not yet produced → Phase A in progress
+  esac
+fi
+
 # BLOCK when: an announced code batch is still unclosed AND the run is not merely waiting; OR no earned
 # closure exists, the csb allowance does not apply (prong 1), and the run is not waiting; OR the
 # run-close reviewer floor is unmet (prong 2).
