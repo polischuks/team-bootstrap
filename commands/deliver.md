@@ -329,7 +329,12 @@ Then, for **each batch, one at a time**:
    [../references/regression-and-invariants.md](../references/regression-and-invariants.md).
    Then the **machine backstop (hard):** run `${CLAUDE_PLUGIN_ROOT}/bin/verify-batch.sh` — the same
    script CI runs — which re-checks the OUTCOMES (dead code / drift / green-by-skip) regardless of
-   which roles ran. A non-zero exit blocks the batch. The reviewer roles can be skipped by an LLM;
+   which roles ran. A non-zero exit blocks the batch.
+   **Give it room to finish (#90).** It runs the full `Test:` suite plus the whole gate cascade, which
+   routinely exceeds the Bash tool's ~2-minute default timeout. Invoke it with an explicit long
+   timeout (e.g. `timeout: 600000`) **or** run it in the background — a verify killed by the default
+   timeout reads as a *failure* and forces a full re-run of suite+gates (the repeated-work cost of #86).
+   A slow-but-passing verify is a pass, not a timeout. The reviewer roles can be skipped by an LLM;
    this script and CI cannot ([../references/enforcement.md](../references/enforcement.md)). On pass
    it also runs `check-delivery` (no prior kind:code batch announced-but-never-closed) and **stamps
    this batch `closed`** in the ledger with `commit_shas` + `code_delta` — closure becomes a recorded
