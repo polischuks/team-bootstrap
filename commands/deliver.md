@@ -260,6 +260,27 @@ Then, for **each batch, one at a time**:
    carries the failing test. `check-tdd.sh` (in `verify-batch`, below)
    fails the batch if this code batch has no red recorded before its own commits — every code batch must
    be red-first in its own window (see [../references/tdd.md](../references/tdd.md)).
+   **Emergent / verification batch — no honest red? Lock it, don't hide it (#89).** Some legitimate
+   `kind:code` batches have NO natural red: an *emergent* batch whose property is already satisfied
+   because earlier batches were correct, or a pure *verification* batch that only adds a test pinning an
+   already-correct behaviour. Do **not** fabricate a red, and do **not** fold the work into a doc batch to
+   dodge the gate. Ship it as `kind:code` with the **regression-lock** form (#67): commit the test that
+   pins the property, then run `${CLAUDE_PLUGIN_ROOT}/bin/check-tdd.sh --record-lock --batch <id>` with the
+   locked behaviour **mutated** (uncommitted) in the tree — the lock must REDDEN under the mutation
+   (mutation-kill proof), then revert so HEAD is green. `check-tdd` accepts a code batch on **either** a
+   red record **or** a lock record; the lock test need not precede the code (a lock *is* a test). This is
+   the honest proof for a green-on-arrival property — see [../references/tdd.md](../references/tdd.md).
+   **Scoped suite for the inner loop; full suite only at close (#86).** The full `Test:` suite is
+   load-bearing at exactly one place: batch **close** (`verify-batch`, which runs it whole). Re-running
+   the whole suite on every red observation and every green iteration is the single largest time sink of
+   a run. So iterate fast on the **affected subset**: pass the batch's touched test path(s) to
+   `--record-red --scope "<paths>"` — it appends them to *your* `Test:` runner (e.g.
+   `… --record-red --batch B2 --scope "tests/test_foo.py"`), observes the red on that subset, and applies
+   the same #68 wrong-cause and F1 red-touches-tests bars; seeing one new test fail never needed the
+   whole suite. Use the same scoped invocation for your own green-iteration feedback. Do **not** run
+   `verify-batch` until you are green — it is the close gate, and it runs the full suite by design.
+   (Note: `bin/run-tests.sh --changed` is team-bootstrap's OWN self-test runner — it has nothing to do
+   with a target repo's `Test:` suite and must not be invoked for a delivery.)
 5. **`full` means the HARNESS sizes each batch — not "four roles every time" (#27).**
    At announce, the harness computes this batch's required review roles from **its own diff and its
    declared `risk_rank`** (`required_roles_for_batch`, recorded on the ledger entry) — because the
@@ -296,6 +317,11 @@ Then, for **each batch, one at a time**:
    and on success writes the record `verify-batch` reads — so the batch closes on a **real recorded
    verdict, not a waiver**. Record the verdict of a review that genuinely ran; never fabricate one to clear
    the gate (a skipped role stays blocked by design — dispatch it instead).
+   **Know the shape before you record (#88).** Each role requires role-specific fields. Get them upfront —
+   `${CLAUDE_PLUGIN_ROOT}/bin/check-role-verdict.sh --fields <role>` prints exactly what that role's
+   verdict must carry — instead of discovering them by hitting a rejection. The reviewer is also told its
+   own required shape in its dispatch brief (SubagentStart), so a verdict that comes back should already
+   fit; if you must record by hand, `--fields` is the reference.
    *(Caveat: two of them execute test suites — on a machine where those are CPU-bound, expect
    contention rather than a clean 4× win. The saving is in the reasoning time, which dominates.)*
    **Reviewers flag only what affects correctness or the stated requirements.** A reviewer asked to
@@ -329,7 +355,12 @@ Then, for **each batch, one at a time**:
    [../references/regression-and-invariants.md](../references/regression-and-invariants.md).
    Then the **machine backstop (hard):** run `${CLAUDE_PLUGIN_ROOT}/bin/verify-batch.sh` — the same
    script CI runs — which re-checks the OUTCOMES (dead code / drift / green-by-skip) regardless of
-   which roles ran. A non-zero exit blocks the batch. The reviewer roles can be skipped by an LLM;
+   which roles ran. A non-zero exit blocks the batch.
+   **Give it room to finish (#90).** It runs the full `Test:` suite plus the whole gate cascade, which
+   routinely exceeds the Bash tool's ~2-minute default timeout. Invoke it with an explicit long
+   timeout (e.g. `timeout: 600000`) **or** run it in the background — a verify killed by the default
+   timeout reads as a *failure* and forces a full re-run of suite+gates (the repeated-work cost of #86).
+   A slow-but-passing verify is a pass, not a timeout. The reviewer roles can be skipped by an LLM;
    this script and CI cannot ([../references/enforcement.md](../references/enforcement.md)). On pass
    it also runs `check-delivery` (no prior kind:code batch announced-but-never-closed) and **stamps
    this batch `closed`** in the ledger with `commit_shas` + `code_delta` — closure becomes a recorded

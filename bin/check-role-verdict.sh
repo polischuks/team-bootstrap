@@ -43,7 +43,8 @@ here="$(cd "$(dirname "$0")" && pwd)"
 # working escape, so it refuses. Absent (exit 0) and stating so is the honest report of a gate that
 # could not start; a gate that CAN start and cannot confirm must refuse.
 . "$here/delivery-lib.sh" 2>/dev/null || { echo "$(basename "$0"): delivery-lib.sh is unreadable — this gate cannot evaluate and is NOT passing; it is absent (AC-48)." >&2; exit 0; }
-SCHEMA="$here/../references/schemas/role-output.schema.json"
+# required_fields_for lives in delivery-lib.sh (#88) — ONE source, shared with subagent-brief.sh so the
+# reviewer's brief can state the verdict shape upfront and this gate validates against the same schema.
 
 # _record_verdict_tally BATCH ROLE — ISSUE #46: mirror a confirmed capture into a DURABLE, tamper-evident
 # record that survives a removal of verdicts.jsonl. That file lost 4 records mid-run (run 096) while the
@@ -54,13 +55,44 @@ SCHEMA="$here/../references/schemas/role-output.schema.json"
 # erase: an append-only `verdicts_captured` set in the marker (rewritten atomically like every other
 # marker field, via record_marker_list). The gate then reads the two together and can tell "captured
 # then lost" from "never captured" — the same durability the project already gives gate outcomes.
+# ISSUE #83 — the durable tally must survive a marker rewrite. #46 mirrored each capture into a
+# `verdicts_captured` RUN-marker FIELD, but the marker is rewritten on many events (re-arm, resize,
+# operator reconcile) and a rewrite that reconstructs it from a fixed field list drops the tally
+# silently — observed live on run 177, where closed batches' entries were gone from the field while
+# verdicts.jsonl kept all. The exact dropping writer was not reproducible in a fixture, so the fix does
+# not depend on naming it: the tally now ALSO lives in a marker-INDEPENDENT append-only sidecar that no
+# marker rewrite can touch. It is a DIFFERENT file from verdicts.jsonl, so #46's whole point — proving a
+# capture happened after verdicts.jsonl is wiped — still holds.
+_captured_sidecar() {
+  local marker; marker="$(resolve_marker 2>/dev/null || true)"
+  [ -n "$marker" ] || return 0
+  printf '%s' "$(dirname "$marker")/verdicts-captured.jsonl"
+}
+
+# _captured_all → every captured token ("bid/role", quoted), the UNION of the durable sidecar and the
+# legacy marker field, deduped. ONE reader for the tally so the count and the breach checks agree, and
+# so a run written before the sidecar existed (marker field only) still reads correctly.
+_captured_all() {
+  local sc; sc="$(_captured_sidecar 2>/dev/null || true)"
+  {
+    [ -n "$sc" ] && [ -f "$sc" ] && grep -oE '"[^"]+/[^"]+"' "$sc" 2>/dev/null
+    marker_list verdicts_captured 2>/dev/null | grep -oE '"[^"]+/[^"]+"'
+  } | sort -u
+}
+
 _record_verdict_tally() {
-  local bid="$1" role="$2" token cur body
+  local bid="$1" role="$2" token sc cur body
   [ -n "$bid" ] && [ -n "$role" ] || return 0
   token="\"$bid/$role\""
+  case "$(_captured_all 2>/dev/null)" in *"$token"*) return 0 ;; esac   # a set: never double-count a re-run
+  # The durable store: append-only, marker-independent. This is the write #83 makes load-bearing.
+  sc="$(_captured_sidecar 2>/dev/null || true)"
+  [ -n "$sc" ] && { printf '{"token":%s}\n' "$token" >> "$sc" 2>/dev/null || true; }
+  # The legacy marker mirror is kept best-effort: backward compatibility for readers that still look at
+  # the field, and belt-and-suspenders durability. A drop of THIS no longer loses the tally (#83).
   cur="$(marker_list verdicts_captured 2>/dev/null || true)"
   [ -n "$cur" ] || cur="[]"
-  case "$cur" in *"$token"*) return 0 ;; esac      # the list is a set: never double-count a re-run
+  case "$cur" in *"$token"*) return 0 ;; esac
   if [ "$cur" = "[]" ]; then
     record_marker_list verdicts_captured "[$token]" 2>/dev/null || true
   else
@@ -69,9 +101,9 @@ _record_verdict_tally() {
   fi
 }
 
-# _tallied_for BATCH → count of verdicts_captured entries recorded for BATCH (durable, marker-side).
+# _tallied_for BATCH → count of durable-tally entries recorded for BATCH (sidecar ∪ marker field, #83).
 _tallied_for() {
-  marker_list verdicts_captured 2>/dev/null | grep -oE "\"$1/[^\"]*\"" | grep -c . || true
+  _captured_all 2>/dev/null | grep -oE "\"$1/[^\"]*\"" | grep -c . || true
 }
 
 # _persist_verdict BATCH ROLE RUNDIR — the ONE write that makes a confirmed verdict a fact the --gate
@@ -135,17 +167,9 @@ if [ "${1:-}" = "--waive" ]; then
 fi
 
 
-# required_fields_for ROLE → space-separated field names role-output.schema.json requires of ROLE.
-# Empty when the role is unknown or declares none (in which case there is nothing to confirm and the
-# role is not eligible for the profile map — see tests/roles-alive.test.sh criterion 6).
-required_fields_for() {
-  python3 -c 'import json,sys
-try: d=json.load(open(sys.argv[1]))["$defs"].get(sys.argv[2],{})
-except Exception: sys.exit(0)
-out=[]
-for b in d.get("allOf",[]): out += b.get("required",[])
-print(" ".join(out))' "$SCHEMA" "$1" 2>/dev/null || true
-}
+# required_fields_for ROLE — moved to delivery-lib.sh (#88) as the single source shared with
+# subagent-brief.sh. Empty when the role is unknown or declares none (nothing to confirm; the role is
+# not eligible for the profile map — see tests/roles-alive.test.sh criterion 6).
 
 # _verdict_obj TRANSCRIPT ROLE → the LAST JSON object in TRANSCRIPT whose "role" is ROLE (empty if none).
 # Scans the raw text rather than assuming a transcript schema: the shape of a transcript file is not a
@@ -389,9 +413,9 @@ _gate_mode() {
   for r in $req; do
     if grep -qF "\"batch\":\"$bid\",\"role\":\"$r\"" "$rundir/verdicts.jsonl" 2>/dev/null; then continue; fi
     missing="${missing:+$missing }$r"
-    # ISSUE #46 — a role in the marker's verdicts_captured set but absent from verdicts.jsonl was
-    # captured and then LOST, not one that never ran. Name the two apart.
-    marker_list verdicts_captured 2>/dev/null | grep -q "\"$bid/$r\"" && lost="${lost:+$lost }$r"
+    # ISSUE #46/#83 — a role in the durable tally (sidecar ∪ marker field) but absent from verdicts.jsonl
+    # was captured and then LOST, not one that never ran. Name the two apart.
+    _captured_all 2>/dev/null | grep -q "\"$bid/$r\"" && lost="${lost:+$lost }$r"
   done
   if [ -n "$missing" ]; then
     echo "check-role-verdict: FAIL — batch '$bid' captured verdicts, but not from every required role. MISSING: [$missing] (required: [$req])." >&2
@@ -428,6 +452,12 @@ case "${1:-}" in
             cd "$1" 2>/dev/null || { echo "check-role-verdict: bad project dir '$1'" >&2; exit 64; }
           fi
           _gate_mode; exit $? ;;
+  # --fields ROLE|SLUG (#88): print the verdict fields the role's own schema requires, WITHOUT needing a
+  # verdict — the upfront lookup that removes the discover-by-rejection round-trip. Accepts a dispatch
+  # slug or a bare role name (resolved through the same role_of_slug the record/hook paths use).
+  --fields) shift
+            _fr="$(role_of_slug "${1:-}" 2>/dev/null || true)"; [ -n "$_fr" ] || _fr="${1:-}"
+            required_fields_for "$_fr"; exit 0 ;;
   # --record ROLE (verdict JSON on stdin): the SYNCHRONOUS orchestrator channel (#81). Writes a confirmed
   # verdict to verdicts.jsonl at a point that reliably happens (the orchestrator, after a review returns),
   # independent of the flaky SubagentStop. See _record_mode's header for the honest mechanism.

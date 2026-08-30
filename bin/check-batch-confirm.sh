@@ -166,6 +166,22 @@ _confirmed() {
   return 1
 }
 
+# _cmd_self_confirms CMD BID → return 0 if the SAME command records the confirmation for BID (#90). The
+# intended flow is `printf '{"confirm":"BID"}' >> ledger && git commit …`: PreToolUse fires BEFORE the
+# command runs, so the confirm line is not on disk yet — but it is right there in the command text,
+# sequenced ahead of the commit by `&&`, so the operator HAS confirmed in this one breath. Recognising
+# it lets the intended one-liner through instead of forcing an artificial split into two calls. Tolerant
+# of the quoting the append may carry (`"confirm":"B1"`, `\"confirm\":\"B1\"`, `'confirm':'B1'`).
+# Best-effort like all parsing here (friction, not a security boundary, per this file's header): the git
+# ACTION stays gated by guard-git, and an irreversible batch's CLOSE still needs a human ack (P5).
+_cmd_self_confirms() {
+  local cmd="$1" bid="$2"
+  [ -n "$bid" ] || return 1
+  printf '%s' "$cmd" \
+    | grep -qE "confirm[\"'\\]*[[:space:]]*:[[:space:]]*[\"'\\]*${bid}([\"'\\},[:space:]]|\$)" && return 0
+  return 1
+}
+
 # check_batch_confirm PAYLOAD → the pure core. Returns 0 (allow/no-op) or 2 (block).
 check_batch_confirm() {
   local payload="$1" marker ledger cmd line bid rank manual
@@ -190,8 +206,10 @@ check_batch_confirm() {
 
   bid="$(field_str "$line" id)"
   [ -n "$bid" ] && _confirmed "$ledger" "$bid" && return 0    # a recorded confirmation unblocks it
+  # #90 — a compound `confirm-append && git commit` confirms in the same breath; honour it.
+  [ -n "$bid" ] && _cmd_self_confirms "$cmd" "$bid" && return 0
 
-  printf 'check-batch-confirm: BLOCKED — the in-flight batch (%s) is %s%s and has no recorded operator confirmation.\n  This is the per-batch checkpoint (#56): reversible batches run non-stop, but an irreversible/run-rate (or role-flagged) batch must be confirmed before its work is committed.\n  On the operator'\''s go ("fire"), record the confirmation, then retry:\n    printf '\''%%s\\n'\'' '\''{"confirm":"%s"}'\'' >> %s\n  (Irreversible git ACTIONS remain gated by guard-git / remote branch-protection regardless of rank.)\n' \
+  printf 'check-batch-confirm: BLOCKED — the in-flight batch (%s) is %s%s and has no recorded operator confirmation.\n  This is the per-batch checkpoint (#56): reversible batches run non-stop, but an irreversible/run-rate (or role-flagged) batch must be confirmed before its work is committed.\n  On the operator'\''s go ("fire"), record the confirmation. You may do it in ONE command with the commit (#90):\n    printf '\''%%s\\n'\'' '\''{"confirm":"%s"}'\'' >> %s && <your git commit>\n  or as a separate call first, then retry the commit.\n  (Irreversible git ACTIONS remain gated by guard-git / remote branch-protection regardless of rank.)\n' \
     "${bid:-?}" "${rank:+risk_rank=$rank}" "$( [ "$manual" = "true" ] && printf ' manual_approval_requested' )" "${bid:-BID}" "$ledger" >&2
   return 2
 }
