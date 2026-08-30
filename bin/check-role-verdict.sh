@@ -54,13 +54,44 @@ SCHEMA="$here/../references/schemas/role-output.schema.json"
 # erase: an append-only `verdicts_captured` set in the marker (rewritten atomically like every other
 # marker field, via record_marker_list). The gate then reads the two together and can tell "captured
 # then lost" from "never captured" — the same durability the project already gives gate outcomes.
+# ISSUE #83 — the durable tally must survive a marker rewrite. #46 mirrored each capture into a
+# `verdicts_captured` RUN-marker FIELD, but the marker is rewritten on many events (re-arm, resize,
+# operator reconcile) and a rewrite that reconstructs it from a fixed field list drops the tally
+# silently — observed live on run 177, where closed batches' entries were gone from the field while
+# verdicts.jsonl kept all. The exact dropping writer was not reproducible in a fixture, so the fix does
+# not depend on naming it: the tally now ALSO lives in a marker-INDEPENDENT append-only sidecar that no
+# marker rewrite can touch. It is a DIFFERENT file from verdicts.jsonl, so #46's whole point — proving a
+# capture happened after verdicts.jsonl is wiped — still holds.
+_captured_sidecar() {
+  local marker; marker="$(resolve_marker 2>/dev/null || true)"
+  [ -n "$marker" ] || return 0
+  printf '%s' "$(dirname "$marker")/verdicts-captured.jsonl"
+}
+
+# _captured_all → every captured token ("bid/role", quoted), the UNION of the durable sidecar and the
+# legacy marker field, deduped. ONE reader for the tally so the count and the breach checks agree, and
+# so a run written before the sidecar existed (marker field only) still reads correctly.
+_captured_all() {
+  local sc; sc="$(_captured_sidecar 2>/dev/null || true)"
+  {
+    [ -n "$sc" ] && [ -f "$sc" ] && grep -oE '"[^"]+/[^"]+"' "$sc" 2>/dev/null
+    marker_list verdicts_captured 2>/dev/null | grep -oE '"[^"]+/[^"]+"'
+  } | sort -u
+}
+
 _record_verdict_tally() {
-  local bid="$1" role="$2" token cur body
+  local bid="$1" role="$2" token sc cur body
   [ -n "$bid" ] && [ -n "$role" ] || return 0
   token="\"$bid/$role\""
+  case "$(_captured_all 2>/dev/null)" in *"$token"*) return 0 ;; esac   # a set: never double-count a re-run
+  # The durable store: append-only, marker-independent. This is the write #83 makes load-bearing.
+  sc="$(_captured_sidecar 2>/dev/null || true)"
+  [ -n "$sc" ] && { printf '{"token":%s}\n' "$token" >> "$sc" 2>/dev/null || true; }
+  # The legacy marker mirror is kept best-effort: backward compatibility for readers that still look at
+  # the field, and belt-and-suspenders durability. A drop of THIS no longer loses the tally (#83).
   cur="$(marker_list verdicts_captured 2>/dev/null || true)"
   [ -n "$cur" ] || cur="[]"
-  case "$cur" in *"$token"*) return 0 ;; esac      # the list is a set: never double-count a re-run
+  case "$cur" in *"$token"*) return 0 ;; esac
   if [ "$cur" = "[]" ]; then
     record_marker_list verdicts_captured "[$token]" 2>/dev/null || true
   else
@@ -69,9 +100,9 @@ _record_verdict_tally() {
   fi
 }
 
-# _tallied_for BATCH → count of verdicts_captured entries recorded for BATCH (durable, marker-side).
+# _tallied_for BATCH → count of durable-tally entries recorded for BATCH (sidecar ∪ marker field, #83).
 _tallied_for() {
-  marker_list verdicts_captured 2>/dev/null | grep -oE "\"$1/[^\"]*\"" | grep -c . || true
+  _captured_all 2>/dev/null | grep -oE "\"$1/[^\"]*\"" | grep -c . || true
 }
 
 # _persist_verdict BATCH ROLE RUNDIR — the ONE write that makes a confirmed verdict a fact the --gate
@@ -389,9 +420,9 @@ _gate_mode() {
   for r in $req; do
     if grep -qF "\"batch\":\"$bid\",\"role\":\"$r\"" "$rundir/verdicts.jsonl" 2>/dev/null; then continue; fi
     missing="${missing:+$missing }$r"
-    # ISSUE #46 — a role in the marker's verdicts_captured set but absent from verdicts.jsonl was
-    # captured and then LOST, not one that never ran. Name the two apart.
-    marker_list verdicts_captured 2>/dev/null | grep -q "\"$bid/$r\"" && lost="${lost:+$lost }$r"
+    # ISSUE #46/#83 — a role in the durable tally (sidecar ∪ marker field) but absent from verdicts.jsonl
+    # was captured and then LOST, not one that never ran. Name the two apart.
+    _captured_all 2>/dev/null | grep -q "\"$bid/$r\"" && lost="${lost:+$lost }$r"
   done
   if [ -n "$missing" ]; then
     echo "check-role-verdict: FAIL — batch '$bid' captured verdicts, but not from every required role. MISSING: [$missing] (required: [$req])." >&2
