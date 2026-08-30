@@ -653,15 +653,23 @@ inflight_batch() {
 splice_marker_fields() {
   local mk="$1"; shift
   [ -n "$mk" ] && [ -f "$mk" ] || return 1
-  local body kv k v tmp
+  local body kv k v tmp rep
   body="$(cat "$mk" 2>/dev/null || true)"
   [ -n "$body" ] || return 1
+  # ESCAPE-AWARE value pattern (ERE): a JSON string body is a run of (non-quote-non-backslash char) OR
+  # (backslash-escape pair `\.`). The old value match `"[^"]*"` stopped at the FIRST inner quote, so an
+  # existing value carrying an escaped quote (`\"` — harness_context is written via _json_esc and can
+  # contain one) was matched only up to it, and the replacement truncated the marker from there into
+  # invalid JSON, dropping every field that followed (verdicts_captured, review_acks, …). Single-quoted
+  # so the regex metacharacters reach sed intact; the closing `]` is unambiguous (not a lone `\]`).
+  local _vpat='([^"\\]|\\.)*'
   for kv in "$@"; do
     k="${kv%%=*}"; v="${kv#*=}"
+    rep="$(printf '%s' "$v" | sed 's/[&/\\]/\\&/g')"
     if printf '%s' "$body" | grep -q "\"$k\"[[:space:]]*:"; then
-      body="$(printf '%s' "$body" | sed "s/\"$k\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"$k\":\"$(printf '%s' "$v" | sed 's/[&/\\]/\\&/g')\"/")"
+      body="$(printf '%s' "$body" | sed -E "s/\"$k\"[[:space:]]*:[[:space:]]*\"$_vpat\"/\"$k\":\"$rep\"/")"
     else
-      body="$(printf '%s' "$body" | sed "s/^{/{\"$k\":\"$(printf '%s' "$v" | sed 's/[&/\\]/\\&/g')\",/")"
+      body="$(printf '%s' "$body" | sed "s/^{/{\"$k\":\"$rep\",/")"
     fi
   done
   case "$body" in \{*\}) : ;; *) return 1 ;; esac
