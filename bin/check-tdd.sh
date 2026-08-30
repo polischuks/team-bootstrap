@@ -262,10 +262,17 @@ _evaluate() {
 # --- --record-red: the observation step (moved here from the deleted bin/tdd-red.sh) -----------------
 if [ "${1:-}" = "--record-red" ]; then
   shift
-  rr_batch=""; rr_root="."
+  rr_batch=""; rr_root="."; rr_scope=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --batch) rr_batch="${2:-}"; shift 2 ;;
+      # --scope "<args>" (#86): narrow the RED observation to a subset by APPENDING these args to the
+      # project's own Test: command — e.g. the batch's touched test path(s). Seeing one new test fail
+      # does not need the whole suite, and the full suite runs unchanged at CLOSE (verify-batch), where
+      # the guarantee is load-bearing. It appends to the REAL runner (never replaces it), so a scoped
+      # red is still a genuine failure of the project's tests; #68 wrong-cause and F1 red-touches-tests
+      # apply exactly as to a full red. The recorded test_cmd states what was actually run.
+      --scope) rr_scope="${2:-}"; shift 2 ;;
       -*) echo "check-tdd --record-red: unknown flag '$1'" >&2; exit 64 ;;
       *) rr_root="$1"; shift ;;
     esac
@@ -274,6 +281,7 @@ if [ "${1:-}" = "--record-red" ]; then
 
   rr_cmd="$(_test_cmd)"
   case "$rr_cmd" in '') echo "check-tdd --record-red: no runnable Test: command in AGENTS.md — cannot observe red." >&2; exit 3 ;; esac
+  [ -n "$rr_scope" ] && rr_cmd="$rr_cmd $rr_scope"   # #86 — scoped red: the project runner, narrowed
 
   echo "check-tdd --record-red: running tests (expecting RED) -> $rr_cmd" >&2
   rr_out="$(eval "$rr_cmd" 2>&1)"; rr_rc=$?

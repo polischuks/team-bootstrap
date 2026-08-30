@@ -270,6 +270,17 @@ Then, for **each batch, one at a time**:
    (mutation-kill proof), then revert so HEAD is green. `check-tdd` accepts a code batch on **either** a
    red record **or** a lock record; the lock test need not precede the code (a lock *is* a test). This is
    the honest proof for a green-on-arrival property — see [../references/tdd.md](../references/tdd.md).
+   **Scoped suite for the inner loop; full suite only at close (#86).** The full `Test:` suite is
+   load-bearing at exactly one place: batch **close** (`verify-batch`, which runs it whole). Re-running
+   the whole suite on every red observation and every green iteration is the single largest time sink of
+   a run. So iterate fast on the **affected subset**: pass the batch's touched test path(s) to
+   `--record-red --scope "<paths>"` — it appends them to *your* `Test:` runner (e.g.
+   `… --record-red --batch B2 --scope "tests/test_foo.py"`), observes the red on that subset, and applies
+   the same #68 wrong-cause and F1 red-touches-tests bars; seeing one new test fail never needed the
+   whole suite. Use the same scoped invocation for your own green-iteration feedback. Do **not** run
+   `verify-batch` until you are green — it is the close gate, and it runs the full suite by design.
+   (Note: `bin/run-tests.sh --changed` is team-bootstrap's OWN self-test runner — it has nothing to do
+   with a target repo's `Test:` suite and must not be invoked for a delivery.)
 5. **`full` means the HARNESS sizes each batch — not "four roles every time" (#27).**
    At announce, the harness computes this batch's required review roles from **its own diff and its
    declared `risk_rank`** (`required_roles_for_batch`, recorded on the ledger entry) — because the
