@@ -33,6 +33,24 @@ treats it as the default implementation discipline for `mvp`, `full`, and the im
 5. **Do not modify the tests to make them pass.** If a test is wrong, fix it deliberately and say
    so in the handoff; never quietly weaken a test to go green.
 
+## Emergent / verification batches — the regression-lock, not a fabricated red (#67 / #89)
+
+Some legitimate `kind:code` batches have **no honest natural red**:
+
+- an **emergent** batch whose property is already satisfied because earlier batches were correct — there
+  is nothing to make fail; and
+- a pure **verification** batch that only adds a test pinning an already-correct behaviour.
+
+Manufacturing a red for these is a lie, and folding them into a doc batch to dodge the gate hides real
+`kind:code` work. Ship them as `kind:code` with the **regression-lock** form: commit the test that pins
+the property, then run [`../bin/check-tdd.sh --record-lock --batch <id>`](../bin/check-tdd.sh) with the
+locked behaviour **mutated (uncommitted)** in the working tree. The lock must **REDDEN under the
+mutation** — a *mutation-kill* proof that the test actually catches a regression of the property — then
+revert the mutation so HEAD is green. `check-tdd` credits a code batch on **either** a valid red record
+**or** a valid lock record (one record credits one batch; no reuse). The lock test need not precede the
+code it locks — a lock *is* a test (`lock_sha` need only sit within the batch's window). This is the one
+honest way to close a green-on-arrival property as `kind:code`.
+
 ## Evidence, not assertion
 
 The green result must be shown, not claimed: the engineer/QA handoff carries

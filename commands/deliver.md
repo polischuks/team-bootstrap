@@ -260,6 +260,16 @@ Then, for **each batch, one at a time**:
    carries the failing test. `check-tdd.sh` (in `verify-batch`, below)
    fails the batch if this code batch has no red recorded before its own commits — every code batch must
    be red-first in its own window (see [../references/tdd.md](../references/tdd.md)).
+   **Emergent / verification batch — no honest red? Lock it, don't hide it (#89).** Some legitimate
+   `kind:code` batches have NO natural red: an *emergent* batch whose property is already satisfied
+   because earlier batches were correct, or a pure *verification* batch that only adds a test pinning an
+   already-correct behaviour. Do **not** fabricate a red, and do **not** fold the work into a doc batch to
+   dodge the gate. Ship it as `kind:code` with the **regression-lock** form (#67): commit the test that
+   pins the property, then run `${CLAUDE_PLUGIN_ROOT}/bin/check-tdd.sh --record-lock --batch <id>` with the
+   locked behaviour **mutated** (uncommitted) in the tree — the lock must REDDEN under the mutation
+   (mutation-kill proof), then revert so HEAD is green. `check-tdd` accepts a code batch on **either** a
+   red record **or** a lock record; the lock test need not precede the code (a lock *is* a test). This is
+   the honest proof for a green-on-arrival property — see [../references/tdd.md](../references/tdd.md).
 5. **`full` means the HARNESS sizes each batch — not "four roles every time" (#27).**
    At announce, the harness computes this batch's required review roles from **its own diff and its
    declared `risk_rank`** (`required_roles_for_batch`, recorded on the ledger entry) — because the
