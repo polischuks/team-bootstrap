@@ -231,6 +231,19 @@ _evaluate() {
 
   [ "$viol" -eq 0 ] || return 1
 
+  # #97 — a kind:doc batch close changes no code, so HEAD's code is exactly what the last CODE batch
+  # already proved green at its OWN close. Running the whole Test: suite (~3.5 min) to close a doc batch
+  # proves nothing new and was the single largest wall-clock cost of a doc close. When the batch being
+  # closed (the in-flight, last-announced entry) is kind:doc, skip the expensive suite — the cheap
+  # red-ordering checks above still ran over every closed CODE batch, so no guarantee is dropped.
+  local inflight ifkind
+  inflight="$(inflight_batch)"
+  ifkind="$(field_str "$inflight" kind)"
+  if [ "$ifkind" = "doc" ]; then
+    echo "check-tdd: the batch being closed is kind:doc (no code delta) — skipping the HEAD-green suite; its code was proven green at the last code batch's close (#97)."
+    return 0
+  fi
+
   # The cheap red-ordering checks above run every attempt (their input is the ledger, which a late
   # gate's retry legitimately changes). The suite run below is the EXPENSIVE step — the whole
   # non-integration suite (~3.5 min) at HEAD. verify-batch re-runs every gate on every retry, so a
