@@ -202,8 +202,10 @@ if [ -f "$marker" ]; then
   #
   # The recompute is resize_degraded_marker (delivery-lib.sh) — ONE definition, shared with the mid-turn
   # hook (delivery-resize.sh, PostToolBatch) so the same recovery fires whether a new prompt arrives OR
-  # the artefacts land inside one agentic turn (issue #48). It is narrow: only a DEGRADED run is
-  # recomputed, only the fields the hook owns are spliced (precond / preflight / repro_env / the acks
+  # the artefacts land inside one agentic turn (issue #48). It is narrow: only an UNRESOLVED run is
+  # recomputed — one that DEGRADED, or one still at `auto` because it armed description-form with no spec
+  # on disk (issue #92; the function resolves the spec through the marker's `feature` field and records
+  # spec_path) — only the fields the hook owns are spliced (precond / preflight / repro_env / the acks
   # survive; baseline_sha is never touched), and a run that sized cleanly is left alone. On a re-size it
   # returns the RE-SIZED notice; empty ⇒ nothing to recompute, so re-state the stored verdict.
   _rs_note="$(resize_degraded_marker "$marker" "$tier_source" "$run")"

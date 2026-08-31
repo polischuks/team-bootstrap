@@ -21,8 +21,10 @@
 # check-role-verdict — and this gate's >=1 floor is an anti-collapse count of attempts, which is a
 # useful and honest thing to count and is not evidence of a completed review.
 #
-# Graceful skips (exit 0): no active marker / not intends_code (AC-3); pipeline is not full|mvp — e.g.
-# single-thread, where P1 sanctions inline roles (AC-3); in-flight batch not kind:code (AC-3).
+# Graceful skips (exit 0): no active marker / not intends_code (AC-3); pipeline is single-thread, where
+# P1 sanctions inline roles (AC-3); in-flight batch not kind:code (AC-3). `auto` (the unresolved-tier
+# placeholder) is NOT skipped — it is certified as `full` (issue #92); a malformed/unknown pipeline
+# fails closed.
 #
 # Usage: bin/check-role-dispatch.sh [project-dir]  ·  bin/check-role-dispatch.sh --self-test
 # Exit:  0 pass / skip · 1 full/mvp code batch with zero reviewer-typed dispatch (degraded) · 64 bad usage
@@ -49,10 +51,19 @@ _evaluate() {
   bid="$(field_str "$bline" id)"; bkind="$(field_str "$bline" kind)"
   [ "$bkind" = "code" ] || { echo "check-role-dispatch: in-flight batch '$bid' is kind=$bkind (not code) — skipping."; return 0; }
 
+  # `auto` is the harness's UNRESOLVED-tier placeholder (delivery-marker-init: a description-form run
+  # whose spec is not yet sized). It is a KNOWN value, not a malformed one — and everywhere else it means
+  # "enforce the strictest posture until Phase A resolves it". So certify it against the STRICTEST known
+  # code pipeline (full) rather than hard-failing on the literal string: a batch that ran and recorded its
+  # full review panel must not be blocked at close merely because the run-level resize (issue #92) had not
+  # yet fired. This is belt-and-suspenders to the primary fix (resolve `auto` in Phase A) and does NOT open
+  # a bypass — the ≥1 anti-collapse floor and the per-role floor below still bite exactly as for `full`.
+  [ "$pipeline" = "auto" ] && pipeline="full"
+
   # The batch is now intends_code + kind:code. full/mvp enforce reviewer independence below; an
   # UNKNOWN/absent pipeline on such a batch is a malformed marker whose execution model cannot be
   # certified — FAIL-CLOSED, never a silent skip (a well-formed harness marker always records
-  # full|mvp|single-thread; skipping here would fail OPEN on exactly the undeterminable input the
+  # full|mvp|single-thread|auto; skipping here would fail OPEN on exactly the undeterminable input the
   # fail-closed design forbids — review FIX#1).
   case "$pipeline" in
     full|mvp) : ;;
@@ -187,6 +198,16 @@ if [ "${1:-}" = "--self-test" ]; then
   _marker '{"run":"r","pipeline":"audit","intends_code":true,"source":"harness","baseline_sha":"'"$base"'"}'
   _batch '{"id":"Z","kind":"doc","status":"announced"}'
   _chk "FIX#1 unknown pipeline + kind:doc → skip (no code)" "$(_run)" 0
+
+  # issue #92 — `auto` (the harness UNRESOLVED-tier placeholder) is certified as `full`, NOT hard-failed:
+  # a description-form run whose run-level resize has not fired yet must still close if its full review
+  # panel ran. It is a KNOWN value, unlike the malformed `audit`/absent cases above (which stay fail-closed).
+  _batch '{"id":"B1","kind":"code","status":"announced"}'; rm -f "$T/enforce-marker"
+  _marker '{"run":"r","pipeline":"auto","intends_code":true,"source":"harness","baseline_sha":"'"$base"'"}'
+  _disp '{"batch":"B1","subagent_type":"code-reviewer"}'
+  _chk "#92 auto + ≥1 reviewer dispatch → pass (auto certified as full)" "$( cd "$T" && TEAM_BOOTSTRAP_RUN=r TEAM_BOOTSTRAP_ROLE_FLOOR=warn "$here/check-role-dispatch.sh" . >/dev/null 2>&1; echo $? )" 0
+  rm -f "$T/.runs/r/dispatch.jsonl"
+  _chk "#92 auto + ZERO dispatch → still fail (≥1 floor intact, not a bypass)" "$(_run)" 1
 
   # FIX#3 (review) — an EMPTY batch id (malformed ledger) must not be satisfied by an orphan batch:""
   # dispatch record → fail-closed (empty bid is non-matchable).
