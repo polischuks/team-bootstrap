@@ -68,11 +68,19 @@ stamp_batch_closed() {
   local shas_list shas
   shas_list="$(git log --format=%h "$range" 2>/dev/null | head -50 | tr '\n' ' ' || true)"
 
-  # Exclude test-only RED commits from commit_shas. The TDD red step commits the failing test
-  # FIRST (that commit becomes the red_sha), then implementation follows. commit_shas must be
-  # IMPL-only: otherwise the RED commit is the OLDEST commit_sha, which check-tdd uses as the
-  # batch's code-anchor — and red_sha cannot be a proper ancestor of itself, so the batch would
-  # FAIL after it was closed. Drop any stamped commit that is a recorded red_sha for this run.
+  # Exclude test-only RED commits AND doc-only commits from commit_shas. commit_shas must be the
+  # batch's own CODE commits, because check-tdd anchors on the OLDEST commit_sha:
+  #   - RED: the TDD red step commits the failing test FIRST (that commit is the red_sha). Left in,
+  #     it is the oldest commit_sha, and red_sha cannot be a proper ancestor of itself, so the batch
+  #     would FAIL after it was closed.
+  #   - DOC (#93): the FIRST code batch's window starts at the run baseline, so a Phase-A `docs(spec-…)`
+  #     commit (spec/plan/tasks) that landed after baseline and before the batch's code is inside the
+  #     range. Left in, it is the oldest commit_sha → check-tdd's anchor is a DOC commit, and the
+  #     batch's own red (committed AFTER the doc commit) is not an ancestor of it, so a LATER batch's
+  #     re-verification FAILS a batch that passed its own close. It also stretches code_delta over a
+  #     wider-than-the-batch window. A doc-only commit contributes 0 non-doc delta, so dropping it
+  #     never lowers an honest code_delta.
+  # Drop any stamped commit that is a recorded red_sha for this run, or that touches no non-doc file.
   local tdd rl rs rf red_fulls="" s sfull filtered=""
   tdd="$(dirname "$ledger")/tdd.jsonl"
   if [ -f "$tdd" ]; then
@@ -82,14 +90,14 @@ stamp_batch_closed() {
       rf="$(resolve_sha "$rs")"; [ -n "$rf" ] && red_fulls="$red_fulls $rf"
     done < "$tdd"
   fi
-  if [ -n "$red_fulls" ]; then
-    for s in $shas_list; do
-      sfull="$(resolve_sha "$s")"
-      case " $red_fulls " in *" $sfull "*) continue ;; esac
-      filtered="$filtered $s"
-    done
-    shas_list="$(printf '%s' "$filtered" | xargs 2>/dev/null || true)"
-  fi
+  for s in $shas_list; do
+    sfull="$(resolve_sha "$s")"
+    case " $red_fulls " in *" $sfull "*) continue ;; esac
+    # doc-only commit (no non-doc delta) → never the code-anchor of a code batch (#93).
+    [ "$(nondoc_delta_of_shas "$s")" = "0" ] && continue
+    filtered="$filtered $s"
+  done
+  shas_list="$(printf '%s' "$filtered" | xargs 2>/dev/null || true)"
   shas="$(printf '%s' "$shas_list" | sed 's/[[:space:]]*$//;s/  */,/g')"
 
   # code_delta from the SAME shared function check-delivery.sh recomputes with
@@ -171,6 +179,12 @@ if [ "${1:-}" = "--self-test" ]; then
   echo "verify-batch --self-test: $fail case(s) FAILED" >&2; exit 1
 fi
 
+# issue #95 — say it HERE, in verify-batch's own output, not only in commands/deliver.md doctrine (which
+# lands ~70% of the time). This run executes the full Test: suite + the whole gate cascade and routinely
+# exceeds the Bash tool's ~2-minute default timeout; a killed run reads as a FAILURE and forces a full
+# re-run. Invoke it with a long timeout (e.g. 600000 ms) or in the background.
+echo "verify-batch: NOTE — runs the full Test: suite + gate cascade; can exceed the ~2-minute Bash default. Invoke with a long timeout (e.g. 600000) or in the background — a killed run reads as a failure. (#95)" >&2
+
 gate "quality-gate (typecheck + lint)"      "$here/quality-gate.sh" .
 gate "orphans (dead code / not wired)"       "$here/check-orphans.sh"
 gate "architecture (drift vs baseline)"      "$here/check-architecture.sh" .
@@ -178,7 +192,6 @@ gate "gate-integrity (no skip / disabled)"   "$here/check-gate-integrity.sh" .
 gate "role-triples (a dispatchable role is complete)" "$here/check-role-triples.sh" .
 gate "role-liveness (every routed role is load-bearing, P12)" "$here/check-role-liveness.sh" .
 gate "context-phrasing (facts, never imperatives)" "$here/check-context-phrasing.sh" .
-gate "tdd (red→green observed, P9)"          "$here/check-tdd.sh" .
 gate "version-sync (manifests agree)"        "$here/check-version-sync.sh" .
 gate "diff-coverage (changed-line breadth, F2)" "$here/check-diff-coverage.sh" .
 gate "mutation (assertion strength, F3)"     "$here/check-mutation.sh" .
@@ -187,6 +200,11 @@ gate "completeness (task_ids [x], B)"        "$here/check-completeness.sh" .
 gate "seam-ack (high-risk seam read, C)"     "$here/check-seam-ack.sh" .
 gate "disposition (MEDIUM+ finding governed, B)" "$here/check-disposition.sh" .
 gate "review-ack (independent review of diff, C)" "$here/check-review-ack.sh" .
+# tdd runs the full Test: suite at HEAD — the most expensive gate here. Order it AFTER the cheap
+# marker/process gates above (enforcement/completeness/seam-ack/disposition/review-ack), so a retry
+# tripped by one of those (they only rewrite the .runs/ ledger) never pays for the suite (#97). Its own
+# result is tree-keyed cached, so a genuine retry against an unchanged tree is already cheap.
+gate "tdd (red→green observed, P9)"          "$here/check-tdd.sh" .
 # The sized role set is fixed HERE, in code, immediately before the gate that reads it — not requested
 # from the orchestrator in commands/deliver.md prose at announce time. Two reasons, and the gate's own
 # comment (check-role-dispatch.sh) already stated both: prose lands ~70% of the time against a hook's

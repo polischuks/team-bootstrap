@@ -317,11 +317,16 @@ Then, for **each batch, one at a time**:
    and on success writes the record `verify-batch` reads — so the batch closes on a **real recorded
    verdict, not a waiver**. Record the verdict of a review that genuinely ran; never fabricate one to clear
    the gate (a skipped role stays blocked by design — dispatch it instead).
-   **Know the shape before you record (#88).** Each role requires role-specific fields. Get them upfront —
-   `${CLAUDE_PLUGIN_ROOT}/bin/check-role-verdict.sh --fields <role>` prints exactly what that role's
-   verdict must carry — instead of discovering them by hitting a rejection. The reviewer is also told its
-   own required shape in its dispatch brief (SubagentStart), so a verdict that comes back should already
-   fit; if you must record by hand, `--fields` is the reference.
+   **Pre-record shape contract (#96).** Each role requires role-specific fields, and you MUST hold the
+   shape BEFORE you record — never learn it by hitting a `--record` rejection. For each role you are about
+   to record, first run `${CLAUDE_PLUGIN_ROOT}/bin/check-role-verdict.sh --fields <role>`; it prints
+   exactly the field(s) that role's verdict must carry. Author (or normalise) the verdict object to carry
+   them, then record. This does NOT depend on any lifecycle hook firing: `SubagentStart`/`SubagentStop` do
+   NOT fire for Agent-tool review subagents (#60/#96, a proven host limit), so the brief that hook would
+   have carried never reaches the reviewer — the shape reaches the point of use through two live channels
+   instead: the dedicated review agent states its own required fields in its `agents/<slug>.md` system
+   prompt (so a returning verdict should already fit), and `--fields` is the orchestrator's authoritative
+   pre-record lookup here. Consult `--fields` as the contract even when a verdict already looks well-formed.
    *(Caveat: two of them execute test suites — on a machine where those are CPU-bound, expect
    contention rather than a clean 4× win. The saving is in the reasoning time, which dominates.)*
    **Reviewers flag only what affects correctness or the stated requirements.** A reviewer asked to

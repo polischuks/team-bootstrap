@@ -700,7 +700,7 @@ splice_marker_fields() {
 resize_degraded_marker() {
   local mk="$1" tier_source="$2" run="$3"
   [ -n "$mk" ] && [ -f "$mk" ] || return 1
-  local prev prev_degraded prev_spec prev_pipe rs rs_t rs_depth rs_reasons rs_cats rs_roles rs_ctx rs_note
+  local prev prev_degraded prev_spec prev_pipe prev_feat rs rs_t rs_depth rs_reasons rs_cats rs_roles rs_ctx rs_note
   prev="$(cat "$mk" 2>/dev/null || true)"
   [ -n "$prev" ] || return 1
   # Never overrule a human-declared tier (issue #47). This recompute REPLACES the tier, so it must not
@@ -711,7 +711,24 @@ resize_degraded_marker() {
   case "$(field_str "$prev" tier_source)" in operator) return 1 ;; esac
   prev_degraded="$(field_str "$prev" sizing_degraded)"
   prev_spec="$(field_str "$prev" spec_path)"
-  [ -n "$prev_degraded" ] && [ -n "$prev_spec" ] && [ -f "$prev_spec" ] || return 1
+  prev_pipe="$(field_str "$prev" pipeline)"
+  # DESCRIPTION-FORM RECOVERY (issue #92). A run invoked with no spec.md on disk arms
+  # spec_present=false, so it never entered the fresh-arm sizing block and carries NEITHER
+  # sizing_degraded NOR spec_path — the two fields the degraded-resize trigger below was keyed on. It
+  # therefore stayed pipeline=auto for its whole life even after Phase A produced a fully sizable
+  # spec.md+tasks.md (observed on content_agentstvo/101-untrusted-fetch-injection-guardrail). So resolve
+  # the spec path from the marker's `feature` field when spec_path was never recorded — `feature` is the
+  # normalised spec.md path the arming prompt captured, the path Phase A fills in.
+  if [ -z "$prev_spec" ]; then
+    prev_feat="$(field_str "$prev" feature)"
+    case "$prev_feat" in ""|unknown) : ;; *) prev_spec="$prev_feat" ;; esac
+  fi
+  # Fire when the run's sizing is UNRESOLVED — it degraded, OR it is still `auto` (the description-form
+  # placeholder) — AND a spec is now resolvable on disk. This stays ONE-DIRECTIONAL: `auto` is the
+  # strictest-posture placeholder every tier-reading gate fails closed on, so replacing it with a
+  # concrete sized tier only ever RELAXES from strictest to right-sized — it never loosens a decided
+  # tier. The operator guard above already excludes a human-declared tier from this path.
+  { [ -n "$prev_degraded" ] || [ "$prev_pipe" = "auto" ]; } && [ -n "$prev_spec" ] && [ -f "$prev_spec" ] || return 1
   rs="$("$(dirname "${BASH_SOURCE[0]}")/size-from-spec.sh" "$prev_spec" 2>/dev/null || true)"
   rs_t="$(printf '%s\n' "$rs" | sed -n 's/^tier=//p' | head -1)"
   case "$rs_t" in single-thread|mvp|full) : ;; *) return 1 ;; esac
@@ -723,12 +740,19 @@ resize_degraded_marker() {
   # it and a stored "RE-SIZED" would keep announcing, on every prompt for the rest of the run, an event
   # that happened once. What is RETURNED adds the notice, at the only moment it is news.
   rs_ctx="team-bootstrap harness sizing for run $run: pipeline=$rs_t, tier_source=$tier_source, marker=$mk. Review depth: $rs_depth (the /code-review low-medium-high scale). Sizing reasons: ${rs_reasons:-none}. Risk categories detected: ${rs_cats:-none}. Assigned review roles for this run: ${rs_roles:-none}."
-  prev_pipe="$(field_str "$prev" pipeline)"
-  rs_note="$rs_ctx The run was RE-SIZED just now: the first verdict degraded ($prev_degraded) because the artefacts it needed did not exist yet, and they do now."
+  # The RETURNED notice names WHY the first verdict was unresolved. A degraded run had a reason string; a
+  # description-form run (issue #92) had none — it was `auto` because no spec existed on disk at arm time.
+  if [ -n "$prev_degraded" ]; then
+    rs_note="$rs_ctx The run was RE-SIZED just now: the first verdict degraded ($prev_degraded) because the artefacts it needed did not exist yet, and they do now."
+  else
+    rs_note="$rs_ctx The run was RE-SIZED just now: it armed description-form (no spec on disk, pipeline=auto), and Phase A's spec is now on disk and sizes."
+  fi
   [ "$prev_pipe" = "$rs_t" ] || rs_note="$rs_note The stored pipeline was $prev_pipe."
+  # Record spec_path too: a description-form run never had it, and later gates (and a re-size on the next
+  # prompt) resolve the spec through it rather than re-deriving from `feature` each time.
   splice_marker_fields "$mk" \
     "pipeline=$rs_t" "review_depth=$rs_depth" "sizing_degraded=" \
-    "sizing_reasons=$rs_reasons" "risk_categories=$rs_cats" \
+    "sizing_reasons=$rs_reasons" "risk_categories=$rs_cats" "spec_path=$prev_spec" \
     "assigned_roles=$rs_roles" "harness_context=$(json_esc "$rs_ctx")" || return 1
   printf '%s' "$rs_note"
   return 0
@@ -1395,10 +1419,37 @@ roles_covered() {
   marker="$(resolve_marker)"; [ -n "$marker" ] || return 0
   rundir="$(dirname "$marker")"; disp="$rundir/dispatch.jsonl"
   [ -f "$disp" ] || return 0
+  # issue #99 — a review dispatch recorded BEFORE any batch id was resolvable (the Phase-A
+  # architecture-reviewer, dispatched before the first batch is announced) carries "batch":"". That
+  # record is otherwise ORPHANED: the batch==bid filter below never counts it, so the "dispatches
+  # recorded so far" signal both hooks read (check-review-batch.sh, subagent-brief.sh) under-reports —
+  # it read [none] on CA/101 while dispatch.jsonl already held the batch's reviewers, inviting a needless
+  # re-dispatch. Credit an empty-batch dispatch to BID, but ONLY when BID is the SOLE open (announced,
+  # not-closed) kind:code batch: with one batch in flight the attribution is unambiguous; with 0 or >=2
+  # open batches it stays orphaned rather than credited to a guess (the same posture
+  # reviewer_dispatch_count's FIX#3 takes — never credit an orphan to a non-matchable id). Read from the
+  # ledger at call time, so this reflects dispatch.jsonl/batches.jsonl as they are NOW (no stale cache).
+  local ledger l lid open_ids="" open_n=0 credit_empty=0
+  ledger="$(resolve_ledger)"
+  if [ -n "$ledger" ] && [ -f "$ledger" ]; then
+    while IFS= read -r l || [ -n "$l" ]; do
+      [ -n "$l" ] || continue
+      [ "$(field_str "$l" kind)" = "code" ] || continue
+      [ "$(field_str "$l" status)" = "closed" ] && continue
+      lid="$(field_str "$l" id)"; [ -n "$lid" ] || continue
+      case " $open_ids " in *" $lid "*) ;; *) open_ids="$open_ids $lid"; open_n=$((open_n + 1)) ;; esac
+    done < "$ledger"
+  fi
+  if [ "$open_n" -eq 1 ]; then
+    case " $open_ids " in *" $bid "*) credit_empty=1 ;; esac
+  fi
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     rbatch="$(field_str "$line" batch)"
-    [ "$rbatch" = "$bid" ] || continue
+    if [ "$rbatch" = "$bid" ]; then :
+    elif [ -z "$rbatch" ] && [ "$credit_empty" -eq 1 ]; then :   # #99: the sole open batch adopts the orphan
+    else continue
+    fi
     stype="$(field_str "$line" subagent_type)"
     role="$(role_of_slug "$stype")"
     [ -n "$role" ] || continue

@@ -34,6 +34,15 @@ in the prompt, with the batch diff and acceptance criteria. Execute it faithfull
 `AGENTS.md`; scan for orphans (any endpoint/component the batch produced with no live consumer); a batch is
 not done while `orphans_found > 0` or the E2E path fails.
 
+## Your verdict is typed
+
+`references/schemas/role-output.schema.json` **requires** `integration_verified` (the E2E-path claim) and
+`orphans_found` from this role. State them explicitly in your final verdict JSON, keyed by `"role":
+"integration-verifier"` — the orchestrator records it verbatim with
+`bin/check-role-verdict.sh --record integration-verifier`, which rejects a verdict missing either field.
+Emitting the shape here means the record is right the first time, with no discover-by-rejection round-trip
+(#96) — this file, not any lifecycle hook, is what carries the shape to you.
+
 ## Disposition
 
 - **Refute, don't rubber-stamp** (Refute-or-Promote) — a clean pass is earned only after a genuine attempt

@@ -35,6 +35,15 @@ acceptance criteria. Execute it: run in a clean subagent document so the review 
 is done; close the semantic/ordering class (write-before-validate, aggregation/no-op) that structural gates
 miss.
 
+## Your verdict is typed
+
+`references/schemas/role-output.schema.json` **requires** `approval_status` from this role — the
+`approved` / `changes_requested` / `blocked` judgement, keyed by `"role": "code-reviewer"` in your final
+verdict JSON. The orchestrator records it verbatim with
+`bin/check-role-verdict.sh --record code-reviewer`, which rejects a verdict missing that field. Emitting
+the shape here means the record is right the first time, with no discover-by-rejection round-trip (#96) —
+this file, not any lifecycle hook, is what carries the shape to you.
+
 ## Disposition
 
 - **Refute, don't rubber-stamp** (Refute-or-Promote) — a clean pass is earned only after a genuine attempt to
