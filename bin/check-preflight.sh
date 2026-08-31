@@ -43,6 +43,49 @@ here="$(cd "$(dirname "$0")" && pwd)"
 # marker/feature path is deliberately jq-free for portability, drift #1). Empty if absent.
 _feature_val() { [ -f "$1" ] && field_str "$(cat "$1" 2>/dev/null)" "$2"; }
 
+# _stale_baseline_warn DIR BASELINE_SHA — issue #102. Emit a single WARN line (never HARD, never a
+# non-zero verdict) when the run's baseline_sha is an ancestor of origin/<default> and behind by >=1
+# commit: the "forked from a stale base" shape. That one fact is the root of the run's most expensive
+# frictions — a missing run-rate CapabilityOptOut (#66), constitution/ADR drift, doc-commit-in-
+# commit_shas (#93) — each of which otherwise surfaces as a SEPARATE fail-closed wall with no signal to
+# rebase. Name the root ONCE, non-blocking (the operator may have a reason to fork off an old base).
+#
+# Default-branch resolution mirrors guard-git._branch_query / current_batch_base: origin/HEAD symbolic
+# ref, else the first of origin/main|origin/master that resolves — never a hardcoded `main`. All refs
+# read here are LOCAL remote-tracking refs (rev-parse / merge-base / rev-list / grep — no network), so
+# this is offline-safe: if origin/<default> cannot be resolved (no remote / never fetched) it emits
+# nothing and never errors. Inlined here (not a delivery-lib helper) to keep the change scoped to #102.
+_stale_baseline_warn() {
+  local dir="$1" bs="$2" def defref count cap
+  [ -n "$bs" ] || return 0
+  git -C "$dir" rev-parse --verify -q "${bs}^{commit}" >/dev/null 2>&1 || return 0   # unresolvable base → AC-B3a owns it
+  # resolve origin/<default> to a LOCAL commit
+  def="$(git -C "$dir" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null)"
+  if [ -n "$def" ] && git -C "$dir" rev-parse --verify -q "${def}^{commit}" >/dev/null 2>&1; then
+    defref="$def"
+  else
+    defref=""
+    for def in origin/main origin/master; do
+      git -C "$dir" rev-parse --verify -q "${def}^{commit}" >/dev/null 2>&1 && { defref="$def"; break; }
+    done
+  fi
+  [ -n "$defref" ] || return 0                                                       # no origin/<default> locally → silent (offline-safe)
+  # only the stale-FORK shape: baseline is a strict ANCESTOR of the default tip. A baseline that is not an
+  # ancestor (diverged, or ahead of the default) is a different situation the operator owns — stay silent.
+  git -C "$dir" merge-base --is-ancestor "$bs" "$defref" 2>/dev/null || return 0
+  count="$(git -C "$dir" rev-list --count "${bs}..${defref}" 2>/dev/null)"
+  case "$count" in ''|*[!0-9]*) return 0 ;; esac
+  [ "$count" -ge 1 ] || return 0                                                     # at the tip (behind by 0) → not stale → silent
+  # cheap capability-drift hint: the run-rate CapabilityOptOut (#66) is present on the default tip's tree
+  # but not on the baseline's. git grep against each tree-ish (no checkout); any failure ⇒ treated as absent.
+  cap=""
+  if git -C "$dir" grep -qI CapabilityOptOut "$defref" 2>/dev/null \
+     && ! git -C "$dir" grep -qI CapabilityOptOut "$bs" 2>/dev/null; then
+    cap=" A CapabilityOptOut (e.g. the run-rate enforcement opt-out, #66) exists on '$defref' but not on your baseline — arm it by rebasing rather than cherry-picking it back."
+  fi
+  echo "WARN stale baseline — baseline_sha '$bs' is an ancestor of origin default '$defref' and behind it by $count commit(s). A branch forked from a stale base fail-closes at every step (missing run-rate CapabilityOptOut, ADR/constitution drift, doc-commit-in-commit_shas) with no single signal — this is the common cause. Rebase onto '$defref' to avoid the fail-closed friction.${cap}"
+}
+
 # _scan DIR → print one gap line per problem: "HARD <msg>" (fail-closed) or "WARN <msg>" (advisory).
 # Pure inspection of DIR; no cd side effects leak (marker lookup is scoped to DIR/.runs).
 _scan() {
@@ -140,6 +183,9 @@ _scan() {
     if [ -n "$bs" ] && ! git -C "$dir" rev-parse --verify -q "${bs}^{commit}" >/dev/null 2>&1; then
       echo "HARD baseline_sha '$bs' does not resolve to a commit — the batch-window diff has no anchor (unenforceable)"
     fi
+    # issue #102 — stale-baseline advisory (WARN, non-blocking; offline-safe). Only meaningful when the
+    # baseline actually resolves, so it lives after the AC-B3a resolve check.
+    _stale_baseline_warn "$dir" "$bs"
     # WS-B AC-B3b (+ issue #69) — operating-tree coherence: guard a SPLIT-BRAIN tree — the run's feature
     # dir EXISTS here but is INCOMPLETE. A wholly-ABSENT feature dir is NOT flagged: at Phase 0 (before
     # Phase A) a greenfield feature's spec/plan/tasks have not been generated yet — Phase A's
