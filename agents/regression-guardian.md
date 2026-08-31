@@ -35,6 +35,15 @@ batch is not done while `regressions_found > 0`, the suite isn't current, or a g
 is what stops "closed for the workflow that existed that day"
 ([../references/regression-and-invariants.md](../references/regression-and-invariants.md)).
 
+## Your verdict is typed
+
+`references/schemas/role-output.schema.json` **requires** `regressions_found` from this role — the count
+of regressions your re-run surfaced, keyed by `"role": "regression-guardian"` in your final verdict JSON.
+The orchestrator records it verbatim with `bin/check-role-verdict.sh --record regression-guardian`, which
+rejects a verdict missing that field. Emitting the shape here means the record is right the first time,
+with no discover-by-rejection round-trip (#96) — this file, not any lifecycle hook, is what carries the
+shape to you.
+
 ## Disposition
 
 - **Refute, don't rubber-stamp** — hunt the regression the batch introduced elsewhere.

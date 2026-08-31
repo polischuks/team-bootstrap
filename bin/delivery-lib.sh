@@ -1419,10 +1419,37 @@ roles_covered() {
   marker="$(resolve_marker)"; [ -n "$marker" ] || return 0
   rundir="$(dirname "$marker")"; disp="$rundir/dispatch.jsonl"
   [ -f "$disp" ] || return 0
+  # issue #99 — a review dispatch recorded BEFORE any batch id was resolvable (the Phase-A
+  # architecture-reviewer, dispatched before the first batch is announced) carries "batch":"". That
+  # record is otherwise ORPHANED: the batch==bid filter below never counts it, so the "dispatches
+  # recorded so far" signal both hooks read (check-review-batch.sh, subagent-brief.sh) under-reports —
+  # it read [none] on CA/101 while dispatch.jsonl already held the batch's reviewers, inviting a needless
+  # re-dispatch. Credit an empty-batch dispatch to BID, but ONLY when BID is the SOLE open (announced,
+  # not-closed) kind:code batch: with one batch in flight the attribution is unambiguous; with 0 or >=2
+  # open batches it stays orphaned rather than credited to a guess (the same posture
+  # reviewer_dispatch_count's FIX#3 takes — never credit an orphan to a non-matchable id). Read from the
+  # ledger at call time, so this reflects dispatch.jsonl/batches.jsonl as they are NOW (no stale cache).
+  local ledger l lid open_ids="" open_n=0 credit_empty=0
+  ledger="$(resolve_ledger)"
+  if [ -n "$ledger" ] && [ -f "$ledger" ]; then
+    while IFS= read -r l || [ -n "$l" ]; do
+      [ -n "$l" ] || continue
+      [ "$(field_str "$l" kind)" = "code" ] || continue
+      [ "$(field_str "$l" status)" = "closed" ] && continue
+      lid="$(field_str "$l" id)"; [ -n "$lid" ] || continue
+      case " $open_ids " in *" $lid "*) ;; *) open_ids="$open_ids $lid"; open_n=$((open_n + 1)) ;; esac
+    done < "$ledger"
+  fi
+  if [ "$open_n" -eq 1 ]; then
+    case " $open_ids " in *" $bid "*) credit_empty=1 ;; esac
+  fi
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     rbatch="$(field_str "$line" batch)"
-    [ "$rbatch" = "$bid" ] || continue
+    if [ "$rbatch" = "$bid" ]; then :
+    elif [ -z "$rbatch" ] && [ "$credit_empty" -eq 1 ]; then :   # #99: the sole open batch adopts the orphan
+    else continue
+    fi
     stype="$(field_str "$line" subagent_type)"
     role="$(role_of_slug "$stype")"
     [ -n "$role" ] || continue
