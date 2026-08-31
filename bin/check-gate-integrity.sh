@@ -73,6 +73,25 @@ if [ "${1:-}" = "--waive" ]; then
   exit 0
 fi
 
+# `--waive-deferred-live BY REASON EXPIRES` records the governed deferred_live_waiver this gate reads
+# (issue #100). It is NOT a blanket gate-integrity waiver: it sanctions ONLY skips that carry a
+# DeferredLiveAC/deferred_live marker — a live/P5-gated AC deferred to a live run, the same governed,
+# expiring shape as the other waivers (record_governed_waiver → governed_waiver_ok, one definition). An
+# unmarked skip still trips even with this recorded. Procedure: references/deferred-live-ac.md.
+if [ "${1:-}" = "--waive-deferred-live" ]; then
+  shift
+  if [ "$#" -ne 3 ]; then
+    echo "usage: $(basename "$0") --waive-deferred-live BY REASON EXPIRES(YYYY-MM-DD)" >&2
+    echo "  records deferred_live_waiver in the active run marker. Sanctions ONLY DeferredLiveAC-marked skips; expiry is mandatory and must be in the future." >&2
+    exit 64
+  fi
+  record_governed_waiver deferred_live_waiver "$1" "$2" "$3" || {
+    echo "$(basename "$0"): REFUSED to record deferred_live_waiver — needs a non-empty by and reason, and a future YYYY-MM-DD expires, under an unambiguous active run." >&2
+    exit 1
+  }
+  exit 0
+fi
+
 cd "$root" 2>/dev/null || { echo "check-gate-integrity: bad dir '$root'" >&2; exit 64; }
 
 KEY='invariant|constitution|constitutional|gate|contract|security|guard'
@@ -248,6 +267,28 @@ fi
 
 viol=0
 
+# --- deferred-live sanction (issue #100) --------------------------------------
+# A live/P5-gated AC can only be exercised against a live resource, so its test is DEFERRED to a live run
+# rather than run now. A governed, expiring deferred_live_waiver in the active run marker (ack+by+reason+
+# expires, the same shape as the other waivers) sanctions skips that carry a DeferredLiveAC/deferred_live
+# marker: those are declared, attributed, expiring deferrals, not silent green-by-skips. WITHOUT the
+# governed waiver the marker is inert and an ordinary skip still trips; in CI / no marker there is no
+# waiver, so a genuinely disabled gate is never hidden. Only MARKED skip lines are cleared — an unmarked
+# skip in the same file is still a finding. (check-completeness --final reads the same waiver, so a
+# deferred AC is counted as referenced there too.)
+deferred_live_ok=0
+gi_dl_marker="$(resolve_marker 2>/dev/null || true)"
+if [ -n "$gi_dl_marker" ] && [ -f "$gi_dl_marker" ]; then
+  gi_dl_mk="$(cat "$gi_dl_marker" 2>/dev/null || true)"
+  if governed_waiver_ok \
+       "$(field_in_obj "$gi_dl_mk" deferred_live_waiver ack)" \
+       "$(field_in_obj "$gi_dl_mk" deferred_live_waiver by)" \
+       "$(field_in_obj "$gi_dl_mk" deferred_live_waiver reason)" \
+       "$(field_in_obj "$gi_dl_mk" deferred_live_waiver expires)"; then
+    deferred_live_ok=1
+  fi
+fi
+
 # --- scan scope for the green-by-skip clause (issue #71) ----------------------
 # Per-batch by default: restrict clause 1 to the files THIS batch changed, so standing skips outside the
 # delta stop demanding a waiver every run. Whole-tree when --audit is given, or when no active
@@ -310,6 +351,10 @@ while IFS= read -r f; do
       [ -n "$ln" ] || continue
       prev="$(sed -n "$((ln - 1))p" "$f" 2>/dev/null)"
       printf '%s' "$prev" | grep -qiE 'gate-integrity:[[:space:]]*sanctioned' && continue
+      # deferred-live (#100): a DeferredLiveAC/deferred_live marker on the skip line or the line above,
+      # UNDER a governed deferred_live_waiver, is a sanctioned governed deferral — not a green-by-skip.
+      if [ "$deferred_live_ok" -eq 1 ] \
+         && printf '%s\n%s' "$text" "$prev" | grep -qiE 'DeferredLiveAC|deferred[_-]live'; then continue; fi
       sk="${sk}${ln}:${text}
 "
     done < <(_unconditional_skips "$f" 20 || printf '0:CLASSIFIER-FAILED — this gate could not read the file and is NOT passing\n')

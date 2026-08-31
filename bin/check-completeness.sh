@@ -74,6 +74,44 @@ _test_path_files() {
     -o -type f -print 2>/dev/null)
 }
 
+# _spec_test_files SPEC [DIR] → the test-path files ASSOCIATED with SPEC (issue #94). The AC→test half
+# used to grep EVERY test file in the repo, but `AC-N` numbering is shared across all specs, so a same-
+# numbered token in an UNRELATED spec's test satisfied this spec's AC by coincidental collision — the
+# gate read green without proving THIS spec's ACs are tested. Scope the search to the spec's own tests:
+# a test file counts as this spec's when it lives under the spec's directory, or NAMES the spec's slug
+# (the spec dir's basename) in its path or its content. An AC in spec X is then satisfiable only by a
+# test tied to spec X. (Association widening — declared test dirs, batch-touched paths — can be layered
+# on this later; the slug is the discriminator that removes the cross-spec false positive.)
+_spec_test_files() {
+  local spec="$1" specdir slug f
+  specdir="$(dirname "$spec")"; slug="$(basename "$specdir")"
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    case "$f" in
+      "$specdir"/*) printf '%s\n' "$f"; continue ;;   # under the spec's own directory
+      *"$slug"*)    printf '%s\n' "$f"; continue ;;    # names the slug in its path (tests/*_<slug>*, …)
+    esac
+    # names the slug in its content (a header comment / tag tying the suite to this spec). Fixed-string
+    # (grep -F): the slug is a unique spec-dir name, so containment is a strong, metachar-safe signal.
+    grep -Fq -- "$slug" "$f" 2>/dev/null && printf '%s\n' "$f"
+  done < <(_test_path_files "${2:-.}")
+}
+
+# _ac_deferred_live AC  (test-file list on stdin) → rc 0 if AC is carried by a sanctioned deferred-live
+# marker (`DeferredLiveAC:` / `deferred_live` / `deferred-live`) in some associated test file (issue
+# #100). A live/P5-gated AC deferred to a live run cannot host a running assertion, so its DEFERRAL
+# marker IS its reference — but ONLY when the run carries a governed deferred_live_waiver (checked by the
+# caller); an ungoverned marker is a bare comment and does not count (B6).
+_ac_deferred_live() {
+  local ac="$1" f acre
+  acre="(^|[^0-9A-Za-z])${ac}([^0-9A-Za-z]|\$)"
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    grep -iE 'DeferredLiveAC|deferred[_-]live' "$f" 2>/dev/null | grep -qE "$acre" && return 0
+  done
+  return 1
+}
+
 # Default test/assertion construct pattern (ERE). An AC token counts as *asserted* only when it sits
 # within a few lines of one of these — so a bare `# AC-1 AC-2` comment far from any test no longer
 # satisfies the AC→test check (a reference-only pass). Override/extend via AGENTS.md `AcTestPattern:`.
@@ -173,7 +211,20 @@ _final() {
   if [ -z "$acs" ]; then
     echo "check-completeness --final: no '$acpat' tokens in $spec — no AC→test mapping to enforce."
   else
-    files="$(_test_path_files .)"
+    # #94: scope the AC→test search to THIS spec's own tests, not a repo-wide grep (see _spec_test_files).
+    files="$(_spec_test_files "$spec" .)"
+    # #100: a governed, expiring deferred_live_waiver in the run marker sanctions deferring a live/P5-gated
+    # AC to a live run — its DeferredLiveAC marker then counts as the AC's reference. Same governed shape as
+    # the other waivers (ack+by+reason+expires, validated by governed_waiver_ok); without it a deferral is a
+    # bare comment and does not count. Procedure: references/deferred-live-ac.md.
+    local deferred_live_ok=0
+    if governed_waiver_ok \
+         "$(field_in_obj "$mk" deferred_live_waiver ack)" \
+         "$(field_in_obj "$mk" deferred_live_waiver by)" \
+         "$(field_in_obj "$mk" deferred_live_waiver reason)" \
+         "$(field_in_obj "$mk" deferred_live_waiver expires)"; then
+      deferred_live_ok=1
+    fi
     for ac in $acs; do
       # WS-3 (harness-robustness): feed the file list via herestring, NOT `printf … | _ac_in_tests`.
       # `_ac_in_tests` returns 0 on the FIRST matching file without draining stdin; under `set -o pipefail`
@@ -181,7 +232,12 @@ _final() {
       # non-zero → the `if` reads it as "not asserted" → an AC that IS asserted is falsely FAILed. A
       # herestring has no live producer to signal, so early-return is safe. (Root-caused by arch-review.)
       if _ac_in_tests "$ac" "$testpat" 3 <<< "$files"; then continue; fi
-      echo "  FAIL: $ac is in $spec but NOT asserted by any test — it appears in no test-path file within 3 lines of a test/assertion construct (a bare comment mention does not count) (AC-4, B6)." >&2
+      # A governed deferred-live AC: its deferral marker in a spec-associated test IS its reference (#100).
+      if [ "$deferred_live_ok" -eq 1 ] && _ac_deferred_live "$ac" <<< "$files"; then
+        echo "check-completeness --final: $ac is DEFERRED-LIVE — counted as referenced by its governed, expiring deferral (deferred_live_waiver), not by a running assertion (#100)."
+        continue
+      fi
+      echo "  FAIL: $ac is in $spec but NOT asserted by any test associated with this spec — it appears in no spec-scoped test-path file within 3 lines of a test/assertion construct, and no governed deferred-live deferral covers it (a bare or cross-spec mention does not count) (AC-4, B6, #94, #100)." >&2
       viol=$((viol + 1))
     done
   fi
@@ -218,23 +274,23 @@ if [ "${1:-}" = "--self-test" ]; then
   # AC-4 — --final: complete tasks + every AC ASSERTED near a test construct → pass
   printf '# Spec\n\n- AC-1 foo\n- AC-2 bar\n' > "$T/specs/demo/spec.md"
   printf '# Tasks\n\n- [x] **T001** done\n' > "$T/specs/demo/tasks.md"
-  printf '# AC-1\nassert ac1\n# AC-2\nassert ac2\n' > "$T/tests/x.test.sh"
+  printf '# AC-1\nassert ac1\n# AC-2\nassert ac2\n' > "$T/tests/demo_x.test.sh"
   _chk "AC-4 --final every AC near a test construct → pass" "$(_runf)" 0
   # B6 — ACs mentioned ONLY in a bare comment (no test construct nearby) → fail (reference-only no longer counts)
-  printf '# refs AC-1 AC-2 (bare comment, no test construct nearby)\n' > "$T/tests/x.test.sh"
+  printf '# refs AC-1 AC-2 (bare comment, no test construct nearby)\n' > "$T/tests/demo_x.test.sh"
   _chk "B6 --final ACs only in a bare comment → fail" "$(_runf)" 1
   # AC-4 — an AC asserted by NO test → fail
-  printf '# AC-1\nassert ac1\n' > "$T/tests/x.test.sh"
+  printf '# AC-1\nassert ac1\n' > "$T/tests/demo_x.test.sh"
   _chk "AC-4 --final AC-2 not asserted → fail" "$(_runf)" 1
   # AC-4 — a remaining [ ] in tasks.md → fail
-  printf '# AC-1\nassert ac1\n# AC-2\nassert ac2\n' > "$T/tests/x.test.sh"
+  printf '# AC-1\nassert ac1\n# AC-2\nassert ac2\n' > "$T/tests/demo_x.test.sh"
   printf '# Tasks\n\n- [x] **T001** done\n- [ ] **T002** undone\n' > "$T/specs/demo/tasks.md"
   _chk "AC-4 --final unchecked task remains → fail" "$(_runf)" 1
   # AcPattern override: ISSUE-\d tokens, asserted near a construct
   printf '# Spec\n\n- ISSUE-9 foo\n' > "$T/specs/demo/spec.md"
   printf '# Tasks\n\n- [x] **T001** done\n' > "$T/specs/demo/tasks.md"
   printf '# AGENTS\n\n- AcPattern: `ISSUE-[0-9]+`\n' > "$T/AGENTS.md"
-  printf '# ISSUE-9\nassert i9\n' > "$T/tests/x.test.sh"
+  printf '# ISSUE-9\nassert i9\n' > "$T/tests/demo_x.test.sh"
   _chk "AC-4 --final AcPattern override (ISSUE-9 asserted) → pass" "$(_runf)" 0
   rm -f "$T/AGENTS.md"
 
@@ -249,7 +305,7 @@ if [ "${1:-}" = "--self-test" ]; then
   printf '# Tasks\n\n- [x] **T001** done\n- [ ] **T002** undone\n' > "$T/specs/demo/tasks.md"
   _chk "dir-feature per-batch resolves + enforces (one [ ]) → fail" "$(_runpb)" 1
   printf '# Tasks\n\n- [x] **T001** done\n' > "$T/specs/demo/tasks.md"
-  printf '# AC-1\nassert ac1\n' > "$T/tests/x.test.sh"
+  printf '# AC-1\nassert ac1\n' > "$T/tests/demo_x.test.sh"
   _chk "dir-feature --final resolves spec.md + enforces → pass" "$(_runf)" 0
   # feature WITH a trailing slash also normalizes
   printf '{"run":"r","intends_code":true,"source":"harness","feature":"specs/demo/"}\n' > "$T/.runs/r/RUN"
@@ -264,6 +320,35 @@ if [ "${1:-}" = "--self-test" ]; then
   printf '{"run":"r","intends_code":true,"source":"harness","feature":"unknown"}\n' > "$T/.runs/r/RUN"
   _chk "feature=unknown (direct/non-spec run) per-batch → skip" "$(_runpb)" 0
   _chk "feature=unknown (direct/non-spec run) --final → skip" "$(_runf)" 0
+
+  # #94 — the AC→test search is SCOPED to the spec under delivery, not a repo-wide grep. A same-numbered
+  # AC token in a FOREIGN spec's test must NOT satisfy this spec's AC (shared AC-N namespace → collisions).
+  rm -f "$T/AGENTS.md"
+  printf '{"run":"r","intends_code":true,"source":"harness","feature":"specs/demo/spec.md"}\n' > "$T/.runs/r/RUN"
+  printf '# Spec\n\n- AC-1 foo\n' > "$T/specs/demo/spec.md"
+  printf '# Tasks\n\n- [x] **T001** done\n' > "$T/specs/demo/tasks.md"
+  rm -f "$T/tests/demo_x.test.sh"
+  # only a foreign (non-demo) test asserts AC-1 → not associated with `demo` → FAIL
+  printf '# foreign spec other\n# AC-1\nassert other_behaviour\n' > "$T/tests/other_core.test.sh"
+  _chk "#94 AC asserted only by a FOREIGN spec's test → --final FAIL (cross-spec collision closed)" "$(_runf)" 1
+  # a test associated with `demo` (slug in path) asserts AC-1 → PASS
+  printf '# AC-1\nassert demo_behaviour\n' > "$T/tests/demo_core.test.sh"
+  _chk "#94 AC asserted by a test associated with the spec (slug in path) → --final PASS" "$(_runf)" 0
+  rm -f "$T/tests/other_core.test.sh" "$T/tests/demo_core.test.sh"
+
+  # #100 — a governed, expiring deferred_live_waiver lets a live/P5-gated AC be DEFERRED: its
+  # DeferredLiveAC marker in an associated test counts as the AC's reference (no running assertion needed).
+  printf '# Spec\n\n- AC-1 live only\n' > "$T/specs/demo/spec.md"
+  printf '# Tasks\n\n- [x] **T001** done\n' > "$T/specs/demo/tasks.md"
+  # deferred test: DeferredLiveAC marker + skip, associated with `demo` by path, NO assertion construct.
+  printf '# DeferredLiveAC: AC-1 — live/P5-gated, deferred to a live run\npytest.skip("AC-1 deferred")\n' > "$T/tests/demo_live_test.py"
+  DLW='"deferred_live_waiver":{"ack":true,"by":"tester","reason":"AC-1 live/P5-gated","expires":"2999-01-01"}'
+  printf '{"run":"r","intends_code":true,"source":"harness","feature":"specs/demo/spec.md",%s}\n' "$DLW" > "$T/.runs/r/RUN"
+  _chk "#100 governed deferred_live_waiver → --final counts the deferred AC as referenced" "$(_runf)" 0
+  # without the governed waiver, a deferral with no assertion construct is NOT counted → FAIL
+  printf '{"run":"r","intends_code":true,"source":"harness","feature":"specs/demo/spec.md"}\n' > "$T/.runs/r/RUN"
+  _chk "#100 no governed waiver → deferred AC not counted (no assertion) → --final FAIL" "$(_runf)" 1
+  rm -f "$T/tests/demo_live_test.py"
 
   # AC-6 — no active marker → skip (both modes)
   rm -f "$T/.runs/r/RUN"
