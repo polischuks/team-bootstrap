@@ -32,6 +32,21 @@ printf '# tasks\n' > "$T/specs/foo/tasks.md"
 _mk pb "{\"run\":\"pb\",\"pipeline\":\"full\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$HEAD_SHA\",\"spec_present\":true,\"spec_path\":\"specs/foo/spec.md\",\"feature\":\"specs/foo/spec.md\"}"
 _chk "$(_run pb)" 2 "finished Phase A (tasks.md present), skipped Phase B → still block"
 
+# E — issue #101: Phase A FINISHED (tasks.md present, so #87 no longer relaxes), no batch, no code, BUT a
+# BACKGROUND architecture-reviewer (the Phase-A soundness gate, dispatched pre-batch with batch:"") is in
+# flight and its verdict is not yet recorded. The run is legitimately WAITING on the soundness gate before
+# announcing Phase B — not abandoned. Blocking here is what pushed the orchestrator to announce a batch and
+# start code BEFORE architecture_sound was decided. ALLOW. (tasks.md present from case B.)
+_mk pe "{\"run\":\"pe\",\"pipeline\":\"full\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$HEAD_SHA\",\"spec_present\":true,\"spec_path\":\"specs/foo/spec.md\",\"feature\":\"specs/foo/spec.md\"}"
+printf '%s\n' '{"batch":"","subagent_type":"architecture-reviewer","outcome":"attempted"}' > "$T/.runs/pe/dispatch.jsonl"
+_chk "$(_run pe)" 0 "Phase-A soundness reviewer in flight (dispatched, no verdict) → allow (#101)"
+
+# F — issue #101 paired fail-closed: same shape, but the ONLY dispatch is a BUILDER — NO architecture-reviewer
+# in flight. A genuinely abandoned Phase A (no soundness reviewer dispatched, no progress) must still BLOCK.
+_mk pf "{\"run\":\"pf\",\"pipeline\":\"full\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$HEAD_SHA\",\"spec_present\":true,\"spec_path\":\"specs/foo/spec.md\",\"feature\":\"specs/foo/spec.md\"}"
+printf '%s\n' '{"batch":"","subagent_type":"backend-developer","outcome":"attempted"}' > "$T/.runs/pf/dispatch.jsonl"
+_chk "$(_run pf)" 2 "no soundness reviewer in flight (builder dispatch only) → still block (#101 fail-closed)"
+
 # C — no milestone at all (the 'delivered nothing' shape): must still block.
 _mk pc "{\"run\":\"pc\",\"pipeline\":\"full\",\"intends_code\":true,\"source\":\"harness\",\"baseline_sha\":\"$HEAD_SHA\"}"
 _chk "$(_run pc)" 2 "armed run, no milestone, nothing delivered → still block (unchanged)"

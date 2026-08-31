@@ -331,6 +331,47 @@ if [ "$waiting" -eq 0 ] && [ "$announced_code" -eq 0 ] && [ "$closed_code" -eq 0
   esac
 fi
 
+# ISSUE #101 — WAITING ON THE PHASE-A SOUNDNESS GATE IS NOT ABANDONMENT (the #87 background-gate residual).
+# #87 relaxes only while tasks.md is ABSENT. Once Phase A produces tasks.md AND dispatches a BACKGROUND
+# architecture-reviewer for the soundness gate (Phase A, on plan.md — decided BEFORE any batch), the run
+# legitimately waits for that verdict before announcing Phase B. That wait presents as the same
+# "nothing shipped, tasks.md present" shape #87 stopped relaxing, so the hook blocked it every turn —
+# pushing the orchestrator to announce a batch and start code BEFORE architecture_sound is decided, which
+# contradicts the flow's own rule (STOP on the gate if architecture_sound:false). Same class as #65's
+# in-flight batch reviewers, one phase earlier.
+# The OBSERVABLE (R3, never a declared field), the SAME dispatch.jsonl channel #65 reads: an
+# architecture-reviewer-typed dispatch is recorded (may be batch:"" pre-batch — see #99), and no
+# architecture-reviewer verdict is captured yet (verdicts_captured). Read via role_of_slug (the exact
+# attribution roles_covered uses) over the run's dispatch.jsonl — not any marker field the same mind this
+# gate checks could forge. A soundness reviewer in flight and UNRESOLVED ⇒ WAITING. A run that dispatched
+# NO architecture-reviewer never arms (count 0), so a genuinely abandoned Phase A still blocks. Scoped to
+# "nothing delivered" (no announced/closed code batch, no code since baseline), so a code-shipped or
+# batch-open abandonment is out of scope here and still handled by the reviewers_in_flight / prong logic.
+# Suppresses the SAME two conjuncts the other waits do (its own; and prong 1, which asks a run THAT SHIPPED
+# CODE for an earned closure — vacuous when nothing shipped); prong 2 (the CLOSED-batch reviewer floor) is
+# untouched (closed_code is 0 here, so it is not in scope regardless).
+if [ "$waiting" -eq 0 ] && [ "$announced_code" -eq 0 ] && [ "$closed_code" -eq 0 ] && [ "$csb" -eq 0 ]; then
+  _disp101="$(dirname "$marker")/dispatch.jsonl"
+  if [ -f "$_disp101" ]; then
+    _arch_in_flight=0
+    while IFS= read -r _l101; do
+      [ -n "$_l101" ] || continue
+      [ "$(role_of_slug "$(field_str "$_l101" subagent_type)")" = "architecture-reviewer" ] || continue
+      _arch_in_flight=1; break
+    done < "$_disp101"
+    # UNRESOLVED iff no architecture-reviewer verdict is captured yet. verdicts_captured tokens are
+    # "batch/role"; a captured soundness verdict means the gate has resolved and this is no longer a wait.
+    # (Where capture never lands — the disclosed ADR-0006/0008 ceiling #65 already runs at — the arm is the
+    # dispatch presence, strictly narrower than the ZERO-dispatch class the block still catches.)
+    if [ "$_arch_in_flight" -eq 1 ]; then
+      case "$(marker_list verdicts_captured 2>/dev/null)" in
+        *architecture-reviewer*) : ;;   # soundness verdict recorded → gate resolved → not waiting
+        *) waiting=1 ;;
+      esac
+    fi
+  fi
+fi
+
 # BLOCK when: an announced code batch is still unclosed AND the run is not merely waiting; OR no earned
 # closure exists, the csb allowance does not apply (prong 1), and the run is not waiting; OR the
 # run-close reviewer floor is unmet (prong 2).
