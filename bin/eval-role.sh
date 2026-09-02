@@ -99,7 +99,15 @@ if [ "${LIVENESS:-0}" -eq 1 ]; then
       printf 'x\n' > seed.txt; git add -A; git commit -q -m base
       B="$(git rev-parse --short HEAD)"
       mkdir -p .runs/r
-      for _p in $2; do mkdir -p "$(dirname "$_p")"; printf 'z\n' > "$_p"; done
+      for _p in $2; do mkdir -p "$(dirname "$_p")"
+        # #125 — a package.json trips `deps` only when its DEPENDENCY SECTIONS actually change, not on any
+        # filename touch. The deps liveness probe must therefore add a real dependency entry (not generic
+        # 'z' content), or the fingerprint sees no change and the deps-category roles read as unreachable.
+        case "$_p" in
+          */package.json|package.json) printf '{\n  "dependencies": {\n    "probe-dep": "^1.0.0"\n  }\n}\n' > "$_p" ;;
+          *) printf 'z\n' > "$_p" ;;
+        esac
+      done
       git add -A; git commit -q -m work
       printf '{"run":"r","pipeline":"full","intends_code":true,"baseline_sha":"%s"}\n' "$B" > .runs/r/RUN
       printf '{"id":"B1","kind":"code","status":"announced"}\n' > .runs/r/batches.jsonl
