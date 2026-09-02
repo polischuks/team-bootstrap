@@ -229,7 +229,24 @@ _evaluate() {
     fi
   fi
 
-  [ "$viol" -eq 0 ] || return 1
+  if [ "$viol" -ne 0 ]; then
+    # #120 — a governed host_structural tdd-waiver relieves the red-ordering violations printed above,
+    # for the batch whose red is genuinely unresolvable by the current Test: (its package is excluded from
+    # the top-level suite). Parity with check-mutation's mutation_waiver: the finding is already surfaced,
+    # then a VALID governed tdd_waiver (ack+by+reason+unexpired-YYYY-MM-DD) clears the fail; a bare/expired
+    # one does not. Routed through the SAME governed_waiver_ok the peer gates decide on — one definition.
+    # It does NOT relieve a genuinely RED suite at HEAD (checked below): that is a different failure.
+    if governed_waiver_ok \
+         "$(field_in_obj "$mk" tdd_waiver ack)" \
+         "$(field_in_obj "$mk" tdd_waiver by)" \
+         "$(field_in_obj "$mk" tdd_waiver reason)" \
+         "$(field_in_obj "$mk" tdd_waiver expires)"; then
+      echo "check-tdd: WAIVED by a governed tdd_waiver (finding(s) surfaced above; by/reason/expires recorded, expiry forces re-review) — the batch's red is unresolvable by the top-level Test: (host_structural). See references/enforcement.md." >&2
+      viol=0
+    else
+      return 1
+    fi
+  fi
 
   # #97 — a kind:doc batch close changes no code, so HEAD's code is exactly what the last CODE batch
   # already proved green at its OWN close. Running the whole Test: suite (~3.5 min) to close a doc batch
@@ -272,6 +289,30 @@ _evaluate() {
   return 0
 }
 
+# --- --waive: the governed host_structural tdd-waiver door (issue #120) ------------------------------
+# `--waive BY REASON EXPIRES(YYYY-MM-DD)` records a governed `tdd_waiver` in the active run marker — the
+# same door the other enforce gates already carry (check-mutation → mutation_waiver, check-gate-integrity
+# → gate_integrity_waiver). It exists because a batch confined to a package the top-level `Test:` command
+# does NOT run (e.g. a dashboard suite standing-red at the monorepo level and excluded from Test:) can
+# never produce an observable red on that Test:, so it has no sanctioned red-first escape short of manual
+# ledger surgery (deleting/re-recording tdd.jsonl + review_acks by hand). Validation is
+# record_governed_waiver's, which is governed_waiver_ok's, which is _evaluate's below — ONE definition, so
+# a waiver that records always relieves the gate and one that would not is refused here with a reason. The
+# finding is still PRINTED by the gate; a waiver dates and attributes the escape, it does not hide it.
+if [ "${1:-}" = "--waive" ]; then
+  shift
+  if [ "$#" -ne 3 ]; then
+    echo "usage: $(basename "$0") --waive BY REASON EXPIRES(YYYY-MM-DD)" >&2
+    echo "  records a governed tdd_waiver in the active run marker (host_structural: the batch's red is unresolvable by the top-level Test:). Expiry is mandatory and must be in the future." >&2
+    exit 64
+  fi
+  record_governed_waiver tdd_waiver "$1" "$2" "$3" || {
+    echo "$(basename "$0"): REFUSED to record tdd_waiver — needs a non-empty by and reason, and a future YYYY-MM-DD expires, under an unambiguous active run." >&2
+    exit 1
+  }
+  exit 0
+fi
+
 # --- --record-red: the observation step (moved here from the deleted bin/tdd-red.sh) -----------------
 if [ "${1:-}" = "--record-red" ]; then
   shift
@@ -312,6 +353,27 @@ if [ "${1:-}" = "--record-red" ]; then
   if _red_wrong_cause "$rr_out"; then
     echo "check-tdd --record-red: the red looks like a WRONG-CAUSE failure (collection/import/syntax/missing-file error), not a failing assertion about the target behaviour — a red that fires for an unrelated reason proves nothing about the behaviour being added (#68). Fix the wrong-cause error so the test reaches and fails its OWN assertion, then re-run." >&2
     exit 5
+  fi
+
+  # #121 STALE-RED-SHA TRAP: --record-red stamps red_sha = current HEAD. If the failing test is still
+  # UNCOMMITTED (recorded from a dirty tree), red_sha points at HEAD — which does NOT contain the test —
+  # so the batch's F1 window [prev_tip..red_sha] later resolves empty and the batch fails downstream with
+  # "red changed no committed test file". The failure surfaces far from its cause. Enforce the "commit the
+  # failing test FIRST" rule AT RECORD TIME: if the working tree carries an uncommitted change to a test
+  # path (staged or unstaged), refuse — the red would be anchored at the wrong sha. This is stricter than
+  # the committed-window check below (which a STALE already-committed test could satisfy while the real
+  # red is uncommitted), so it runs first.
+  rr_dirty_test=0
+  while IFS= read -r rr_line; do
+    [ -n "$rr_line" ] || continue
+    rr_p="${rr_line#???}"; rr_p="${rr_p##* -> }"           # strip XY status; take a rename's destination
+    [ -n "$rr_p" ] || continue
+    case "$rr_p" in .runs/*|.runs) continue ;; esac        # the harness ledger is never the batch's test
+    if is_test_path "$rr_p" "$(read_test_globs)"; then rr_dirty_test=1; break; fi
+  done < <(git status --porcelain 2>/dev/null)
+  if [ "$rr_dirty_test" -eq 1 ]; then
+    echo "check-tdd --record-red: an uncommitted test-file change is in the working tree ('$rr_p') — red_sha would be stamped at HEAD, NOT at the commit that introduces your failing test, leaving an EMPTY F1 window that fails the batch downstream. Commit your failing test FIRST, then re-run (#121). To re-anchor after a legitimate commit rebuild: bin/marker.sh red-supersede <batch>, then --record-red again." >&2
+    exit 4
   fi
 
   # F1 (red-touches-tests): the red must be caused by a COMMITTED test-file change, so the red_sha this
@@ -455,6 +517,25 @@ if [ "${1:-}" = "--self-test" ]; then
   ( cd "$T" && rm -f .green && git commit -qam "regress" ) >/dev/null 2>&1
   _chk "both reds present but HEAD is RED → fail" 1
   ( cd "$T" && : > .green && git add .green && git commit -qm regreen ) >/dev/null 2>&1
+
+  # ---- #120 governed host_structural tdd-waiver: an unresolvable-red batch closes on a governed waiver --
+  # B2's red is missing (its package is excluded from the top-level Test:, so no red is observable). With
+  # no waiver the batch fails-closed; a governed tdd_waiver relieves it; an expired one does not.
+  printf '%s\n' "{\"batch\":\"B1\",\"red_sha\":\"$rA\",\"observed\":\"red\"}" > "$T/.runs/r/tdd.jsonl"
+  printf '{"run":"r","intends_code":true,"source":"harness","baseline_sha":"%s"}\n' "$base" > "$T/.runs/r/RUN"
+  _chk "B2 red unresolvable, no waiver → fail-closed (#120 baseline)" 1
+  ( cd "$T" && TEAM_BOOTSTRAP_RUN=r "$here/check-tdd.sh" --waive founder "dashboard pkg excluded from Test:" 2999-01-01 ) >/dev/null 2>&1
+  case "$(cat "$T/.runs/r/RUN")" in *'"tdd_waiver":{'*'"by":"founder"'*) echo "  PASS --waive wrote a governed tdd_waiver" ;;
+    *) echo "  FAIL --waive did not write tdd_waiver: $(cat "$T/.runs/r/RUN")" >&2; fail=$((fail + 1)) ;; esac
+  _chk "B2 red unresolvable + valid governed tdd_waiver → pass (#120)" 0
+  printf '{"run":"r","intends_code":true,"source":"harness","baseline_sha":"%s","tdd_waiver":{"ack":true,"by":"x","reason":"r","expires":"2000-01-01"}}\n' "$base" > "$T/.runs/r/RUN"
+  got_exp="$( ( cd "$T" && TEAM_BOOTSTRAP_RUN=r TEAM_BOOTSTRAP_NOW=2026-08-28 "$here/check-tdd.sh" . >/dev/null 2>&1 ); echo $? )"
+  if [ "$got_exp" = "1" ]; then echo "  PASS EXPIRED tdd_waiver is not a waiver → fail (#120)"; else echo "  FAIL expired tdd_waiver got exit $got_exp want 1" >&2; fail=$((fail + 1)); fi
+  # --waive with a past expiry is REFUSED (exit 64/1), writes nothing.
+  printf '{"run":"r","intends_code":true,"source":"harness","baseline_sha":"%s"}\n' "$base" > "$T/.runs/r/RUN"
+  got_ref="$( ( cd "$T" && TEAM_BOOTSTRAP_RUN=r "$here/check-tdd.sh" --waive x r 2000-01-01 >/dev/null 2>&1 ); echo $? )"
+  if [ "$got_ref" = "1" ]; then echo "  PASS --waive past expiry → refused (#120)"; else echo "  FAIL --waive past expiry got exit $got_ref want 1" >&2; fail=$((fail + 1)); fi
+
   # marker-less → skip
   ( cd "$T" && rm -f .runs/r/RUN )
   _chk "no active marker → skip (exit 0)" 0
@@ -554,6 +635,11 @@ if [ "${1:-}" = "--self-test" ]; then
   # empty-output red (e.g. a bare \`test -f\`) → accepted (must not false-reject a real red)
   ( cd "$WC" && : > out.txt )
   _ec "--record-red, empty-output red → accepted (no false-reject)" "$(_rr)" 0
+  # #121 stale-red-sha: an UNCOMMITTED test file in the working tree → red_sha would be stamped at HEAD
+  # (empty F1 window) → refuse with exit 4 (commit the failing test first).
+  ( cd "$WC" && printf 'FAIL\nAssertionError: x\n1 failed\n' > out.txt && echo t > dirty_test.sh )
+  _ec "--record-red, uncommitted test in tree → refuse (#121 stale-red-sha)" "$(_rr)" 4
+  ( cd "$WC" && rm -f dirty_test.sh )
   rm -rf "$WC"
 
   if [ "$fail" -eq 0 ]; then echo "check-tdd --self-test: OK"; exit 0; fi

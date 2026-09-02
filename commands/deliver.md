@@ -51,11 +51,31 @@ linter — it verifies, fail-**closed**:
   in the build tree (no split-brain). Only `specs/TEMPLATE/` absence is a warning. **Detect-and-report
   only** — it never creates scaffold or installs anything.
 
-**`Prepare:` — provision deps in a named phase, before the pipeline fires.** Declare a network-permitted
-setup command as `Prepare:` in `AGENTS.md` (e.g. `Prepare: \`npm ci\``; `N/A` when the toolchain needs no
-install). The orchestrator runs it **here in Phase 0, before Phase A**, so dependencies are present when
-`check-preflight` and later `quality-gate` run — rather than discovering "command not found" reactively
-mid-Phase-B. This is the "prepare-before-firing" that makes the readiness probes meaningful.
+**`Prepare:` then `Build:` — provision the FULL runnable state in a named phase, before the pipeline
+fires.** Declare a network-permitted setup command as `Prepare:` in `AGENTS.md` (e.g. `Prepare: \`npm ci\``;
+`N/A` when the toolchain needs no install). The orchestrator runs it **here in Phase 0, before Phase A**,
+so dependencies are present when `check-preflight` and later `quality-gate` run — rather than discovering
+"command not found" reactively mid-Phase-B. This is the "prepare-before-firing" that makes the readiness
+probes meaningful.
+
+**`Build:` runs immediately after `Prepare:`, still in Phase 0** (issue #116). Declare it in `AGENTS.md`
+(e.g. `Build: \`pnpm -r build\``; `N/A` when nothing needs building). `Prepare:` installs dependencies but
+does **not** build a workspace's `dist` packages — so a monorepo whose backend imports `@pkg/shared` hits
+`Cannot find module @pkg/shared` at the first typecheck/test. **That is an unbuilt dist, not a code
+error**, and diagnosing it by hand mid-Phase-B is exactly the reactive discovery Phase 0 exists to remove.
+Running the declared `Build:` after `Prepare:` provisions the dists so a workspace-package import resolves
+before the first test. Repos with no `Build:` are unaffected. (The command is read via `_build_cmd`, the
+one reader of the project's build command, mirroring `_test_cmd`.)
+
+**Base the delivery worktree on the run's intended base branch, not the ambient `main`** (issue #115). Cut
+(or verify) the delivery worktree from the branch the milestone actually targets — resolved by
+`resolve_base_branch`: a declared `base_branch` in `feature.json`, else a `BaseBranch:` line in
+`AGENTS.md`/`CLAUDE.md`, else the repo's `origin/HEAD` default. A worktree cut from a **stale** `main`
+(one that is not an ancestor of the integration branch, e.g. `develop`) fail-closes step by step
+downstream — a missing run-rate CapabilityOptOut, ADR/constitution drift, the doc-commit-in-`commit_shas`
+window — with the root ("your base is stale") never named as one fact. If the base **cannot** be resolved,
+**surface it** (this is where `check-preflight`'s stale-baseline WARN, issue #102, fits) rather than
+silently inheriting whatever `main` happens to be. Do not let a stale checkout start the cascade.
 
 - **Exit 0** — setup-ready; it records `preflight:{exit:0,…}` into the run marker and Phase A proceeds.
 - **Exit 1 (hard)** — it prints the named gap set and records `preflight:{exit:1,gaps:[…]}`. **STOP.**
@@ -85,19 +105,37 @@ context you already have (the marker carries the same field for the gates).
 
 Run every step 1–8 below, in order, no skipping. This is the unchanged path.
 
-### Mode 2 — `spec_present: true` (the milestone is already on disk). **Check it; do not re-draft it.**
+### Mode 2 — `spec_present: true` (the spec is already on disk). **Mode 2 is PER-ARTIFACT: check what exists, produce only what is missing.**
 
-`spec.md`/`plan.md`/`tasks.md` exist at `spec_path`. Run **only the checking steps**:
+`spec.md` exists at `spec_path` — but `plan.md`/`tasks.md` **may or may not**. `spec_present` is set from
+`spec.md` alone, so "Mode 2" does **not** guarantee the downstream artifacts are present. Do not read it
+as all-or-nothing "everything exists, check everything": decide **each of spec / plan / tasks on its own**.
 
+For **each** of `spec.md`, `plan.md`, `tasks.md`, look at the artifact:
+- **Present → CHECK it** (Mode-2, cheap and load-bearing): the checking steps below verify it. Do **not**
+  re-draft a present artifact.
+- **Absent → PRODUCE just it** (the Mode-1 step that fills it, and nothing else): `plan.md` absent ⇒
+  run **step 4 `speckit-plan`**; `tasks.md` absent ⇒ run **step 5 `speckit-tasks`**; `spec.md` absent is
+  not Mode 2 at all (that is Mode 1).
+
+**The named edge — present spec, absent plan/tasks (issue #118).** A spec on disk with **no** `plan.md`
+and **no** `tasks.md` is a legitimate Mode-1/Mode-2 hybrid, not a contradiction: there is nothing to
+*check* for those two, so **produce** them (`speckit-plan` then `speckit-tasks`) — without re-running
+`specify`/`clarify` over the spec that already exists. This applies **before any check reports a gap**:
+an artifact that was never produced must be produced, exactly like one a check found missing.
+
+The checking steps, run over whatever is **present**:
 - **step 6 `speckit-analyze`** — cross-artifact consistency (spec ↔ plan ↔ tasks; every AC maps to ≥1 task)
 - **step 7 `architecture-reviewer`** — is the planned architecture sound
 
-Then go to the Phase B gate. **Skip steps 2–5** (`specify`, `clarify`, `plan`, `tasks`) — they are the
-*producing* steps, and what they produce already exists. Skip step 1 unless `constitution.md` is
-missing. Run step 8's briefs per the pull rule as usual.
+Then go to the Phase B gate. **Skip the producing steps for artifacts that already exist** (`specify`,
+`clarify` for a present spec; `plan`/`tasks` for a present plan/tasks) — they produce what is already
+there. Skip step 1 unless `constitution.md` is missing. Run step 8's briefs per the pull rule as usual.
 
-**If a check reports a gap, re-open ONLY the step that fills it** — `tasks.md` absent or an AC with no
-task ⇒ `speckit-tasks`, and nothing else. Do not run the whole producing chain to fix one artifact.
+**If a check reports a gap, re-open ONLY the step that fills it** — an AC with no task ⇒ `speckit-tasks`,
+and nothing else. The per-artifact rule above is the same discipline applied to a **missing** artifact
+(never produced) as to a **gappy** one (a check found it incomplete): re-open exactly the one step, never
+the whole producing chain.
 
 The line is *producing* vs *checking*: re-checking finished work is cheap and load-bearing, while
 re-producing it is pure cost. Two measured runs against an already-written spec spent **2h21m** in
@@ -113,6 +151,16 @@ spec mid-flight is legitimate — but it must follow a recorded finding, not a s
 Run each step by invoking the matching skill via the Skill tool. Do not stop between steps
 unless a step reports a hard blocker.
 
+**Speckit runner may be templates-only here — the producing steps can silently no-op (issue #124).**
+`speckit-plan`, `speckit-tasks` and `speckit-analyze` (steps 4–6) drive a setup runner under
+`.specify/scripts/bash/…`. A repo that ships only the speckit *templates* has **no** runner, so those
+skills **produce nothing** — a fail-quiet the operator only discovers when `plan.md`/`tasks.md` come back
+empty mid-flow. Phase 0 `check-preflight.sh` now **detects and reports** this: when `.specify/scripts/bash`
+is absent it emits a WARN naming it. When you see that WARN (or the directory is absent), treat the
+Phase-A producing steps as **manual by design**: author `spec.md`/`plan.md`/`tasks.md` by hand (copy the
+structure of a nearby completed milestone) and run `analyze` inline, rather than expecting the skills to
+generate them. Do not present a produced-by-speckit artifact as automatic when the runner is not installed.
+
 0. **Run marker (enrichment).** The harness `UserPromptSubmit` hook
    (`${CLAUDE_PLUGIN_ROOT}/bin/delivery-marker-init.sh`) already wrote `.runs/<run>/RUN`
    (`intends_code:true`, `baseline_sha`) when this `/deliver` was submitted — that marker is the
@@ -121,6 +169,13 @@ unless a step reports a hard blocker.
    harness-owned so skipping a step cannot disable the gate (see `references/enforcement.md`). Here you
    only *enrich* it: confirm/append `pipeline`, `feature`, and (after step 8's precondition) `precond`.
    If the marker is somehow absent (older harness without the hook), create it now so Phase B is gated.
+   **If `.runs/<run>/RUN` disappears mid-session** (an external/parallel `.runs` cleanup deletes it) do
+   **not** hand-author the machine fields — that is the model writing a harness-owned fact, the exact
+   authorship the fail-closed design prevents. The marker writer keeps a sibling `RUN.bak` on every
+   machine update; recover with the **harness op** `${CLAUDE_PLUGIN_ROOT}/bin/marker.sh restore`, which
+   copies `RUN.bak` → `RUN` atomically (issue #117). It refuses when `RUN` is already present or no backup
+   exists — it never fabricates a marker, so a genuinely absent run stays absent and the gates stay closed
+   (re-arm via `/deliver` in that case).
 1. **Skill `speckit-constitution`** — establish/verify project principles. Record the
    version-bump verdict (Step 1).
 2. **Skill `speckit-specify`** with `FEATURE` — draft the spec (Step 2).
@@ -207,6 +262,16 @@ Then, for **each batch, one at a time**:
    `kind:code` batch closing **after** a lower-rank one (order by risk, bleeding-stopper first). This
    is the *record* of intent, not closure: only `verify-batch.sh` can flip it to `closed`
    (see [../references/enforcement.md](../references/enforcement.md), delivery-occurred layer).
+   - **Predict the review roles up front (#122).** The authoritative required-role set is recomputed at
+     *close* from the real diff (`required_roles_for_batch`, recorded by `verify-batch`), because that is
+     where the diff exists. But a role the diff will earn — e.g. `accessibility-reviewer` on a UI
+     surface — otherwise first surfaces as a post-commit `check-role-dispatch` failure, and review is
+     opened twice (once against the announce guess, once against the closure reality, each paying a full
+     suite + Stryker). To avoid the second round, source `.runs/<run>/batches.jsonl` alongside
+     `bin/delivery-lib.sh` and run `predicted_roles_for_batch <id>` right after writing the announce
+     entry: it dry-runs the classifier over the batch's **declared `files`** and prints the set the batch
+     is likely to need at close, so you can dispatch it now. Advisory only — the closure recompute stays
+     authoritative and can only ever add to (never remove from) this prediction.
    - **Withdrawing an announced batch after a pre-code reviewer no_go (#75).** A reviewer returning
      `no_go` on an announced batch — *before* any code is committed (e.g. `architecture-reviewer`
      rejects the plan: wrong sink/source, the effect already exists upstream) — is a **normal,
@@ -358,6 +423,11 @@ Then, for **each batch, one at a time**:
    the batch while `regressions_found > 0`, the suite isn't current, or a gate didn't actually run —
    this is what stops "closed for the workflow that existed that day." See
    [../references/regression-and-invariants.md](../references/regression-and-invariants.md).
+   **Know the close-time contract BEFORE you run the backstop (#107).** Run
+   `${CLAUDE_PLUGIN_ROOT}/bin/check-review-ack.sh --contract` — it prints this batch's full close-time
+   requirement set (the sized review roles, the `tasks.md` `- [x]` checkbox format, the `review_acks`/
+   `seam_acks` shapes, and the AC→test scoping `--final` enforces) so you satisfy them up front instead
+   of learning each one from a gate failure and re-running the whole cascade.
    Then the **machine backstop (hard):** run `${CLAUDE_PLUGIN_ROOT}/bin/verify-batch.sh` — the same
    script CI runs — which re-checks the OUTCOMES (dead code / drift / green-by-skip) regardless of
    which roles ran. A non-zero exit blocks the batch.
@@ -376,6 +446,18 @@ Then, for **each batch, one at a time**:
    context:clean, verdict:go, commit anchored) + `review_refutations` to the marker; a credible refutation
    becomes a MEDIUM+ `review_findings` governed by gate B. A `blocked` verdict or an `irreversible` batch
    escalates to a human ack — never self-close (P5). See [../references/enforcement.md](../references/enforcement.md).
+
+   **Batch-scoped extra suites (hard, in `verify-batch`, #109).** The backstop runs only the narrow
+   `Test:` command, so integration tests it excludes (`-m "not integration"` — a migration's RLS/trigger
+   invariants), frontend/console suites not in `Test:` (vitest, a11y), and the repo's own CI-guards are
+   blind spots caught only by reviewers or at merge. `check-batch-suites` closes them, **opt-in** via
+   AGENTS.md and **batch-scoped** off the same classifier that sizes the review roles: a batch whose diff
+   trips **`data/schema`** (migrations/schema/`.sql`) must run a declared **`IntegrationTest:`**; one that
+   trips **`ui`** (frontend paths) must run a declared **`ConsoleTest:`**; and every `kind:code` batch runs
+   the repo's declared **`Guards:`** scripts (so a guard-caught gap fails at close, not merge). A declared
+   suite/guard that exits non-zero blocks; a needed suite with none declared **warns** (unenforceable),
+   never a false block — a repo that declares none is unaffected. Declare the runners in `AGENTS.md`
+   ([../references/agents-md-contract.md](../references/agents-md-contract.md)).
 
    **Closure-fidelity gates (hard, in `verify-batch`).** The backstop also runs the three closure-fidelity
    gates: **A** (`check-enforcement`) records `enforcement_gaps` and blocks until you record
@@ -410,6 +492,18 @@ exit means the milestone is **not** done — an unchecked task or an acceptance 
 (implement the task / add the test, or defer it explicitly with rationale) before declaring the milestone
 complete. This is the machine half of "post-review keeps finding undone tasks / unimplemented spec parts"
 ([../references/enforcement.md](../references/enforcement.md), closure-fidelity layer).
+
+**Separate the run's OWN failures from standing-red / flaky CI at close/merge** (issue #119). A merge
+often sees a mix — a flaky guard (green on rerun), lint debt in files the run never touched, an ESM-import
+false positive — and none of it should read the same as a regression the run introduced. Declare the
+repo's known-red / known-flaky checks as a `KnownRed:` line in `AGENTS.md`/`CLAUDE.md` (backtick-tolerant,
+comma/space separated, glob entries allowed, e.g. `KnownRed: \`lint\`, \`adr-042-*\`, \`mcp-esm-imports\``),
+then label the failing checks with `${CLAUDE_PLUGIN_ROOT}/bin/label-failures.sh <check> …` (names as args
+or on stdin). Each failure prints as `pre-existing` (matches the allowlist — act only if it is newly
+worse) or `new-this-run` (the regression the run actually introduced); it exits non-zero only when a
+**new-this-run** failure exists, so the operator acts on real regressions and not on the standing noise.
+Without a declared `KnownRed:`, every failure is treated as new (conservative). This removes the "know the
+repo's standing-red set from memory" dependency the retro named.
 
 Stop after the final batch, or whenever the user says stop. At the end, summarize: batches shipped,
 tasks closed vs deferred, and what still needs a human (push authorization, prod deploy, open risks).

@@ -118,6 +118,38 @@ convention as `Test:`/`Typecheck:`; the framework declares the *contract*, the p
   `should(`, …). Widen it for a house test DSL whose asserts the default misses, e.g. `` `verify\(|check_that` ``
   ([`check-completeness.sh`](../bin/check-completeness.sh)).
 
+### Batch-scoped extra-suite fields (issue #109 — all optional; absence ⇒ warn, never a false block)
+
+`verify-batch`'s machine close gate runs only the narrow `Test:` command, so a milestone's real
+invariants can pass close and be caught only by (fallible) LLM reviewers or at merge: integration tests
+the `Test:` command **excludes** (`pytest -m "not integration"` — a migration's RLS/trigger invariants),
+frontend/console suites not in `Test:` at all (vitest, a11y), and the repo's own CI-guards. These fields
+let `verify-batch` run those **at close**, driven off the **same per-batch classifier** that sizes the
+review roles ([`check-batch-suites.sh`](../bin/check-batch-suites.sh)). All opt-in: a repo that declares
+none is unaffected (the gate warns where a path needs a suite, and blocks only on a **declared** red one).
+
+- **`IntegrationTest:`** (#109) — a command that runs the project's **integration** suite (the one
+  `Test:` excludes — e.g. `pytest -m integration`). Required, and run, when the batch's diff trips the
+  **`data/schema`** risk category (migrations, schema, `.sql`, models — the classifier's own paths). A
+  declared command that exits non-zero **blocks** the close; if the batch trips `data/schema` and no
+  `IntegrationTest:` is declared, the gate **warns** that the migration's invariants are not
+  machine-checked (unenforceable), never blocks.
+- **`ConsoleTest:`** (#109) — a command that runs the project's **frontend/console** suite (vitest,
+  a11y, AppShell — `pnpm -r test`). Required, and run, when the batch's diff trips the **`ui`** risk
+  category (`.tsx/.jsx/.vue/.svelte/.html/.css`, `components/ ui/ views/ pages/`). Declared-and-red
+  blocks; ui-touching batch with none declared warns.
+- **`Guards:`** (#109) — a space/comma list of the repo's own **CI-guard scripts** (e.g.
+  `` `.github/no-self-instantiated-anthropic.sh` ``). Run for **every `kind:code` batch** so a
+  guard-caught gap fails at **close, not at merge**. A guard that exits non-zero blocks; a declared guard
+  whose file is missing warns (a config error, not a code gap). Each token is run as `bash <path>` in the
+  repo root, exactly as CI would — the guard decides its own scope over the diff.
+
+  ```
+  - IntegrationTest: `pytest -m integration`
+  - ConsoleTest: `pnpm -r test`
+  - Guards: `.github/guard-a.sh .github/guard-b.sh`
+  ```
+
 ### Closure-fidelity marker fields (v2.19.0 — written to `.runs/<run>/RUN`, not AGENTS.md)
 
 The three closure-fidelity gates read/record these on the harness RUN marker (not project config). Listed

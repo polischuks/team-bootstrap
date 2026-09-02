@@ -38,6 +38,89 @@ _name() { case "$1" in 1) printf single-thread ;; 2) printf mvp ;; 3) printf ful
 
 _is_doc() { case "$1" in *.md|*.mdx|*.txt|docs/*|references/*|LICENSE|CHANGELOG*) return 0 ;; *) return 1 ;; esac; }
 
+# _is_nonrisk_layer PATH → rc 0 when PATH is NOT a load-bearing CODE layer for tier escalation (#108).
+# The `layers>=N` triggers used to count directory DIVERSITY: docs/, specs/, config and a pure-test dir
+# each registered as a "layer", so a doc-heavy milestone with a thin code surface tripped layers>=3 →
+# full and paid a four-role panel to confirm a version bump. Doc, spec, config and pure-test paths carry
+# no architectural blast-radius, so they are excluded from the LAYER count only — file count, non-doc
+# line count and every RISK category are untouched, so nothing that actually carries risk is discounted
+# (a schema/auth/api/deps/infra touch still escalates regardless of how many layers were dropped).
+_is_nonrisk_layer() {
+  _is_doc "$1" && return 0
+  is_test_path "$1" && return 0
+  case "$1" in
+    specs/*|*/specs/*) return 0 ;;                               # a spec is not a code layer
+    config/*|*/config/*) return 0 ;;                             # a config directory
+    *.yml|*.yaml|*.toml|*.ini|*.cfg|*.conf|*.json|*.lock) return 0 ;;   # config/data/lockfile formats
+    .*) return 0 ;;                                              # dotfiles (.gitignore, .editorconfig, …)
+  esac
+  return 1
+}
+
+# --- #125: `deps` fires on a real DEPENDENCY-SECTION change, not the manifest filename ---------------
+# The category exists for a sound reason — a new/changed dependency is an IP + supply-chain event — but
+# keying it on the package.json FILENAME misclassified a `scripts`/`name`/`version`-only edit as a
+# dependency event, pulling security + overengineering + ip-contracts reviewers for "no new dependency".
+# When the real diff is available (any git-sourced mode), a package.json only trips `deps` if its
+# dependency SECTIONS actually differ. A LOCKFILE change is always a real dependency event and still
+# trips it unconditionally. Spec-sourced sizing (--from-stdin, no diff) keeps the conservative filename
+# match: a spec that merely names a manifest cannot prove the change is scripts-only.
+
+# _show_blob REF PATH → the file content at REF (a git ref), or the WORKING-TREE file when REF is "".
+_show_blob() { if [ -z "$1" ]; then cat "$2" 2>/dev/null; else git show "$1:$2" 2>/dev/null; fi; }
+
+# _dep_fingerprint  (stdin: a package.json) → a stable, order-independent line per entry of the four
+# dependency sections (dependencies/devDependencies/peerDependencies/optionalDependencies). Comparing
+# the fingerprint of the old and new file answers "did the dependency sections change" directly, without
+# fragile hunk parsing: a scripts/name/version edit leaves the fingerprint identical, any add / remove /
+# version bump changes it. Dep values are JSON strings (never nested objects), so a single level of
+# brace tracking is exact for the standard pretty-printed manifest.
+_dep_fingerprint() {
+  awk '
+    function nb(s,  n,i,c){n=0;for(i=1;i<=length(s);i++){c=substr(s,i,1);if(c=="{")n++;else if(c=="}")n--}return n}
+    BEGIN{depth=0; insec=0; secname=""; secdepth=0}
+    {
+      line=$0
+      if (insec) {
+        tmp=line
+        while (match(tmp,/"[^"]+"[[:space:]]*:[[:space:]]*"[^"]*"/)) {
+          print secname "\t" substr(tmp,RSTART,RLENGTH)
+          tmp=substr(tmp,RSTART+RLENGTH)
+        }
+        depth += nb(line)
+        if (depth <= secdepth) insec=0
+        next
+      }
+      if (match(line,/"(dependencies|devDependencies|peerDependencies|optionalDependencies)"[[:space:]]*:[[:space:]]*\{/)) {
+        sn=line; sub(/^[^"]*"/,"",sn); sub(/".*/,"",sn)
+        d=nb(line)
+        if (d>0) { insec=1; secname=sn; secdepth=depth; depth+=d }
+        else     { depth+=d }
+        next
+      }
+      depth += nb(line)
+    }
+  ' | LC_ALL=C sort
+}
+
+# _dep_sections_differ OLDREF NEWREF PATH → rc 0 when the dependency sections differ between the two
+# sides. A ref of "" means the working tree.
+_dep_sections_differ() {
+  [ "$(_show_blob "$1" "$3" | _dep_fingerprint)" != "$(_show_blob "$2" "$3" | _dep_fingerprint)" ]
+}
+
+# _pkgjson_dep_changed PATH → rc 0 when this package.json's dependency sections changed, using the diff
+# window the acquisition block set via globals: $_DEPS_SHAS (a batch's commits, checked one at a time),
+# else $_DEPS_OLDREF/$_DEPS_NEWREF. Consulted only when $_DEPS_INSPECT=1.
+_pkgjson_dep_changed() {
+  local path="$1" c
+  if [ -n "${_DEPS_SHAS:-}" ]; then
+    for c in $_DEPS_SHAS; do _dep_sections_differ "$c^" "$c" "$path" && return 0; done
+    return 1
+  fi
+  _dep_sections_differ "${_DEPS_OLDREF:-}" "${_DEPS_NEWREF:-}" "$path"
+}
+
 # _untracked_numstat — emit numstat lines ("<lines>\t0\t<path>") for untracked files,
 # which `git diff` omits. Each untracked file counts as all-additions.
 _untracked_numstat() {
@@ -63,7 +146,12 @@ recommend() {
   while IFS="$(printf '\t')" read -r add del path || [ -n "${path:-}" ]; do
     [ -n "${path:-}" ] || continue
     files=$((files + 1))
-    case "$path" in */*) layers="$layers ${path%%/*}" ;; *) layers="$layers ." ;; esac
+    # #108 — only load-bearing CODE paths contribute an architectural layer. Doc/spec/config/pure-test
+    # paths are counted as files but not as risk-bearing layers, so path diversity alone cannot buy a
+    # heavier tier. A risk category still escalates regardless (handled below).
+    if ! _is_nonrisk_layer "$path"; then
+      case "$path" in */*) layers="$layers ${path%%/*}" ;; *) layers="$layers ." ;; esac
+    fi
     if _is_doc "$path"; then docpaths="$docpaths $path"; fi
     if ! _is_doc "$path"; then
       case "$add" in ''|*[!0-9]*) add=0 ;; esac
@@ -75,7 +163,19 @@ recommend() {
     case "$lc" in *migrat*|*schema*|*.sql|models/*|model/*|entities/*|*/models/*|*/model/*|*/entities/*|*prisma*|*alembic*) data=1 ;; esac
     case "$lc" in *dockerfile*|*.tf|*.tfvars|*k8s*|*kubernetes*|*helm*|.github/workflows/*|*/.github/workflows/*|*railway*|*render.yaml|*fly.toml|*vercel.json|*netlify.toml|*procfile|*deploy*) infra=1 ;; esac
     case "$lc" in *openapi*|*swagger*|*.proto|api/*|routes/*|route/*|*/api/*|*/routes/*|*/route/*|*graphql*|*.graphql|*contract*) api=1 ;; esac
-    case "$lc" in */package.json|package.json|*package-lock*|*pnpm-lock*|*yarn.lock|*go.mod|*go.sum|*requirements*.txt|*pipfile*|*pyproject.toml|*cargo.toml|*gemfile|*composer.json) deps=1 ;; esac
+    # #125 — split the manifest set: a LOCKFILE change is always a real dependency event; a package.json
+    # trips `deps` only when its dependency sections actually changed (when a diff is available); the
+    # other manifest formats keep the filename match (no JSON dep-section parser for them).
+    case "$lc" in
+      *package-lock*|*pnpm-lock*|*yarn.lock|*go.sum) deps=1 ;;                 # lockfile → always
+      */package.json|package.json)
+        if [ "${_DEPS_INSPECT:-0}" = 1 ]; then
+          _pkgjson_dep_changed "$path" && deps=1                              # real dep-section change
+        else
+          deps=1                                                             # spec-sourced ⇒ conservative
+        fi ;;
+      *go.mod|*requirements*.txt|*pipfile*|*pyproject.toml|*cargo.toml|*gemfile|*composer.json) deps=1 ;;
+    esac
     # roles-alive phase 1 (second wave) — a USER-FACING surface. Extension-driven, because that is the
     # one part of "is this UI" a path can actually answer; the both-forms idiom applies here too.
     case "$lc" in *.tsx|*.jsx|*.vue|*.svelte|*.html|*.css|*.scss|*.sass|components/*|*/components/*|ui/*|*/ui/*|views/*|*/views/*|pages/*|*/pages/*) ui=1 ;; esac
@@ -280,28 +380,44 @@ if [ "$from_stdin" -eq 1 ]; then
 else
   git rev-parse --git-dir >/dev/null 2>&1 || { echo "select-pipeline: not a git repository." >&2; exit 64; }
   numstat=""
+  # #125 — a real diff exists in every git-sourced mode, so recommend inspects package.json dependency
+  # sections instead of matching the filename. Each branch below points the inspector at ITS OWN window.
+  _DEPS_INSPECT=1; _DEPS_OLDREF="HEAD"; _DEPS_NEWREF=""; _DEPS_SHAS=""
   if [ -n "$batch" ]; then
     # Declared-but-unresolvable fails LOUD (review HIGH): a typo'd or mis-plumbed id used to read as
     # "no changes detected" with exit 0, silently voiding the --chosen contract — the same
     # declared-but-unresolvable class check-completeness already fixed once.
     _bl="$(resolve_ledger)"
-    if [ -z "$_bl" ] || [ ! -f "$_bl" ] || [ -z "$(_batch_line "$batch" "$_bl")" ]; then
+    _batchline="$(_batch_line "$batch" "$_bl" 2>/dev/null || true)"
+    if [ -z "$_bl" ] || [ ! -f "$_bl" ] || [ -z "$_batchline" ]; then
       echo "select-pipeline: --batch '$batch' does not resolve to a ledger entry (no active ledger, or no such batch id). Refusing to size the wrong window." >&2
       exit 64
     fi
     numstat="$(_batch_numstat "$batch")"
+    # Same window _batch_numstat uses: the batch's own commits when it has them (each dep-inspected as
+    # c^..c), else the in-flight window current_batch_base..HEAD.
+    _DEPS_SHAS="$(shas_of_line "$_batchline")"
+    if [ -z "$_DEPS_SHAS" ]; then _DEPS_OLDREF="$(current_batch_base)"; _DEPS_NEWREF="HEAD"; fi
   elif [ -n "$range" ]; then
     numstat="$(git diff --numstat "$range" 2>/dev/null || true)"
+    case "$range" in
+      *..*) _DEPS_OLDREF="${range%%..*}"; _DEPS_NEWREF="${range##*..}" ;;   # A..B / A...B → A vs B
+      *)    _DEPS_OLDREF="$range"; _DEPS_NEWREF="" ;;                        # single rev vs working tree
+    esac
   else
     # one stream, captured once (accumulating per-line via $() would strip newlines):
     # tracked uncommitted diff + untracked files counted as additions (git diff omits them).
     numstat="$( { git diff --numstat HEAD 2>/dev/null || true; _untracked_numstat; } )"
+    # default window: HEAD vs working tree (already the _DEPS default above)
     if [ -z "$(printf '%s' "$numstat" | tr -d '[:space:]')" ]; then   # clean tree → branch vs base
       base=""
       for b in origin/main main origin/master master; do
         git rev-parse --verify -q "$b" >/dev/null 2>&1 && { base="$b"; break; }
       done
-      [ -n "$base" ] && numstat="$(git diff --numstat "$base..HEAD" 2>/dev/null || true)"
+      if [ -n "$base" ]; then
+        numstat="$(git diff --numstat "$base..HEAD" 2>/dev/null || true)"
+        _DEPS_OLDREF="$base"; _DEPS_NEWREF="HEAD"
+      fi
     fi
   fi
   if [ -z "$numstat" ]; then

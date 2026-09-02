@@ -25,13 +25,38 @@
 # never a false block, mirrors quality-gate); no measured changed lines (WARN if there ARE changed
 # non-doc lines — the report may be omitting untested files; else silent).
 #
-# Usage: bin/check-diff-coverage.sh [project-dir]  ·  bin/check-diff-coverage.sh --self-test
-# Exit:  0 pass / skip · 1 changed-line coverage below threshold · 64 bad usage
+# gates: `bin/check-diff-coverage.sh --waive BY REASON EXPIRES(YYYY-MM-DD)` records a governed
+# `diff_coverage_waiver` in the active run marker, which _evaluate consults AFTER printing the finding.
+# A bare/expired waiver is not a waiver (governed_waiver_ok). This does not silence the finding and it
+# expires — see references/enforcement.md.
+#
+# Usage: bin/check-diff-coverage.sh [project-dir]  ·  --self-test  ·  --waive BY REASON EXPIRES
+# Exit:  0 pass / skip / waived · 1 changed-line coverage below threshold (unwaived) · 64 bad usage
 set -uo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=bin/delivery-lib.sh
 . "$here/delivery-lib.sh"
+
+# `--waive BY REASON EXPIRES` records the governed `diff_coverage_waiver` this gate reads — the same
+# door check-mutation (mutation_waiver) and check-gate-integrity (gate_integrity_waiver) already carry
+# (issue #112). It exists because a legitimately-untestable diff — thin glue over an external SDK — has
+# no measurable-in-isolation coverage, and the only alternative was writing throwaway mock tests or
+# reverting the good change. Validation is record_governed_waiver's, which is governed_waiver_ok's,
+# which is this gate's below: ONE definition, so a waiver that records always works.
+if [ "${1:-}" = "--waive" ]; then
+  shift
+  if [ "$#" -ne 3 ]; then
+    echo "usage: $(basename "$0") --waive BY REASON EXPIRES(YYYY-MM-DD)" >&2
+    echo "  records diff_coverage_waiver in the active run marker. Expiry is mandatory and must be in the future." >&2
+    exit 64
+  fi
+  record_governed_waiver diff_coverage_waiver "$1" "$2" "$3" || {
+    echo "$(basename "$0"): REFUSED to record diff_coverage_waiver — needs a non-empty by and reason, and a future YYYY-MM-DD expires, under an unambiguous active run." >&2
+    exit 1
+  }
+  exit 0
+fi
 
 DEFAULT_COVERAGE_THRESHOLD=80
 
@@ -63,7 +88,13 @@ _evaluate() {
 
   base="$(current_batch_base)"
   changed="$(mktemp)"; changed_nondoc_lines "$base" | sort -u > "$changed"
-  local changed_n; changed_n="$(grep -c . "$changed" 2>/dev/null || echo 0)"
+  # #110: `grep -c . "$changed"` PRINTS `0` AND EXITS 1 on an empty file (doc-only batch), so a
+  # `|| echo 0` fallback ALSO fired → the substitution captured `0\n0`, crashing the integer
+  # arithmetic below and blocking a batch that has no code to measure. `awk 'END{print NR}'` prints a
+  # single count and exits 0; the case-guard clamps to one integer so downstream `$(( ))` never sees a
+  # two-line value. A doc-only / empty-changed batch is 0 of 0 — a pass, not a crash.
+  local changed_n; changed_n="$(awk 'END{print NR}' "$changed" 2>/dev/null)"
+  case "$changed_n" in ''|*[!0-9]*) changed_n=0 ;; esac
 
   # `CoverageFrom: test` (issue #23 item 2) — ADDITIVE, opt-in. Declares that the `Test:` run ITSELF
   # produced the artifact named by `CoverageFile:`, so this gate READS it instead of running a coverage
@@ -173,6 +204,18 @@ _evaluate() {
   local pct; pct=$(( 100 * c / denom ))
   if [ "$pct" -lt "$thr" ]; then
     echo "  FAIL: changed-line coverage ${pct}% (${c}/${denom} covered; measured ${m} of ${changed_n} changed non-doc lines) < threshold ${thr}% — add tests exercising the changed lines (F2, breadth)." >&2
+    # #112: consult the governed diff_coverage_waiver AFTER printing the finding — a governed escape that
+    # silences its own finding is worse than none. A valid diff_coverage_waiver (ack+by+reason+unexpired
+    # YYYY-MM-DD) relieves the fail; a bare/expired one does not. SAME governed_waiver_ok that backs the
+    # peer fidelity gates (check-mutation, check-gate-integrity) — one definition, consistent policy.
+    if governed_waiver_ok \
+         "$(field_in_obj "$mk" diff_coverage_waiver ack)" \
+         "$(field_in_obj "$mk" diff_coverage_waiver by)" \
+         "$(field_in_obj "$mk" diff_coverage_waiver reason)" \
+         "$(field_in_obj "$mk" diff_coverage_waiver expires)"; then
+      echo "check-diff-coverage: WAIVED by a governed diff_coverage_waiver (finding surfaced above; by/reason/expires recorded, expiry forces re-review) — exit 0. See references/enforcement.md for the procedure." >&2
+      return 0
+    fi
     return 1
   fi
   echo "check-diff-coverage: changed-line coverage ${pct}% (${c}/${denom} covered; measured ${m} of ${changed_n} changed non-doc lines) ≥ ${thr}% — OK."
@@ -197,6 +240,21 @@ if [ "${1:-}" = "--self-test" ]; then
   # 3/5 changed lines covered = 60% < 80 → fail
   printf 'SF:app.sh\nDA:2,1\nDA:3,1\nDA:4,1\nDA:5,0\nDA:6,0\nend_of_record\n' > "$T/cov.lcov"
   _chk "changed-line coverage 60%% < 80%% → fail" "$(_run)" 1
+  # #112 — a valid governed diff_coverage_waiver relieves the 60% fail (finding still printed) → pass.
+  printf '{"run":"r","intends_code":true,"source":"harness","baseline_sha":"%s","diff_coverage_waiver":{"ack":true,"by":"x","reason":"thin SDK glue","expires":"2999-01-01"}}\n' "$(git_t git rev-parse --short HEAD~1)" > "$T/.runs/r/RUN"
+  _chk "60%% < 80%% + valid diff_coverage_waiver → pass [#112]" "$(_run)" 0
+  # an EXPIRED diff_coverage_waiver is not a waiver → still fails.
+  printf '{"run":"r","intends_code":true,"source":"harness","baseline_sha":"%s","diff_coverage_waiver":{"ack":true,"by":"x","reason":"r","expires":"2000-01-01"}}\n' "$(git_t git rev-parse --short HEAD~1)" > "$T/.runs/r/RUN"
+  _chk "60%% < 80%% + EXPIRED diff_coverage_waiver → fail [#112]" "$( ( cd "$T" && TEAM_BOOTSTRAP_RUN=r TEAM_BOOTSTRAP_NOW=2026-08-28 "$here/check-diff-coverage.sh" . >/dev/null 2>&1 ); echo $? )" 1
+  # the `--waive` writer records diff_coverage_waiver, then the enforce run passes on it.
+  printf '{"run":"r","intends_code":true,"source":"harness","baseline_sha":"%s"}\n' "$(git_t git rev-parse --short HEAD~1)" > "$T/.runs/r/RUN"
+  ( cd "$T" && TEAM_BOOTSTRAP_RUN=r "$here/check-diff-coverage.sh" --waive x r 2999-01-01 >/dev/null 2>&1 )
+  case "$(cat "$T/.runs/r/RUN")" in *'"diff_coverage_waiver":{'*'"by":"x"'*) echo "  PASS --waive wrote diff_coverage_waiver" ;;
+    *) echo "  FAIL --waive did not write diff_coverage_waiver: $(cat "$T/.runs/r/RUN")" >&2; fail=$((fail + 1)) ;; esac
+  _chk "after --waive, enforce + low coverage → pass [#112]" "$(_run)" 0
+  # `--waive` with a past expiry is REFUSED (exit 1), writes nothing.
+  printf '{"run":"r","intends_code":true,"source":"harness","baseline_sha":"%s"}\n' "$(git_t git rev-parse --short HEAD~1)" > "$T/.runs/r/RUN"
+  _chk "--waive past expiry → refused (exit 1) [#112]" "$( ( cd "$T" && TEAM_BOOTSTRAP_RUN=r "$here/check-diff-coverage.sh" --waive x r 2000-01-01 >/dev/null 2>&1 ); echo $? )" 1
   # 5/5 covered = 100% ≥ 80 → pass
   printf 'SF:app.sh\nDA:2,1\nDA:3,1\nDA:4,1\nDA:5,2\nDA:6,1\nend_of_record\n' > "$T/cov.lcov"
   _chk "changed-line coverage 100%% ≥ 80%% → pass" "$(_run)" 0
@@ -226,6 +284,23 @@ if [ "${1:-}" = "--self-test" ]; then
   ( cd "$T" && printf '# AGENTS\n\n- Coverage: `cat cov.lcov`\n' > AGENTS.md; rm -f .runs/r/RUN )
   _chk "no active marker → skip (exit 0)" "$(_run)" 0
   rm -rf "$T"
+
+  # #110 — a doc-only batch (zero changed non-doc lines) must PASS, not crash on a two-line `0\n0`
+  # changed-count. Fresh repo whose only batch change is to AGENTS.md.
+  D="$(mktemp -d)"
+  ( cd "$D" && git init -q && git config user.email t@t && git config user.name t
+    printf 'code1\n' > app.sh
+    printf '# AGENTS\n\n- Coverage: `cat cov.lcov`\n- CoverageThreshold: 80\n' > AGENTS.md
+    printf 'SF:app.sh\nDA:1,1\nend_of_record\n' > cov.lcov
+    git add . && git commit -qm base
+    printf 'more docs\n' >> AGENTS.md && git add AGENTS.md && git commit -qm docchange
+    mkdir -p .runs/r
+    printf '{"run":"r","intends_code":true,"source":"harness","baseline_sha":"%s"}\n' "$(git rev-parse --short HEAD~1)" > .runs/r/RUN ) >/dev/null 2>&1
+  dout="$( cd "$D" && TEAM_BOOTSTRAP_RUN=r "$here/check-diff-coverage.sh" . 2>&1 )"; drc=$?
+  if [ "$drc" = 0 ] && ! printf '%s' "$dout" | grep -q "syntax error"; then
+    echo "  PASS (exit 0, no crash) doc-only / empty-changed batch passes [#110]"
+  else echo "  FAIL [#110] doc-only batch did not pass cleanly (rc=$drc): $dout" >&2; fail=$((fail + 1)); fi
+  rm -rf "$D"
   if [ "$fail" -eq 0 ]; then echo "check-diff-coverage --self-test: OK"; exit 0; fi
   echo "check-diff-coverage --self-test: $fail case(s) FAILED" >&2; exit 1
 fi

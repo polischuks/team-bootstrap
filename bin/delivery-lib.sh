@@ -583,6 +583,68 @@ required_roles_for_batch() {
   printf '%s' "${out# }"
 }
 
+# files_of_line LINE → the paths in a ledger entry's `files` array, space-separated (empty when absent).
+# The announce entry declares its target files (deliver.md §announce: {…,"files",…}); this reads them
+# the way shas_of_line reads commit_shas, tolerant of compact and spaced JSON.
+files_of_line() {
+  printf '%s' "$1" | grep -oE "\"files\":[[:space:]]*\[[^]]*\]" | head -1 \
+    | sed -E 's/^"files":[[:space:]]*\[//; s/\][[:space:]]*$//' \
+    | grep -oE '"[^"]*"' | sed 's/^"//; s/"$//' | grep -v '^$' | tr '\n' ' '
+}
+
+# predicted_roles_for_batch BID → the review roles this batch is LIKELY to need at CLOSE, PREDICTED at
+# ANNOUNCE from its DECLARED files (the ledger entry's `files` array) rather than from the diff window,
+# which is still empty at announce (#122).
+#
+# WHY THIS EXISTS. required_roles_for_batch is recomputed at CLOSURE from the real diff (correct — that
+# is where the truth is), so a role the diff earns — accessibility-reviewer on a UI surface — first
+# surfaces as a post-commit check-role-dispatch FAILURE, and the operator then dispatches it and re-runs
+# the whole close (full suite + Stryker). Review is opened twice. Predicting the set from the files the
+# batch declares lets the operator dispatch it up front.
+#
+# ADVISORY, NOT AUTHORITATIVE. The closure recompute stays the enforced set; this never records anything
+# and never removes a role the diff will earn. It shares the SAME building blocks as the diff path
+# (select-pipeline's classifier → tier_base_roles + roles_for_categories), so the prediction and the
+# closure requirement cannot use two different mappings. A declared `risk_rank` lifts the tier the same
+# one-directional way it does at close. The >=1 code-reviewer floor is asserted here too.
+predicted_roles_for_batch() {
+  local bid="$1" ledger l line="" kind files here_ verdict tier cats rr base r out="" f numstat
+  [ -n "$bid" ] || return 0
+  ledger="$(resolve_ledger)"; [ -n "$ledger" ] && [ -f "$ledger" ] || return 0
+  while IFS= read -r l || [ -n "$l" ]; do
+    [ -n "$l" ] || continue
+    [ "$(field_str "$l" id)" = "$bid" ] && line="$l"
+  done < "$ledger"
+  [ -n "$line" ] || return 0
+  kind="$(field_str "$line" kind)"
+  [ "$kind" = "doc" ] && return 0                     # docs earn no review fan-out
+  here_="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  files="$(files_of_line "$line")"
+  # Classify the DECLARED paths. No diff exists yet, so line counts are 0 (the volume signal cannot
+  # fire) — file count, layer count and the risk categories are all real, because they come from the
+  # paths, which is exactly the property size-from-spec.sh relies on for text-sourced sizing.
+  if [ -n "$files" ]; then
+    numstat="$(for f in $files; do printf '0\t0\t%s\n' "$f"; done)"
+    verdict="$(printf '%s\n' "$numstat" | "$here_/select-pipeline.sh" --from-stdin 2>/dev/null || true)"
+    tier="$(printf '%s\n' "$verdict" | sed -nE 's/.*RECOMMENDED pipeline: ([a-z-]+).*/\1/p' | tail -1)"
+    cats="$(printf '%s\n' "$verdict" | sed -nE 's/.*\(reasons: (.*)\)$/\1/p' | tail -1)"
+    cats="$(risk_categories_only "$cats")"
+  fi
+  # A self-declared risk_rank lifts the tier one-directionally (ADR-0006), never lowers it.
+  rr="$(field_str "$line" risk_rank)"
+  case "$rr" in irreversible|run-rate) tier="full" ;; esac
+  [ -n "$tier" ] || tier="single-thread"
+  base="$(tier_base_roles "$tier")"
+  for r in $(roles_for_categories "$cats" 2>/dev/null || true); do
+    case " $base " in *" $r "*) : ;; *) base="$base $r" ;; esac
+  done
+  case " $base " in *" code-reviewer "*) : ;; *) base="code-reviewer${base:+ $base}" ;; esac
+  for r in $base; do
+    case " $out " in *" $r "*) : ;; *) out="$out $r" ;; esac
+  done
+  printf '%s' "${out# }"
+}
+
 # json_esc TEXT → TEXT safe inside a JSON string. Control characters are DROPPED rather than escaped:
 # additionalContext is a one-line fact statement, so an embedded newline is a defect, not content.
 json_esc() {
@@ -929,11 +991,67 @@ _marker_strip_flat_key() {
 # one filesystem, and $TMPDIR is frequently a different mount. A failed write leaves the previous
 # marker untouched, which truncate-then-write could not guarantee. Mirrors verify-batch.sh:114.
 _marker_write() {
-  local marker="$1" content="$2" tmp
+  local marker="$1" content="$2" tmp btmp
   tmp="$marker.tmp.$$"
   printf '%s\n' "$content" > "$tmp" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 1; }
   mv "$tmp" "$marker" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 1; }
+  # issue #117 — marker durability. On EVERY machine update of a RUN marker, drop a sibling RUN.bak so a
+  # loss of RUN (an external/parallel `.runs` cleanup deletes it mid-session) is recoverable by a HARNESS
+  # op (marker_restore / `marker.sh restore`) rather than by the orchestrator hand-authoring the
+  # machine fields (intends_code/baseline_sha/pipeline). The backup is a copy of the just-written content,
+  # written atomically beside the marker (same directory ⇒ rename is atomic). Best-effort and strictly
+  # additive: a backup failure NEVER fails the marker write it rides on — the marker is the source of
+  # truth, the .bak only its recovery copy. Only RUN markers are backed up (basename check), so the
+  # generic writer stays generic for any other file a caller might pass.
+  case "$marker" in
+    */RUN|RUN)
+      btmp="$marker.bak.tmp.$$"
+      if printf '%s\n' "$content" > "$btmp" 2>/dev/null; then
+        mv "$btmp" "$marker.bak" 2>/dev/null || rm -f "$btmp" 2>/dev/null
+      fi ;;
+  esac
   return 0
+}
+
+# marker_restore [DIR] → HARNESS recovery for issue #117: when the active run's RUN marker is GONE but
+# its sibling RUN.bak is present, restore RUN atomically from the backup. This is the sanctioned harness
+# operation the "harness-owned so the model can't disable a gate" design needs: recovery reconstructs the
+# machine fact from a machine-written backup, so the orchestrator never hand-authors intends_code /
+# baseline_sha / pipeline. The run is resolved WITHOUT requiring RUN to exist (it is the thing that is
+# missing): the explicit pointer (.runs/current) or $TEAM_BOOTSTRAP_RUN names it, else a lone .runs/*/RUN.bak.
+# rc 0 restored · 1 nothing to restore (RUN already present, or no backup to restore from) — never
+# fabricates a marker, so a genuinely absent run stays absent and the gates keep failing closed.
+marker_restore() {
+  local dir="${1:-.}" id="" bak run rundir tmp
+  ( cd "$dir" 2>/dev/null || exit 1
+    # Resolve the run id the way the resolvers do, but tolerant of a MISSING RUN (RUN is what we restore).
+    if [ -n "${TEAM_BOOTSTRAP_RUN:-}" ]; then
+      id="$TEAM_BOOTSTRAP_RUN"
+    elif [ -f .runs/current ]; then
+      read -r id < .runs/current 2>/dev/null || id=""
+      id="${id//[[:space:]]/}"
+      case "$id" in ''|.|..|*/*|*[!A-Za-z0-9._-]*) id="" ;; esac
+    fi
+    # Fall back to a lone RUN.bak when no pointer names the run (a bare, single-run session).
+    if [ -z "$id" ]; then
+      local _had_noglob=0; case $- in *f*) _had_noglob=1 ;; esac; set -f
+      local n; n="$(ls .runs/*/RUN.bak 2>/dev/null | head -2)"
+      [ "$_had_noglob" -eq 1 ] || set +f
+      # exactly one candidate ⇒ unambiguous; more than one ⇒ refuse (a pointer must disambiguate)
+      case "$(printf '%s\n' "$n" | grep -c .)" in
+        1) run="$n"; run="${run#.runs/}"; run="${run%/RUN.bak}"; id="$run" ;;
+        *) exit 1 ;;
+      esac
+    fi
+    [ -n "$id" ] || exit 1
+    rundir=".runs/$id"; bak="$rundir/RUN.bak"
+    [ -f "$rundir/RUN" ] && exit 1     # RUN present → nothing to restore (never clobber a live marker)
+    [ -f "$bak" ] || exit 1            # no backup → cannot restore as a harness op (refuse; do not fabricate)
+    tmp="$rundir/RUN.restore.$$"
+    cp "$bak" "$tmp" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; exit 1; }
+    mv "$tmp" "$rundir/RUN" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; exit 1; }
+    exit 0
+  )
 }
 
 record_marker_list() {
@@ -1739,6 +1857,49 @@ _test_cmd() {
   printf '%s' "$c"
 }
 
+# _build_cmd [DOC] → the runnable `Build:` command from the agents-md contract (AGENTS.md, else CLAUDE.md),
+# or empty (N/A|none ⇒ empty). Issue #116: `Prepare:` installs deps but does not build a workspace's dist
+# packages, so a monorepo whose backend imports `@pkg/shared` hits "Cannot find module @pkg/shared" — an
+# unbuilt dist, not a code error — at the first typecheck/test. A companion `Build:` step (run in Phase 0
+# AFTER Prepare:, deliver.md) provisions the full runnable state so the dists exist before the first test.
+# ONE reader of "the project's build command", mirroring _test_cmd. Reads from CWD (cd into the target first).
+_build_cmd() {
+  local doc="${1:-}" f c
+  if [ -z "$doc" ]; then for f in AGENTS.md CLAUDE.md; do [ -f "$f" ] && { doc="$f"; break; }; done; fi
+  [ -n "$doc" ] && [ -f "$doc" ] || return 0
+  c="$(grep -iE "^[[:space:]]*[-*]?[[:space:]]*Build:" "$doc" 2>/dev/null | head -1 | grep -oE '`[^`]+`' | head -1 | tr -d '`')"
+  case "$c" in N/A|n/a|None|none) c="" ;; esac
+  printf '%s' "$c"
+}
+
+# resolve_base_branch [DIR] → the branch the delivery run is INTENDED to be based on, or empty. Issue #115:
+# /deliver cut its worktree from whatever `main` happened to be (a stale checkout that is not an ancestor
+# of the real integration branch), and the stale base then fail-closed step by step downstream with the
+# root — "your base is stale" — never named once. The intended base is a DECLARED fact, resolved in order:
+#   1. feature.json "base_branch"  — the milestone's declared integration/target branch (authoritative)
+#   2. AGENTS.md/CLAUDE.md `BaseBranch:` — the same fact in the human contract when feature.json is silent
+#   3. origin/HEAD default branch — the repo's own notion of its trunk (never a hardcoded `main`)
+# Empty only when none resolve: the caller SURFACES that (this is where #102's stale-baseline WARN fits)
+# rather than silently inheriting the ambient checkout. Offline-safe: (3) reads a local remote-tracking ref.
+resolve_base_branch() {
+  local dir="${1:-.}" fj bb def
+  fj="$dir/feature.json"
+  if [ -f "$fj" ]; then
+    bb="$(field_str "$(cat "$fj" 2>/dev/null)" base_branch)"
+    [ -n "$bb" ] && { printf '%s' "$bb"; return 0; }
+  fi
+  local f doc=""
+  for f in "$dir/AGENTS.md" "$dir/CLAUDE.md"; do [ -f "$f" ] && { doc="$f"; break; }; done
+  if [ -n "$doc" ]; then
+    bb="$(grep -iE "^[[:space:]]*[-*]?[[:space:]]*BaseBranch:" "$doc" 2>/dev/null | head -1 | sed -E 's/^[^:]*://' | tr -d '`' | xargs 2>/dev/null || true)"
+    [ -n "$bb" ] && { printf '%s' "$bb"; return 0; }
+  fi
+  def="$(git -C "$dir" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null)"
+  def="${def#origin/}"
+  [ -n "$def" ] && { printf '%s' "$def"; return 0; }
+  return 0
+}
+
 # governed_waiver_ok ACK BY REASON EXPIRES [NOW] → rc 0 IFF ACK=="true" AND by/reason/expires are all
 # non-empty AND expires is YYYY-MM-DD AND expires >= NOW (default TEAM_BOOTSTRAP_NOW, else today). ONE
 # reusable definition of "a dated, attributed, unexpired waiver" (OQ-5), shared by the preflight enforcer
@@ -1804,6 +1965,38 @@ nondoc_delta_of_shas() {
   done
   printf '%s' "$total"
 }
+
+# impl_delta_of_shas "sha1 sha2 …" → Σ (added+deleted) lines on IMPL files across the commits, counted
+# PER COMMIT. IMPL = neither a doc path (_is_doc_path) NOR a test path (is_test_path). This is the strict
+# "code that carries behaviour" delta: nondoc_delta_of_shas still counts TEST lines (a test file is
+# non-doc), so a test-only commit has nondoc_delta > 0 but impl_delta == 0.
+#
+# WHY (#93 definitive). stamp_batch_closed anchors check-tdd on the OLDEST commit_sha, so any commit that
+# carries no impl — a doc-only Phase-A `docs(spec-…)`, OR a test-only orphan (a rejected wrong-cause red
+# replaced by a stub, never recorded, left dangling) — must not be a code batch's anchor. Filtering by
+# `nondoc_delta == 0` catches only the doc-only case; filtering by `impl_delta == 0` (every changed file
+# is test-or-doc) subsumes it and closes the test-only-orphan hole. Composed from the two existing helpers
+# (_is_doc_path, is_test_path), so "impl" means the same thing everywhere. TestGlobs: extends is_test_path.
+impl_delta_of_shas() {
+  local shas="$1" sha full add del path total=0 tglobs
+  tglobs="$(read_test_globs 2>/dev/null || true)"
+  local -a list=()
+  IFS=' ' read -r -a list <<<"$shas"
+  for sha in "${list[@]}"; do
+    [ -n "$sha" ] || continue
+    full="$(resolve_sha "$sha")" || full=""
+    [ -n "$full" ] || continue
+    while IFS="$(printf '\t')" read -r add del path; do
+      [ -n "${path:-}" ] || continue
+      _is_doc_path "$path" && continue
+      is_test_path "$path" "$tglobs" && continue
+      case "$add" in ''|*[!0-9]*) add=0 ;; esac
+      case "$del" in ''|*[!0-9]*) del=0 ;; esac
+      total=$((total + add + del))
+    done < <(git show --numstat --format= "$full" 2>/dev/null)
+  done
+  printf '%s' "$total"
+}
 # last_closure_sha → the first commit_sha of the LAST closed ledger entry, if git can resolve it; empty
 # otherwise. The one definition of "where the previous closure ended", read by current_batch_base (the
 # batch window) and by closure_anchor (D7). It used to be inline in current_batch_base only.
@@ -1855,9 +2048,27 @@ current_batch_base() {
   # origin/main. Using origin/main here can drag pre-run commits (even the run baseline itself)
   # into commit_shas, which check-delivery then flags as predate/forged and check-tdd's oldest-
   # commit anchor breaks on. baseline_sha is the run's declared start — the correct window base.
+  #
+  # #104 — but `baseline_sha` is stamped by delivery-marker-init at the moment /deliver ARMS the run,
+  # BEFORE Phase A commits `docs(spec-…)` + feature.json. Those Phase-A commits land after baseline and
+  # before the first code batch, so they fall inside the first batch's window. #93's impl-delta filter
+  # drops a Phase-A commit that is pure doc OR pure test, but a Phase-A commit that ALSO touches a
+  # non-test-non-doc artifact (feature.json / config) has impl_delta > 0 and survives — becoming the
+  # first batch's oldest commit_sha and the wrong tdd anchor. `code_baseline_sha`, when the harness has
+  # recorded the A→B boundary (after Phase-A producing/doc commits, before the first red), advances the
+  # FIRST batch's window past all of Phase A in one boundary rather than a per-gate filter. It is used
+  # ONLY here (the batch window); the /deliver-time baseline_sha still backs the reachable-from-HEAD /
+  # predate / gate-cache checks (closure_anchor, code_since_baseline, gate_cache_key read it directly).
+  # Operator-safe and additive: absent/unresolvable/== HEAD ⇒ fall through to baseline_sha, unchanged.
   marker="$(resolve_marker)"
   if [ -n "$marker" ] && [ -f "$marker" ]; then
-    mk="$(cat "$marker" 2>/dev/null || true)"; bsha="$(field_str "$mk" baseline_sha)"
+    mk="$(cat "$marker" 2>/dev/null || true)"
+    local cbsha; cbsha="$(field_str "$mk" code_baseline_sha)"
+    if [ -n "$cbsha" ] && git rev-parse --verify -q "$cbsha^{commit}" >/dev/null 2>&1 \
+       && [ "$(git rev-parse -q "$cbsha^{commit}" 2>/dev/null)" != "$(git rev-parse -q HEAD 2>/dev/null)" ]; then
+      printf '%s' "$cbsha"; return 0
+    fi
+    bsha="$(field_str "$mk" baseline_sha)"
     if [ -n "$bsha" ] && git rev-parse --verify -q "$bsha^{commit}" >/dev/null 2>&1 \
        && [ "$(git rev-parse -q "$bsha^{commit}" 2>/dev/null)" != "$(git rev-parse -q HEAD 2>/dev/null)" ]; then
       printf '%s' "$bsha"; return 0

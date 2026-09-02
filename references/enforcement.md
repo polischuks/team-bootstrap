@@ -356,6 +356,8 @@ Two gates refuse rather than pass when they cannot confirm, and both are relieve
 | `bin/check-role-verdict.sh --gate` | `role_verdict_waiver` | a **dropped capture** for the in-flight batch: every required role IS in `dispatch.jsonl` but no verdict landed (spec 021 AC-6/AC-7; discriminated per issue #81 — see below) |
 | `bin/check-gate-integrity.sh` | `gate_integrity_waiver` | pre-existing green-by-skip / can't-fail findings the batch did not introduce |
 | `bin/check-mutation.sh` | `mutation_waiver` | under `MutationMode: enforce`, a diff-scoped mutation run infeasible for this batch — a small change dragging a large file into mutation (issue #66 comment) |
+| `bin/check-diff-coverage.sh` | `diff_coverage_waiver` | a diff below the coverage threshold whose changed lines are legitimately untestable — parity with the other fidelity gates' doors (issue #112) |
+| `bin/check-tdd.sh` | `tdd_waiver` | a `host_structural` red the current `Test:` command cannot observe — a batch whose red lives in a package the top-level `Test:` excludes (issue #120) |
 
 **Governed** means four fields, all required: `ack:true`, `by`, `reason`, `expires` (`YYYY-MM-DD`, in
 the future). A bare `ack` is not a waiver. An expired one is not a waiver. There is one definition —

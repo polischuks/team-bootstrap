@@ -83,17 +83,31 @@ _test_path_files() {
 # test tied to spec X. (Association widening — declared test dirs, batch-touched paths — can be layered
 # on this later; the slug is the discriminator that removes the cross-spec false positive.)
 _spec_test_files() {
-  local spec="$1" specdir slug f
+  local spec="$1" specdir slug num numre f
   specdir="$(dirname "$spec")"; slug="$(basename "$specdir")"
+  # #94 (widen the association): the FULL multi-word slug (`108-cited-table-cell-false-degrade`) is
+  # stricter than needed — a test named by the spec NUMBER (`_108.py`) or carrying a declared
+  # `Spec:`/`SpecId:` tag is plainly this spec's, yet embeds no full slug. So also associate by the spec
+  # NUMBER prefix and by a Spec tag. The number is matched as a BOUNDED token so the per-spec scoping that
+  # closes the cross-spec collision holds: 108 ≠ 107, and ≠ a partial like 1080 / 2108.
+  num="$(printf '%s' "$slug" | grep -oE '^[0-9]+' || true)"
+  numre=""; [ -n "$num" ] && numre="(^|[^0-9])${num}([^0-9]|\$)"
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     case "$f" in
       "$specdir"/*) printf '%s\n' "$f"; continue ;;   # under the spec's own directory
       *"$slug"*)    printf '%s\n' "$f"; continue ;;    # names the slug in its path (tests/*_<slug>*, …)
     esac
-    # names the slug in its content (a header comment / tag tying the suite to this spec). Fixed-string
+    # spec NUMBER as a bounded token in the PATH (tests/*_108.py, 108-*, …) — never 107 / 1080 / 2108.
+    if [ -n "$numre" ] && printf '%s' "$f" | grep -qE "$numre"; then printf '%s\n' "$f"; continue; fi
+    # names the full slug in its content (a header comment / tag tying the suite to this spec). Fixed-string
     # (grep -F): the slug is a unique spec-dir name, so containment is a strong, metachar-safe signal.
-    grep -Fq -- "$slug" "$f" 2>/dev/null && printf '%s\n' "$f"
+    grep -Fq -- "$slug" "$f" 2>/dev/null && { printf '%s\n' "$f"; continue; }
+    # a declared `Spec:`/`SpecId:`/`Spec-Id:` tag whose value carries THIS spec's number (bounded). The
+    # tag scopes the number to a deliberate association, so a bare `== 108` in a test body is not enough.
+    if [ -n "$numre" ] && grep -iE '(^|[^a-z])spec[-_]?(id)?:' "$f" 2>/dev/null | grep -qE "$numre"; then
+      printf '%s\n' "$f"; continue
+    fi
   done < <(_test_path_files "${2:-.}")
 }
 
@@ -178,6 +192,29 @@ _per_batch() {
   return 0
 }
 
+# _spec_has_untokenized_acs SPEC → rc 0 if SPEC DECLARES acceptance criteria in a form the AC→test half
+# cannot parse (issue #111): checkbox bullets (`- [ ] …`, the specs 179/180 form), or an "Acceptance"
+# heading/label section that contains at least one list item. Used only when NO recognized AC token was
+# found, to tell "genuinely no ACs" (graceful pass) from "has ACs the gate can't map" (fail-closed).
+# `tolower` (not gawk IGNORECASE, which BSD/darwin awk lacks) keeps the detection portable.
+_spec_has_untokenized_acs() {
+  local spec="$1"
+  # checkbox bullets anywhere are the unmarked-AC form — a strong, unambiguous signal.
+  grep -qE '^[[:space:]]*[-*+][[:space:]]*\[[ xX]\]' "$spec" 2>/dev/null && return 0
+  # an Acceptance heading/label opening a section that then lists at least one bullet/numbered item.
+  awk '
+    { line = tolower($0)
+      is_heading = (line ~ /^[[:space:]]*#{1,6}[[:space:]]/)
+      if ((is_heading && line ~ /acceptance/) \
+          || line ~ /^[[:space:]]*\*{0,2}_?acceptance( criteria)?_?\*{0,2}[[:space:]]*:?[[:space:]]*$/) { insec = 1; next }
+      if (is_heading) { insec = 0; next }
+      if (insec && line ~ /^[[:space:]]*([-*+]|[0-9]+[.)])[[:space:]]+/) { found = 1; exit }
+    }
+    END { exit (found ? 0 : 1) }
+  ' "$spec" 2>/dev/null && return 0
+  return 1
+}
+
 # --- --final ------------------------------------------------------------------
 _final() {
   local marker mk spec tasks doc acpat acs ac viol=0 files hit
@@ -209,7 +246,16 @@ _final() {
   fi
   acs="$(grep -oE "$acpat" "$spec" 2>/dev/null | sort -u)"
   if [ -z "$acs" ]; then
-    echo "check-completeness --final: no '$acpat' tokens in $spec — no AC→test mapping to enforce."
+    # #111: NO recognized AC token found. Distinguish "genuinely no ACs" (graceful pass) from "declares
+    # ACs the gate can't parse" (a coverage hole → FAIL-CLOSED). A spec that states its acceptance
+    # criteria only as unmarked/checkbox bullets has nothing token-shaped to map, so passing here would be
+    # a vacuous green-by-skip on the AC→test guarantee — the same class the fidelity gates refuse.
+    if _spec_has_untokenized_acs "$spec"; then
+      echo "  FAIL-CLOSED: $spec DECLARES acceptance criteria but none are in the recognized '$acpat' form (they are unmarked/checkbox bullets), so the AC→test half can map none of them to a test — passing would be a vacuous green-by-skip on the coverage guarantee. Mark each acceptance criterion as 'AC-N' (or set AcPattern: to the token form this spec uses) so AC→test coverage is enforceable (#111)." >&2
+      viol=$((viol + 1))
+    else
+      echo "check-completeness --final: no '$acpat' tokens in $spec and no acceptance criteria declared in another form — genuinely nothing to map (graceful skip) (#111)."
+    fi
   else
     # #94: scope the AC→test search to THIS spec's own tests, not a repo-wide grep (see _spec_test_files).
     files="$(_spec_test_files "$spec" .)"
@@ -349,6 +395,38 @@ if [ "${1:-}" = "--self-test" ]; then
   printf '{"run":"r","intends_code":true,"source":"harness","feature":"specs/demo/spec.md"}\n' > "$T/.runs/r/RUN"
   _chk "#100 no governed waiver → deferred AC not counted (no assertion) → --final FAIL" "$(_runf)" 1
   rm -f "$T/tests/demo_live_test.py"
+
+  # #111 — a spec that DECLARES acceptance criteria but NOT as recognized tokens must not pass vacuously.
+  rm -f "$T/tests"/*.test.sh "$T/tests"/*.py 2>/dev/null
+  printf '{"run":"r","intends_code":true,"source":"harness","feature":"specs/demo/spec.md"}\n' > "$T/.runs/r/RUN"
+  printf '# Tasks\n\n- [x] **T001** done\n' > "$T/specs/demo/tasks.md"
+  printf '# Spec\n\n## Acceptance Criteria\n\n- [ ] renders on load\n- [ ] degrades on error\n' > "$T/specs/demo/spec.md"
+  _chk "#111 ACs as checkbox bullets (no token) → --final FAIL-CLOSED (no vacuous pass)" "$(_runf)" 1
+  printf '# Spec\n\n## Acceptance\n\n- the export is idempotent\n' > "$T/specs/demo/spec.md"
+  _chk "#111 ACs as plain bullets under an Acceptance heading (no token) → --final FAIL-CLOSED" "$(_runf)" 1
+  printf '# Spec\n\nRollout notes only. There are no acceptance criteria here.\n' > "$T/specs/demo/spec.md"
+  _chk "#111 genuinely no ACs (prose only) → --final PASS (graceful)" "$(_runf)" 0
+
+  # #94 (widen) — a test named by the spec NUMBER, or carrying a Spec:/SpecId: tag, associates with the
+  # spec without embedding the full multi-word slug; the number stays per-spec scoped (108 ≠ 107 ≠ 1080).
+  rm -f "$T/tests"/*.test.sh "$T/tests"/*.py 2>/dev/null
+  mkdir -p "$T/specs/108-cited-table-cell"
+  printf '{"run":"r","intends_code":true,"source":"harness","feature":"specs/108-cited-table-cell/spec.md"}\n' > "$T/.runs/r/RUN"
+  printf '# Spec 108\n\n- AC-0 the degrade path\n' > "$T/specs/108-cited-table-cell/spec.md"
+  printf '# Tasks\n\n- [x] **T001** done\n' > "$T/specs/108-cited-table-cell/tasks.md"
+  printf '# 108 suite\n# AC-0\nassert degrade\n' > "$T/tests/cell_108.py"
+  _chk "#94 test named by the spec number (_108.py, no full slug) → --final PASS" "$(_runf)" 0
+  rm -f "$T/tests/cell_108.py"
+  printf '# 107 suite\n# AC-0\nassert other\n' > "$T/tests/cell_107.py"
+  _chk "#94 foreign _107.py does not satisfy spec-108's AC-0 → --final FAIL (per-spec number scope)" "$(_runf)" 1
+  rm -f "$T/tests/cell_107.py"
+  printf '# unrelated 1080 2108\n# AC-0\nassert x\n' > "$T/tests/thing_1080.py"
+  _chk "#94 partial-number filenames (1080/2108) do not associate → --final FAIL" "$(_runf)" 1
+  rm -f "$T/tests/thing_1080.py"
+  printf '# Spec: 108\n# AC-0\nassert via_tag\n' > "$T/tests/core.py"
+  _chk "#94 declared 'Spec: 108' tag associates → --final PASS" "$(_runf)" 0
+  rm -f "$T/tests/core.py" "$T/tests"/*.py 2>/dev/null
+  rm -rf "$T/specs/108-cited-table-cell"
 
   # AC-6 — no active marker → skip (both modes)
   rm -f "$T/.runs/r/RUN"

@@ -317,7 +317,59 @@ _record_mode() {
   esac
   _persist_verdict "$bid" "$role" "$rundir"
   echo "check-role-verdict --record: recorded a well-formed '$role' verdict for batch '$bid' → .runs/<run>/verdicts.jsonl (synchronous channel, #81). The --gate reader confirms it with no waiver." >&2
+  # ISSUE #106 — AUTO-DERIVE the review_acks entry (check-review-ack gate C) from a recorded code-reviewer
+  # verdict, so recording the review ONCE satisfies gate C without a second, hand-written ack. Scoped to
+  # the code-reviewer role — the clean-context adversarial review gate C reads. Best-effort: a derive that
+  # cannot be written never changes this command's exit status (the verdict is already recorded).
+  [ "$role" = "code-reviewer" ] && _derive_review_ack "$obj" "$bid"
   exit 0
+}
+
+# _derive_review_ack VERDICT_OBJ BID — ISSUE #106. Translate a recorded code-reviewer verdict into the
+# review_acks entry check-review-ack (gate C) reads, closing the "two writes for one fact" gap: the
+# role-verdict and the review-ack were separate manual writes for the SAME clean-context code review.
+#
+# WHAT IT DERIVES, and WHAT IT REFUSES:
+#   - approval_status == "approved"  → a review_acks entry {reviewer:code-reviewer, context:clean,
+#     verdict:go, commit:HEAD}. HEAD is the anchor because --record runs after the reviewed code is
+#     committed; it is reachable-from-HEAD and post-baseline, the two git facts gate C checks.
+#   - approval_status != "approved" (changes_requested / anything else) → NO ack. A blocked/refuted review
+#     must still surface as a finding and escalate — it may NOT auto-close the batch (AC: a blocked verdict
+#     must not auto-ack).
+#
+# INDEPENDENCE PRESERVED (reviewer≠builder, OQ-4): the derived reviewer is "code-reviewer"; if the marker
+# builder IS "code-reviewer" the derive is SKIPPED rather than forging a self-review. The write goes
+# through marker.sh review-ack, which re-enforces reviewer≠builder and validates the shape — one owner of
+# the review_acks contract, so a derived ack is byte-identical to a hand-written one.
+#
+# IDEMPOTENT: skips when a review_acks entry for BID already exists (a re-record, or a hand-authored ack
+# the operator wrote first — the manual path stays available and wins).
+_derive_review_ack() {
+  local obj="$1" bid="$2" marker mk approval builder commit
+  [ -n "$obj" ] && [ -n "$bid" ] || return 0
+  marker="$(resolve_marker 2>/dev/null || true)"
+  [ -n "$marker" ] && [ -f "$marker" ] || return 0
+  mk="$(cat "$marker" 2>/dev/null || true)"
+  # idempotent: a review_acks entry for THIS batch already present ⇒ nothing to derive (manual path wins).
+  if printf '%s' "$mk" | grep -oE '"review_acks":[[:space:]]*\[[^]]*\]' | grep -qF "\"batch\":\"$bid\""; then
+    return 0
+  fi
+  approval="$(field_str "$obj" approval_status)"
+  if [ "$approval" != "approved" ]; then
+    echo "check-role-verdict --record: code-reviewer approval_status='$approval' is not 'approved' — NOT auto-deriving a review_ack; a blocked/changes_requested review must surface as a finding and escalate, never auto-close the batch (#106)." >&2
+    return 0
+  fi
+  builder="$(field_str "$mk" builder)"; [ -n "$builder" ] || builder="orchestrator"
+  if [ "$builder" = "code-reviewer" ]; then
+    echo "check-role-verdict --record: marker builder is 'code-reviewer' — NOT auto-deriving a review_ack (reviewer≠builder independence, OQ-4); record a genuinely independent review by hand if one ran (#106)." >&2
+    return 0
+  fi
+  commit="$(git rev-parse --short HEAD 2>/dev/null || true)"
+  [ -n "$commit" ] || return 0
+  if "$here/marker.sh" review-ack --batch "$bid" --reviewer code-reviewer --context clean --verdict go --commit "$commit" >/dev/null 2>&1; then
+    echo "check-role-verdict --record: AUTO-DERIVED a review_acks entry (reviewer=code-reviewer, context=clean, verdict=go, commit=$commit) for batch '$bid' from the recorded verdict — check-review-ack gate C is satisfied without a separate hand-written ack (#106)." >&2
+  fi
+  return 0
 }
 
 _gate_mode() {

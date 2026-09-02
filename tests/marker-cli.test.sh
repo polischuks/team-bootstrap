@@ -127,5 +127,43 @@ _rc "unknown waive target"     64 "$(_run waive nonexistent who why 2999-01-01)"
 _eq "marker unchanged after all refusals" "$BEFORE" "$(cat "$D/.runs/r/RUN")"
 rm -rf "$D"
 
+echo "== Group 8: review-ack --replace supersedes the prior entry for a batch (#121) =="
+D="$(_newrepo)"
+C="$( cd "$D" && git rev-parse --short HEAD )"
+printf '%s\n' '{"run":"r","intends_code":true,"source":"harness","builder":"orchestrator"}' > "$D/.runs/r/RUN"
+# first ack for B1 (verdict blocked), then --replace with a fresh ack (verdict go) after a rebuild
+_rc "review-ack B1 (initial)" 0 "$( ( cd "$D" && TEAM_BOOTSTRAP_RUN=r bash "$CLI" review-ack --batch B1 --reviewer code-reviewer --context clean --verdict blocked --commit "$C" ) >/dev/null 2>&1; echo $? )"
+_rc "review-ack B1 --replace" 0 "$( ( cd "$D" && TEAM_BOOTSTRAP_RUN=r bash "$CLI" review-ack --batch B1 --reviewer code-reviewer --context clean --verdict go --commit "$C" --replace ) >/dev/null 2>&1; echo $? )"
+MK8="$(cat "$D/.runs/r/RUN")"
+_json "marker valid after --replace" "$MK8"
+# exactly ONE B1 entry remains, and it is the replacement (verdict go, not blocked)
+n_b1="$(printf '%s' "$MK8" | grep -oE '"batch":"B1"' | grep -c .)"
+_rc "exactly one B1 review_acks entry after --replace" 1 "$n_b1"
+if printf '%s' "$MK8" | grep -q '"verdict":"go"' && ! printf '%s' "$MK8" | grep -q '"verdict":"blocked"'; then
+  echo "  PASS the surviving B1 entry is the replacement (go, not blocked)"
+else echo "  FAIL stale blocked entry survived: $MK8" >&2; fail=$((fail + 1)); fi
+# a DIFFERENT batch's entry is preserved across a --replace of B1
+_rc "review-ack B2 (other batch)" 0 "$( ( cd "$D" && TEAM_BOOTSTRAP_RUN=r bash "$CLI" review-ack --batch B2 --reviewer code-reviewer --context clean --verdict go --commit "$C" ) >/dev/null 2>&1; echo $? )"
+_rc "review-ack B1 --replace again" 0 "$( ( cd "$D" && TEAM_BOOTSTRAP_RUN=r bash "$CLI" review-ack --batch B1 --reviewer code-reviewer --context clean --verdict go --commit "$C" --replace ) >/dev/null 2>&1; echo $? )"
+MK8b="$(cat "$D/.runs/r/RUN")"
+if printf '%s' "$MK8b" | grep -q '"batch":"B2"'; then echo "  PASS B2's entry preserved across B1 --replace"; else echo "  FAIL B2 entry lost: $MK8b" >&2; fail=$((fail + 1)); fi
+rm -rf "$D"
+
+echo "== Group 9: red-supersede drops a batch's stale tdd.jsonl red record (#121) =="
+D="$(_newrepo)"
+printf '%s\n' '{"run":"r","intends_code":true,"source":"harness"}' > "$D/.runs/r/RUN"
+printf '%s\n%s\n' \
+  '{"batch":"B1","red_sha":"aaaa111","observed":"red"}' \
+  '{"batch":"B2","red_sha":"bbbb222","observed":"red"}' > "$D/.runs/r/tdd.jsonl"
+_rc "red-supersede B1" 0 "$( ( cd "$D" && TEAM_BOOTSTRAP_RUN=r bash "$CLI" red-supersede B1 ) >/dev/null 2>&1; echo $? )"
+TDD9="$(cat "$D/.runs/r/tdd.jsonl")"
+if ! printf '%s' "$TDD9" | grep -q '"batch":"B1"' && printf '%s' "$TDD9" | grep -q '"batch":"B2"'; then
+  echo "  PASS B1 red record dropped, B2 preserved"
+else echo "  FAIL red-supersede left the wrong records: $TDD9" >&2; fail=$((fail + 1)); fi
+# superseding a batch with no record → refused (nothing to supersede)
+_rc "red-supersede B1 again → refused (no record)" 1 "$( ( cd "$D" && TEAM_BOOTSTRAP_RUN=r bash "$CLI" red-supersede B1 ) >/dev/null 2>&1; echo $? )"
+_rc "red-supersede no batch arg → usage error" 64 "$( ( cd "$D" && TEAM_BOOTSTRAP_RUN=r bash "$CLI" red-supersede ) >/dev/null 2>&1; echo $? )"
+rm -rf "$D"
+
 if [ "$fail" -eq 0 ]; then echo "marker-cli.test.sh: OK"; exit 0; fi
 echo "marker-cli.test.sh: $fail assertion(s) FAILED" >&2; exit 1
