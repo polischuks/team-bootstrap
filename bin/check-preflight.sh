@@ -263,6 +263,16 @@ _scan() {
   if { [ -f "$dir/package-lock.json" ] || [ -f "$dir/yarn.lock" ] || [ -f "$dir/pnpm-lock.yaml" ]; } && [ ! -d "$dir/node_modules" ]; then
     echo "WARN dependency lockfile present but node_modules/ absent — if not Yarn PnP, provision deps via the Prepare: step before Phase B"
   fi
+  # issue #124 — speckit runner presence (readiness, WARN). Phase A's producing chain (deliver.md steps
+  # 4–6: speckit-plan/tasks/analyze) drives a setup runner under .specify/scripts/bash/…. A repo that
+  # ships only the speckit TEMPLATES has no runner, so those skills produce NOTHING — a fail-quiet the
+  # operator discovers only when plan.md/tasks.md come back empty mid-flow (observed live on M108). Detect
+  # it and name it, so the operator authors the producing artifacts by hand rather than invoking empty
+  # shells. WARN not HARD: producing manually is a legitimate mode (this plugin's own repo has no runner),
+  # so this states the mode; it does not block the run.
+  if [ ! -d "$dir/.specify/scripts/bash" ] || ! ls "$dir"/.specify/scripts/bash/* >/dev/null 2>&1; then
+    echo "WARN speckit runner absent — .specify/scripts/bash/* not found; the Phase-A producing skills (speckit-plan/speckit-tasks/speckit-analyze) have no runner here and produce nothing. Author spec.md/plan.md/tasks.md manually (deliver.md Phase A templates-only note), or provision the runner."
+  fi
   # warn-level scaffold
   [ -d "$dir/$sd/TEMPLATE" ] || echo "WARN $sd/TEMPLATE absent — a milestone can copy a prior spec's structure, but the template helps"
 }
@@ -410,6 +420,20 @@ _self_test() {
     echo "  PASS marker stays valid JSON with backslash-bearing declared path"
   else
     echo "  FAIL marker corrupted (invalid JSON) by backslash in a gap message" >&2; fail=$((fail + 1)); fi
+  # issue #124 — speckit-runner detection. Absent .specify/scripts/bash → WARN (names it), rc still 0
+  # (WARN never fails); present+non-empty → no such WARN.
+  T="$(mktemp -d)"; _scaffold "$T"
+  out="$(env -u TEAM_BOOTSTRAP_RUN "$0" "$T" 2>&1)"; rc=$?
+  if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'speckit runner absent'; then
+    echo "  PASS #124 speckit runner absent → WARN (still ready, 0)"
+  else
+    echo "  FAIL #124 speckit-runner WARN not emitted (rc=$rc)" >&2; fail=$((fail + 1)); fi
+  T="$(mktemp -d)"; _scaffold "$T"; mkdir -p "$T/.specify/scripts/bash"; printf '#!/bin/sh\n' > "$T/.specify/scripts/bash/setup.sh"
+  out="$(env -u TEAM_BOOTSTRAP_RUN "$0" "$T" 2>&1)"; rc=$?
+  if [ "$rc" -eq 0 ] && ! printf '%s' "$out" | grep -q 'speckit runner absent'; then
+    echo "  PASS #124 speckit runner present → no WARN"
+  else
+    echo "  FAIL #124 speckit-runner WARN emitted despite present runner (rc=$rc)" >&2; fail=$((fail + 1)); fi
   # AC-9 — bare git dir names >=4 HARD gaps
   bt="$(mktemp -d)"; git -C "$bt" init -q
   out="$("$0" "$bt" 2>&1)"; rc=$?; gaps="$(printf '%s\n' "$out" | grep -c 'HARD')"

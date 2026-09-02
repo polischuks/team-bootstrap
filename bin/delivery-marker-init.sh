@@ -38,6 +38,44 @@ set -uo pipefail
 _json_esc() { json_esc "$1"; }
 _emit_ctx() { emit_hook_context UserPromptSubmit "$1"; }
 
+# _spec_ref_in_git PATH → echo the short ref (HEAD, or a branch name) that CONTAINS PATH as a blob, or
+# nothing. Issue #105: `spec_present` is on-disk truth, but a spec that exists on a git branch and is not
+# checked out must NOT be silently read as a bare description. Consult git before concluding "description":
+# HEAD first, then every local/remote branch. Best-effort and offline-safe — a non-git tree or a repo
+# where cat-file fails just yields nothing (the genuine-description path is preserved).
+_spec_ref_in_git() {
+  local _p="$1" _r
+  [ -n "$_p" ] || return 0
+  git rev-parse --git-dir >/dev/null 2>&1 || return 0
+  if git cat-file -e "HEAD:$_p" 2>/dev/null; then printf 'HEAD'; return 0; fi
+  for _r in $(git for-each-ref --format='%(refname:short)' refs/heads refs/remotes 2>/dev/null); do
+    if git cat-file -e "$_r:$_p" 2>/dev/null; then printf '%s' "$_r"; return 0; fi
+  done
+  return 0
+}
+
+# _retarget_feature_json NEW_ACTIVE_SPEC → reconcile feature.json's `active_spec` to NEW (the marker's
+# feature dir) when they disagree; echo the OLD value so the caller can name the mismatch, else nothing.
+# Issue #114: the speckit skills (specify/plan/tasks/analyze) read feature.json, so a stale active_spec
+# silently drives the WRONG milestone even though the harness sizes off the marker. The hook otherwise
+# only writes gitignored .runs/, but the run's feature IS a machine fact the hook owns, so it is the one
+# place that can keep the pointer honest. In-place value replacement (targeted sed) preserves the rest of
+# the file; best-effort — any failure leaves feature.json untouched.
+_retarget_feature_json() {
+  local _new="$1" _fj="feature.json" _cur _tmp _esc
+  [ -n "$_new" ] || return 0
+  [ -f "$_fj" ] || return 0
+  _cur="$(field_str "$(cat "$_fj" 2>/dev/null)" active_spec)"
+  [ -n "$_cur" ] || return 0            # no pointer to reconcile (null/absent) — leave alone
+  [ "$_cur" = "$_new" ] && return 0     # already agrees — no churn, no notice
+  _tmp="$(mktemp 2>/dev/null)" || return 0
+  _esc="$(printf '%s' "$_new" | sed 's/[\\/&]/\\&/g')"
+  if sed -E "s#(\"active_spec\"[[:space:]]*:[[:space:]]*\")[^\"]*(\")#\1$_esc\2#" "$_fj" > "$_tmp" 2>/dev/null; then
+    cat "$_tmp" > "$_fj" 2>/dev/null && printf '%s' "$_cur"
+  fi
+  rm -f "$_tmp" 2>/dev/null || true
+}
+
 [ "${TEAM_BOOTSTRAP_DELIVERY_GATE:-on}" = "off" ] && exit 0
 
 payload="$(cat 2>/dev/null || true)"
@@ -222,13 +260,20 @@ base="$(git rev-parse --short HEAD 2>/dev/null || true)"
 feat="${spec:-unknown}"
 case "$feat" in unknown|*.md) : ;; *) feat="${feat%/}/spec.md" ;; esac
 
+# Issue #114 — keep feature.json's active_spec in agreement with THIS run's feature. The speckit skills
+# read feature.json; the harness sizes off the marker. When they disagree, the producing skills operate
+# against the previous milestone until someone retargets by hand. Reconcile it here (only when the run
+# names a real spec dir), and remember the old value so the context sentence can name the mismatch.
+ftgt_was=""
+case "$feat" in unknown|"") : ;; *) ftgt_was="$(_retarget_feature_json "$(dirname "$feat")")" ;; esac
+
 # --- ADR-0018: is the milestone already ON DISK? -----------------------------
 # When it is, the sizing input exists NOW — before the first dispatch — and Phase A's producing steps
 # have nothing left to produce. Both facts are recorded as machine facts here rather than left to
 # deliver.md prose, because prose lands ~70% of the time against a hook's ~100%
 # (references/enforcement.md). `spec_present` is the on-disk truth, never the operator's claim: a path
 # that does not resolve is a description, and Phase A must run in full for it.
-spec_present=false; spec_path=""; artifacts=""; sizing=""
+spec_present=false; spec_path=""; artifacts=""; sizing=""; spec_in_git=""
 if [ -n "$spec" ] && [ -f "$feat" ]; then
   spec_present=true; spec_path="$feat"
   # Hash every present artifact at run start. WS-5 compares later: an artifact that CHANGED during a
@@ -240,6 +285,13 @@ if [ -n "$spec" ] && [ -f "$feat" ]; then
     [ -n "$_h" ] || continue
     artifacts="${artifacts:+$artifacts,}{\"file\":\"$_a\",\"sha256\":\"$_h\"}"
   done
+elif [ -n "$spec" ] && [ "$feat" != unknown ]; then
+  # Issue #105 — the arg names a spec PATH but the working tree does not carry it. Before concluding
+  # "bare description → Mode 1", ask git: a milestone authored on a branch and not checked out exists,
+  # and paying for the full producing chain against it (or forcing a manual spec move) is the cost this
+  # avoids. spec_present stays false (on-disk truth — downstream has nothing to CHECK), but the git-not-
+  # tree fact is recorded and stated so the operator checks it out rather than re-producing it.
+  spec_in_git="$(_spec_ref_in_git "$feat")"
 fi
 
 # --- ADR-0018: resolve the tier the harness owns -----------------------------
@@ -358,6 +410,7 @@ fi
 
 _base_f=""; [ -n "$base" ] && _base_f="\"baseline_sha\":\"$base\","
 _spec_f="\"spec_present\":$spec_present,\"tier_source\":\"$tier_source\","
+[ -n "$spec_in_git" ] && _spec_f="$_spec_f\"spec_in_git\":\"$spec_in_git\","
 [ -n "$spec_path" ] && _spec_f="$_spec_f\"spec_path\":\"$spec_path\","
 [ -n "$artifacts" ] && _spec_f="$_spec_f\"spec_artifacts\":[$artifacts],"
 [ -n "$sizing" ]    && _spec_f="$_spec_f\"sizing\":\"$sizing\","
@@ -408,6 +461,14 @@ fi
 [ -n "$sizing_degraded" ] && _ctx="$_ctx Per-work-stream sizing DEGRADED (reason: $sizing_degraded) — no work-stream floors were derived; the batch diff sizes each batch alone."
 [ "$tier_source" = "harness" ] && [ "$pipeline" = "auto" ] && \
   _ctx="$_ctx The tier is unresolved on disk, so every tier-reading gate fails closed until Phase A resolves it."
+# Issue #105 — git-not-tree spec: state it as a FACT so the operator checks the milestone out instead of
+# re-producing it. spec_present is still false (the tree has nothing to check), so this run is Mode 1
+# UNLESS the spec is checked out; the sentence says which and how.
+[ -n "$spec_in_git" ] && \
+  _ctx="$_ctx The spec '$feat' is NOT in the working tree but EXISTS in git (ref: $spec_in_git); this run is classified as a description (spec_present=false) only because the tree lacks it. If the milestone already exists, check it out (git checkout $spec_in_git -- $feat) before Phase A rather than re-producing it."
+# Issue #114 — feature.json was pointed at a different milestone than this run; it was reconciled.
+[ -n "$ftgt_was" ] && \
+  _ctx="$_ctx feature.json.active_spec was retargeted from '$ftgt_was' to '$(dirname "$feat")' to match this run's feature — the speckit skills read feature.json and would otherwise have driven the previous milestone."
 _ctx_esc="$(_json_esc "$_ctx")"
 _spec_f="$_spec_f\"harness_context\":\"$_ctx_esc\","
 

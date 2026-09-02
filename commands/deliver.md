@@ -85,19 +85,37 @@ context you already have (the marker carries the same field for the gates).
 
 Run every step 1–8 below, in order, no skipping. This is the unchanged path.
 
-### Mode 2 — `spec_present: true` (the milestone is already on disk). **Check it; do not re-draft it.**
+### Mode 2 — `spec_present: true` (the spec is already on disk). **Mode 2 is PER-ARTIFACT: check what exists, produce only what is missing.**
 
-`spec.md`/`plan.md`/`tasks.md` exist at `spec_path`. Run **only the checking steps**:
+`spec.md` exists at `spec_path` — but `plan.md`/`tasks.md` **may or may not**. `spec_present` is set from
+`spec.md` alone, so "Mode 2" does **not** guarantee the downstream artifacts are present. Do not read it
+as all-or-nothing "everything exists, check everything": decide **each of spec / plan / tasks on its own**.
 
+For **each** of `spec.md`, `plan.md`, `tasks.md`, look at the artifact:
+- **Present → CHECK it** (Mode-2, cheap and load-bearing): the checking steps below verify it. Do **not**
+  re-draft a present artifact.
+- **Absent → PRODUCE just it** (the Mode-1 step that fills it, and nothing else): `plan.md` absent ⇒
+  run **step 4 `speckit-plan`**; `tasks.md` absent ⇒ run **step 5 `speckit-tasks`**; `spec.md` absent is
+  not Mode 2 at all (that is Mode 1).
+
+**The named edge — present spec, absent plan/tasks (issue #118).** A spec on disk with **no** `plan.md`
+and **no** `tasks.md` is a legitimate Mode-1/Mode-2 hybrid, not a contradiction: there is nothing to
+*check* for those two, so **produce** them (`speckit-plan` then `speckit-tasks`) — without re-running
+`specify`/`clarify` over the spec that already exists. This applies **before any check reports a gap**:
+an artifact that was never produced must be produced, exactly like one a check found missing.
+
+The checking steps, run over whatever is **present**:
 - **step 6 `speckit-analyze`** — cross-artifact consistency (spec ↔ plan ↔ tasks; every AC maps to ≥1 task)
 - **step 7 `architecture-reviewer`** — is the planned architecture sound
 
-Then go to the Phase B gate. **Skip steps 2–5** (`specify`, `clarify`, `plan`, `tasks`) — they are the
-*producing* steps, and what they produce already exists. Skip step 1 unless `constitution.md` is
-missing. Run step 8's briefs per the pull rule as usual.
+Then go to the Phase B gate. **Skip the producing steps for artifacts that already exist** (`specify`,
+`clarify` for a present spec; `plan`/`tasks` for a present plan/tasks) — they produce what is already
+there. Skip step 1 unless `constitution.md` is missing. Run step 8's briefs per the pull rule as usual.
 
-**If a check reports a gap, re-open ONLY the step that fills it** — `tasks.md` absent or an AC with no
-task ⇒ `speckit-tasks`, and nothing else. Do not run the whole producing chain to fix one artifact.
+**If a check reports a gap, re-open ONLY the step that fills it** — an AC with no task ⇒ `speckit-tasks`,
+and nothing else. The per-artifact rule above is the same discipline applied to a **missing** artifact
+(never produced) as to a **gappy** one (a check found it incomplete): re-open exactly the one step, never
+the whole producing chain.
 
 The line is *producing* vs *checking*: re-checking finished work is cheap and load-bearing, while
 re-producing it is pure cost. Two measured runs against an already-written spec spent **2h21m** in
@@ -112,6 +130,16 @@ spec mid-flight is legitimate — but it must follow a recorded finding, not a s
 
 Run each step by invoking the matching skill via the Skill tool. Do not stop between steps
 unless a step reports a hard blocker.
+
+**Speckit runner may be templates-only here — the producing steps can silently no-op (issue #124).**
+`speckit-plan`, `speckit-tasks` and `speckit-analyze` (steps 4–6) drive a setup runner under
+`.specify/scripts/bash/…`. A repo that ships only the speckit *templates* has **no** runner, so those
+skills **produce nothing** — a fail-quiet the operator only discovers when `plan.md`/`tasks.md` come back
+empty mid-flow. Phase 0 `check-preflight.sh` now **detects and reports** this: when `.specify/scripts/bash`
+is absent it emits a WARN naming it. When you see that WARN (or the directory is absent), treat the
+Phase-A producing steps as **manual by design**: author `spec.md`/`plan.md`/`tasks.md` by hand (copy the
+structure of a nearby completed milestone) and run `analyze` inline, rather than expecting the skills to
+generate them. Do not present a produced-by-speckit artifact as automatic when the runner is not installed.
 
 0. **Run marker (enrichment).** The harness `UserPromptSubmit` hook
    (`${CLAUDE_PLUGIN_ROOT}/bin/delivery-marker-init.sh`) already wrote `.runs/<run>/RUN`
