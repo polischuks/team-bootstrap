@@ -236,6 +236,15 @@ gate "review-ack (independent review of diff, C)" "$here/check-review-ack.sh" .
 # tripped by one of those (they only rewrite the .runs/ ledger) never pays for the suite (#97). Its own
 # result is tree-keyed cached, so a genuine retry against an unchanged tree is already cheap.
 gate "tdd (red→green observed, P9)"          "$here/check-tdd.sh" .
+# Batch-scoped EXTRA suites (#109). The gates above run only the narrow AGENTS.md `Test:` command, so a
+# migration's integration invariants (Test: excludes `-m "not integration"`), a frontend/console suite,
+# and the repo's own CI-guards are blind spots the close gate never runs — caught only by fallible LLM
+# reviewers or at merge. This step runs them when the batch's own paths need them, OPT-IN via AGENTS.md
+# IntegrationTest:/ConsoleTest:/Guards: (absent ⇒ warn, never block). It is a SELF-CONTAINED extra step:
+# it does not touch stamp_batch_closed, the commit_shas filter, or the ordering of the gates around it —
+# and drives the need off the SAME per-batch classifier (select-pipeline risk categories) that sizes the
+# review roles below, so "this batch touches migrations/frontend" has one definition and cannot drift.
+gate "batch-suites (integration/console/CI-guards, #109)" "$here/check-batch-suites.sh" .
 # The sized role set is fixed HERE, in code, immediately before the gate that reads it — not requested
 # from the orchestrator in commands/deliver.md prose at announce time. Two reasons, and the gate's own
 # comment (check-role-dispatch.sh) already stated both: prose lands ~70% of the time against a hook's

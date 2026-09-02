@@ -415,6 +415,18 @@ Then, for **each batch, one at a time**:
    becomes a MEDIUM+ `review_findings` governed by gate B. A `blocked` verdict or an `irreversible` batch
    escalates to a human ack — never self-close (P5). See [../references/enforcement.md](../references/enforcement.md).
 
+   **Batch-scoped extra suites (hard, in `verify-batch`, #109).** The backstop runs only the narrow
+   `Test:` command, so integration tests it excludes (`-m "not integration"` — a migration's RLS/trigger
+   invariants), frontend/console suites not in `Test:` (vitest, a11y), and the repo's own CI-guards are
+   blind spots caught only by reviewers or at merge. `check-batch-suites` closes them, **opt-in** via
+   AGENTS.md and **batch-scoped** off the same classifier that sizes the review roles: a batch whose diff
+   trips **`data/schema`** (migrations/schema/`.sql`) must run a declared **`IntegrationTest:`**; one that
+   trips **`ui`** (frontend paths) must run a declared **`ConsoleTest:`**; and every `kind:code` batch runs
+   the repo's declared **`Guards:`** scripts (so a guard-caught gap fails at close, not merge). A declared
+   suite/guard that exits non-zero blocks; a needed suite with none declared **warns** (unenforceable),
+   never a false block — a repo that declares none is unaffected. Declare the runners in `AGENTS.md`
+   ([../references/agents-md-contract.md](../references/agents-md-contract.md)).
+
    **Closure-fidelity gates (hard, in `verify-batch`).** The backstop also runs the three closure-fidelity
    gates: **A** (`check-enforcement`) records `enforcement_gaps` and blocks until you record
    `enforcement_ack:true` in the marker — surface the gap set to the human and, on their go-ahead, set it

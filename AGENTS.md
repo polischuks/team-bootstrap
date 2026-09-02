@@ -34,6 +34,19 @@ Machine-read by the harness gates (`bin/quality-gate.sh`, `bin/check-tdd.sh`,
 > `run-rate`/`irreversible` batch without a `risk_rank` downgrade, and is ignored the moment a resolvable
 > `Coverage:`/`Mutation:` command is declared. See [references/agents-md-contract.md](references/agents-md-contract.md).
 
+> **Batch-scoped extra suites (`IntegrationTest:`/`ConsoleTest:`/`Guards:`, #109) — intentionally NOT
+> declared here.** `verify-batch` runs [`check-batch-suites.sh`](bin/check-batch-suites.sh), which — when
+> a batch's diff trips the `data/schema` or `ui` classifier category — runs a declared integration or
+> console suite the narrow `Test:` command excludes, and runs the repo's declared CI-guards on every code
+> batch. team-bootstrap is a pure-bash plugin: its batches touch **no** `migrations/`/schema or frontend
+> paths (so neither category ever fires here), and its one repo CI-guard
+> ([`.github/control-surface-ci.sh`](.github/control-surface-ci.sh)) is a **CI-from-trusted-ref** check
+> that needs `origin/main` + branch-protection — declaring it as a local `Guards:` entry would be a
+> **vacuous local gate** (it fails closed when the base ref is unresolvable, exactly the anti-pattern the
+> Coverage/Mutation note above forbids). So all three stay honestly undeclared; the fields are for
+> **target** repos that ship migrations, a frontend, or local guard scripts. The contract:
+> [references/agents-md-contract.md](references/agents-md-contract.md).
+
 ## Notes
 
 - `Test:` runs every `bin/*.sh --self-test` and every `tests/*.test.sh`; non-zero on any failure.
