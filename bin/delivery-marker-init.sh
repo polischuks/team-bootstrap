@@ -474,5 +474,10 @@ _spec_f="$_spec_f\"harness_context\":\"$_ctx_esc\","
 
 printf '{"run":"%s","pipeline":"%s","source":"harness","feature":"%s","intends_code":true,%s%s"precond":{"exit":0,"items":[],"ack":false}}\n' \
   "$run" "$pipeline" "$feat" "$_base_f" "$_spec_f" > "$marker" 2>/dev/null || true
+# issue #117 — durability. Drop a sibling RUN.bak at ARM time too, so even a run that has taken no
+# ack/waiver update yet (whose marker was never rewritten through delivery-lib's _marker_write) is
+# recoverable by `marker.sh restore` if an external `.runs` cleanup deletes RUN. Best-effort and additive:
+# a backup failure never blocks the arm (the marker is the source of truth, the .bak only its recovery copy).
+cp "$marker" "$marker.bak" 2>/dev/null || true
 _emit_ctx "$_ctx_esc"
 exit 0

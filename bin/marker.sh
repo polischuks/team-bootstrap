@@ -38,6 +38,12 @@
 #       emitted shape is seam THEN commit (adjacency is load-bearing for the gate's parse). Refuses a
 #       missing/malformed field, naming it (issue #98).
 #
+#   marker.sh restore
+#       HARNESS recovery of a lost run marker (issue #117). Restores `.runs/<run>/RUN` atomically from its
+#       sibling `RUN.bak` (written by the marker writer on every machine update) when an external `.runs`
+#       cleanup deleted RUN mid-session. Recovery is a harness op — the orchestrator never hand-authors the
+#       machine fields. Refuses if RUN is already present or no RUN.bak exists (never fabricates a marker).
+#
 #   marker.sh waive preflight       <by> <reason> <expires>
 #       Governed Phase-0 setup-readiness waiver — clears a failing check-preflight (preflight.exit!=0).
 #   marker.sh waive gate-integrity  <by> <reason> <expires>
@@ -61,7 +67,7 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 prog="$(basename "$0")"
 
 usage() {
-  sed -n '2,55p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,61p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 # _revalidate KIND KEY → confirm the just-written marker still parses AND the field the gate reads is
@@ -304,6 +310,23 @@ case "$cmd" in
       || { echo "$prog: seam-ack: REFUSED — the marker write did not validate; left unchanged." >&2; exit 1; }
     _revalidate list seam_acks || exit 1
     echo "$prog: seam-ack recorded (seam=$seam, commit=$commit) and validated." ;;
+  restore)
+    # issue #117 — HARNESS recovery of a lost run marker. An external/parallel `.runs` cleanup can delete
+    # `.runs/<run>/RUN` mid-session; the gates then fail-closed on the missing machine fact, and the old
+    # sanctioned recovery was "re-author the marker yourself" — the orchestrator hand-writing a
+    # harness-owned fact, the exact authorship the design exists to prevent. This restores RUN atomically
+    # from the sibling RUN.bak (written by _marker_write on every machine update), so recovery is a
+    # HARNESS op, not a model-authored marker. Refuses (rc 1) when RUN is already present or no backup
+    # exists — it never FABRICATES a marker, so a genuinely absent run stays absent and gates stay closed.
+    if [ "$#" -ne 0 ]; then echo "usage: $prog restore   (recovers a lost .runs/<run>/RUN from its RUN.bak)" >&2; exit 64; fi
+    if marker_restore .; then
+      m="$(resolve_marker 2>/dev/null || true)"
+      echo "$prog: run marker restored from RUN.bak${m:+ ($m)}."
+      exit 0
+    else
+      echo "$prog: nothing to restore — the run marker is present, or no RUN.bak backup exists to restore from (a harness op cannot fabricate a marker; if truly lost, re-arm the run via /deliver)." >&2
+      exit 1
+    fi ;;
   ""|-h|--help|help) usage; [ "$cmd" = "" ] && exit 64 || exit 0 ;;
-  *) echo "$prog: unknown command '$cmd' (set|waive|review-ack|seam-ack|red-supersede)." >&2; exit 64 ;;
+  *) echo "$prog: unknown command '$cmd' (set|waive|review-ack|seam-ack|red-supersede|restore)." >&2; exit 64 ;;
 esac

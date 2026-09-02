@@ -991,11 +991,67 @@ _marker_strip_flat_key() {
 # one filesystem, and $TMPDIR is frequently a different mount. A failed write leaves the previous
 # marker untouched, which truncate-then-write could not guarantee. Mirrors verify-batch.sh:114.
 _marker_write() {
-  local marker="$1" content="$2" tmp
+  local marker="$1" content="$2" tmp btmp
   tmp="$marker.tmp.$$"
   printf '%s\n' "$content" > "$tmp" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 1; }
   mv "$tmp" "$marker" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 1; }
+  # issue #117 — marker durability. On EVERY machine update of a RUN marker, drop a sibling RUN.bak so a
+  # loss of RUN (an external/parallel `.runs` cleanup deletes it mid-session) is recoverable by a HARNESS
+  # op (marker_restore / `marker.sh restore`) rather than by the orchestrator hand-authoring the
+  # machine fields (intends_code/baseline_sha/pipeline). The backup is a copy of the just-written content,
+  # written atomically beside the marker (same directory ⇒ rename is atomic). Best-effort and strictly
+  # additive: a backup failure NEVER fails the marker write it rides on — the marker is the source of
+  # truth, the .bak only its recovery copy. Only RUN markers are backed up (basename check), so the
+  # generic writer stays generic for any other file a caller might pass.
+  case "$marker" in
+    */RUN|RUN)
+      btmp="$marker.bak.tmp.$$"
+      if printf '%s\n' "$content" > "$btmp" 2>/dev/null; then
+        mv "$btmp" "$marker.bak" 2>/dev/null || rm -f "$btmp" 2>/dev/null
+      fi ;;
+  esac
   return 0
+}
+
+# marker_restore [DIR] → HARNESS recovery for issue #117: when the active run's RUN marker is GONE but
+# its sibling RUN.bak is present, restore RUN atomically from the backup. This is the sanctioned harness
+# operation the "harness-owned so the model can't disable a gate" design needs: recovery reconstructs the
+# machine fact from a machine-written backup, so the orchestrator never hand-authors intends_code /
+# baseline_sha / pipeline. The run is resolved WITHOUT requiring RUN to exist (it is the thing that is
+# missing): the explicit pointer (.runs/current) or $TEAM_BOOTSTRAP_RUN names it, else a lone .runs/*/RUN.bak.
+# rc 0 restored · 1 nothing to restore (RUN already present, or no backup to restore from) — never
+# fabricates a marker, so a genuinely absent run stays absent and the gates keep failing closed.
+marker_restore() {
+  local dir="${1:-.}" id="" bak run rundir tmp
+  ( cd "$dir" 2>/dev/null || exit 1
+    # Resolve the run id the way the resolvers do, but tolerant of a MISSING RUN (RUN is what we restore).
+    if [ -n "${TEAM_BOOTSTRAP_RUN:-}" ]; then
+      id="$TEAM_BOOTSTRAP_RUN"
+    elif [ -f .runs/current ]; then
+      read -r id < .runs/current 2>/dev/null || id=""
+      id="${id//[[:space:]]/}"
+      case "$id" in ''|.|..|*/*|*[!A-Za-z0-9._-]*) id="" ;; esac
+    fi
+    # Fall back to a lone RUN.bak when no pointer names the run (a bare, single-run session).
+    if [ -z "$id" ]; then
+      local _had_noglob=0; case $- in *f*) _had_noglob=1 ;; esac; set -f
+      local n; n="$(ls .runs/*/RUN.bak 2>/dev/null | head -2)"
+      [ "$_had_noglob" -eq 1 ] || set +f
+      # exactly one candidate ⇒ unambiguous; more than one ⇒ refuse (a pointer must disambiguate)
+      case "$(printf '%s\n' "$n" | grep -c .)" in
+        1) run="$n"; run="${run#.runs/}"; run="${run%/RUN.bak}"; id="$run" ;;
+        *) exit 1 ;;
+      esac
+    fi
+    [ -n "$id" ] || exit 1
+    rundir=".runs/$id"; bak="$rundir/RUN.bak"
+    [ -f "$rundir/RUN" ] && exit 1     # RUN present → nothing to restore (never clobber a live marker)
+    [ -f "$bak" ] || exit 1            # no backup → cannot restore as a harness op (refuse; do not fabricate)
+    tmp="$rundir/RUN.restore.$$"
+    cp "$bak" "$tmp" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; exit 1; }
+    mv "$tmp" "$rundir/RUN" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; exit 1; }
+    exit 0
+  )
 }
 
 record_marker_list() {
@@ -1799,6 +1855,49 @@ _test_cmd() {
   c="$(grep -iE "^[[:space:]]*[-*]?[[:space:]]*Test:" "$doc" 2>/dev/null | head -1 | grep -oE '`[^`]+`' | head -1 | tr -d '`')"
   case "$c" in N/A|n/a|None|none) c="" ;; esac
   printf '%s' "$c"
+}
+
+# _build_cmd [DOC] → the runnable `Build:` command from the agents-md contract (AGENTS.md, else CLAUDE.md),
+# or empty (N/A|none ⇒ empty). Issue #116: `Prepare:` installs deps but does not build a workspace's dist
+# packages, so a monorepo whose backend imports `@pkg/shared` hits "Cannot find module @pkg/shared" — an
+# unbuilt dist, not a code error — at the first typecheck/test. A companion `Build:` step (run in Phase 0
+# AFTER Prepare:, deliver.md) provisions the full runnable state so the dists exist before the first test.
+# ONE reader of "the project's build command", mirroring _test_cmd. Reads from CWD (cd into the target first).
+_build_cmd() {
+  local doc="${1:-}" f c
+  if [ -z "$doc" ]; then for f in AGENTS.md CLAUDE.md; do [ -f "$f" ] && { doc="$f"; break; }; done; fi
+  [ -n "$doc" ] && [ -f "$doc" ] || return 0
+  c="$(grep -iE "^[[:space:]]*[-*]?[[:space:]]*Build:" "$doc" 2>/dev/null | head -1 | grep -oE '`[^`]+`' | head -1 | tr -d '`')"
+  case "$c" in N/A|n/a|None|none) c="" ;; esac
+  printf '%s' "$c"
+}
+
+# resolve_base_branch [DIR] → the branch the delivery run is INTENDED to be based on, or empty. Issue #115:
+# /deliver cut its worktree from whatever `main` happened to be (a stale checkout that is not an ancestor
+# of the real integration branch), and the stale base then fail-closed step by step downstream with the
+# root — "your base is stale" — never named once. The intended base is a DECLARED fact, resolved in order:
+#   1. feature.json "base_branch"  — the milestone's declared integration/target branch (authoritative)
+#   2. AGENTS.md/CLAUDE.md `BaseBranch:` — the same fact in the human contract when feature.json is silent
+#   3. origin/HEAD default branch — the repo's own notion of its trunk (never a hardcoded `main`)
+# Empty only when none resolve: the caller SURFACES that (this is where #102's stale-baseline WARN fits)
+# rather than silently inheriting the ambient checkout. Offline-safe: (3) reads a local remote-tracking ref.
+resolve_base_branch() {
+  local dir="${1:-.}" fj bb def
+  fj="$dir/feature.json"
+  if [ -f "$fj" ]; then
+    bb="$(field_str "$(cat "$fj" 2>/dev/null)" base_branch)"
+    [ -n "$bb" ] && { printf '%s' "$bb"; return 0; }
+  fi
+  local f doc=""
+  for f in "$dir/AGENTS.md" "$dir/CLAUDE.md"; do [ -f "$f" ] && { doc="$f"; break; }; done
+  if [ -n "$doc" ]; then
+    bb="$(grep -iE "^[[:space:]]*[-*]?[[:space:]]*BaseBranch:" "$doc" 2>/dev/null | head -1 | sed -E 's/^[^:]*://' | tr -d '`' | xargs 2>/dev/null || true)"
+    [ -n "$bb" ] && { printf '%s' "$bb"; return 0; }
+  fi
+  def="$(git -C "$dir" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null)"
+  def="${def#origin/}"
+  [ -n "$def" ] && { printf '%s' "$def"; return 0; }
+  return 0
 }
 
 # governed_waiver_ok ACK BY REASON EXPIRES [NOW] → rc 0 IFF ACK=="true" AND by/reason/expires are all

@@ -51,11 +51,31 @@ linter — it verifies, fail-**closed**:
   in the build tree (no split-brain). Only `specs/TEMPLATE/` absence is a warning. **Detect-and-report
   only** — it never creates scaffold or installs anything.
 
-**`Prepare:` — provision deps in a named phase, before the pipeline fires.** Declare a network-permitted
-setup command as `Prepare:` in `AGENTS.md` (e.g. `Prepare: \`npm ci\``; `N/A` when the toolchain needs no
-install). The orchestrator runs it **here in Phase 0, before Phase A**, so dependencies are present when
-`check-preflight` and later `quality-gate` run — rather than discovering "command not found" reactively
-mid-Phase-B. This is the "prepare-before-firing" that makes the readiness probes meaningful.
+**`Prepare:` then `Build:` — provision the FULL runnable state in a named phase, before the pipeline
+fires.** Declare a network-permitted setup command as `Prepare:` in `AGENTS.md` (e.g. `Prepare: \`npm ci\``;
+`N/A` when the toolchain needs no install). The orchestrator runs it **here in Phase 0, before Phase A**,
+so dependencies are present when `check-preflight` and later `quality-gate` run — rather than discovering
+"command not found" reactively mid-Phase-B. This is the "prepare-before-firing" that makes the readiness
+probes meaningful.
+
+**`Build:` runs immediately after `Prepare:`, still in Phase 0** (issue #116). Declare it in `AGENTS.md`
+(e.g. `Build: \`pnpm -r build\``; `N/A` when nothing needs building). `Prepare:` installs dependencies but
+does **not** build a workspace's `dist` packages — so a monorepo whose backend imports `@pkg/shared` hits
+`Cannot find module @pkg/shared` at the first typecheck/test. **That is an unbuilt dist, not a code
+error**, and diagnosing it by hand mid-Phase-B is exactly the reactive discovery Phase 0 exists to remove.
+Running the declared `Build:` after `Prepare:` provisions the dists so a workspace-package import resolves
+before the first test. Repos with no `Build:` are unaffected. (The command is read via `_build_cmd`, the
+one reader of the project's build command, mirroring `_test_cmd`.)
+
+**Base the delivery worktree on the run's intended base branch, not the ambient `main`** (issue #115). Cut
+(or verify) the delivery worktree from the branch the milestone actually targets — resolved by
+`resolve_base_branch`: a declared `base_branch` in `feature.json`, else a `BaseBranch:` line in
+`AGENTS.md`/`CLAUDE.md`, else the repo's `origin/HEAD` default. A worktree cut from a **stale** `main`
+(one that is not an ancestor of the integration branch, e.g. `develop`) fail-closes step by step
+downstream — a missing run-rate CapabilityOptOut, ADR/constitution drift, the doc-commit-in-`commit_shas`
+window — with the root ("your base is stale") never named as one fact. If the base **cannot** be resolved,
+**surface it** (this is where `check-preflight`'s stale-baseline WARN, issue #102, fits) rather than
+silently inheriting whatever `main` happens to be. Do not let a stale checkout start the cascade.
 
 - **Exit 0** — setup-ready; it records `preflight:{exit:0,…}` into the run marker and Phase A proceeds.
 - **Exit 1 (hard)** — it prints the named gap set and records `preflight:{exit:1,gaps:[…]}`. **STOP.**
@@ -149,6 +169,13 @@ generate them. Do not present a produced-by-speckit artifact as automatic when t
    harness-owned so skipping a step cannot disable the gate (see `references/enforcement.md`). Here you
    only *enrich* it: confirm/append `pipeline`, `feature`, and (after step 8's precondition) `precond`.
    If the marker is somehow absent (older harness without the hook), create it now so Phase B is gated.
+   **If `.runs/<run>/RUN` disappears mid-session** (an external/parallel `.runs` cleanup deletes it) do
+   **not** hand-author the machine fields — that is the model writing a harness-owned fact, the exact
+   authorship the fail-closed design prevents. The marker writer keeps a sibling `RUN.bak` on every
+   machine update; recover with the **harness op** `${CLAUDE_PLUGIN_ROOT}/bin/marker.sh restore`, which
+   copies `RUN.bak` → `RUN` atomically (issue #117). It refuses when `RUN` is already present or no backup
+   exists — it never fabricates a marker, so a genuinely absent run stays absent and the gates stay closed
+   (re-arm via `/deliver` in that case).
 1. **Skill `speckit-constitution`** — establish/verify project principles. Record the
    version-bump verdict (Step 1).
 2. **Skill `speckit-specify`** with `FEATURE` — draft the spec (Step 2).
@@ -460,6 +487,18 @@ exit means the milestone is **not** done — an unchecked task or an acceptance 
 (implement the task / add the test, or defer it explicitly with rationale) before declaring the milestone
 complete. This is the machine half of "post-review keeps finding undone tasks / unimplemented spec parts"
 ([../references/enforcement.md](../references/enforcement.md), closure-fidelity layer).
+
+**Separate the run's OWN failures from standing-red / flaky CI at close/merge** (issue #119). A merge
+often sees a mix — a flaky guard (green on rerun), lint debt in files the run never touched, an ESM-import
+false positive — and none of it should read the same as a regression the run introduced. Declare the
+repo's known-red / known-flaky checks as a `KnownRed:` line in `AGENTS.md`/`CLAUDE.md` (backtick-tolerant,
+comma/space separated, glob entries allowed, e.g. `KnownRed: \`lint\`, \`adr-042-*\`, \`mcp-esm-imports\``),
+then label the failing checks with `${CLAUDE_PLUGIN_ROOT}/bin/label-failures.sh <check> …` (names as args
+or on stdin). Each failure prints as `pre-existing` (matches the allowlist — act only if it is newly
+worse) or `new-this-run` (the regression the run actually introduced); it exits non-zero only when a
+**new-this-run** failure exists, so the operator acts on real regressions and not on the standing noise.
+Without a declared `KnownRed:`, every failure is treated as new (conservative). This removes the "know the
+repo's standing-red set from memory" dependency the retro named.
 
 Stop after the final batch, or whenever the user says stop. At the end, summarize: batches shipped,
 tasks closed vs deferred, and what still needs a human (push authorization, prod deploy, open risks).
