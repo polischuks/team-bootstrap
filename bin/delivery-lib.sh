@@ -583,6 +583,68 @@ required_roles_for_batch() {
   printf '%s' "${out# }"
 }
 
+# files_of_line LINE → the paths in a ledger entry's `files` array, space-separated (empty when absent).
+# The announce entry declares its target files (deliver.md §announce: {…,"files",…}); this reads them
+# the way shas_of_line reads commit_shas, tolerant of compact and spaced JSON.
+files_of_line() {
+  printf '%s' "$1" | grep -oE "\"files\":[[:space:]]*\[[^]]*\]" | head -1 \
+    | sed -E 's/^"files":[[:space:]]*\[//; s/\][[:space:]]*$//' \
+    | grep -oE '"[^"]*"' | sed 's/^"//; s/"$//' | grep -v '^$' | tr '\n' ' '
+}
+
+# predicted_roles_for_batch BID → the review roles this batch is LIKELY to need at CLOSE, PREDICTED at
+# ANNOUNCE from its DECLARED files (the ledger entry's `files` array) rather than from the diff window,
+# which is still empty at announce (#122).
+#
+# WHY THIS EXISTS. required_roles_for_batch is recomputed at CLOSURE from the real diff (correct — that
+# is where the truth is), so a role the diff earns — accessibility-reviewer on a UI surface — first
+# surfaces as a post-commit check-role-dispatch FAILURE, and the operator then dispatches it and re-runs
+# the whole close (full suite + Stryker). Review is opened twice. Predicting the set from the files the
+# batch declares lets the operator dispatch it up front.
+#
+# ADVISORY, NOT AUTHORITATIVE. The closure recompute stays the enforced set; this never records anything
+# and never removes a role the diff will earn. It shares the SAME building blocks as the diff path
+# (select-pipeline's classifier → tier_base_roles + roles_for_categories), so the prediction and the
+# closure requirement cannot use two different mappings. A declared `risk_rank` lifts the tier the same
+# one-directional way it does at close. The >=1 code-reviewer floor is asserted here too.
+predicted_roles_for_batch() {
+  local bid="$1" ledger l line="" kind files here_ verdict tier cats rr base r out="" f numstat
+  [ -n "$bid" ] || return 0
+  ledger="$(resolve_ledger)"; [ -n "$ledger" ] && [ -f "$ledger" ] || return 0
+  while IFS= read -r l || [ -n "$l" ]; do
+    [ -n "$l" ] || continue
+    [ "$(field_str "$l" id)" = "$bid" ] && line="$l"
+  done < "$ledger"
+  [ -n "$line" ] || return 0
+  kind="$(field_str "$line" kind)"
+  [ "$kind" = "doc" ] && return 0                     # docs earn no review fan-out
+  here_="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  files="$(files_of_line "$line")"
+  # Classify the DECLARED paths. No diff exists yet, so line counts are 0 (the volume signal cannot
+  # fire) — file count, layer count and the risk categories are all real, because they come from the
+  # paths, which is exactly the property size-from-spec.sh relies on for text-sourced sizing.
+  if [ -n "$files" ]; then
+    numstat="$(for f in $files; do printf '0\t0\t%s\n' "$f"; done)"
+    verdict="$(printf '%s\n' "$numstat" | "$here_/select-pipeline.sh" --from-stdin 2>/dev/null || true)"
+    tier="$(printf '%s\n' "$verdict" | sed -nE 's/.*RECOMMENDED pipeline: ([a-z-]+).*/\1/p' | tail -1)"
+    cats="$(printf '%s\n' "$verdict" | sed -nE 's/.*\(reasons: (.*)\)$/\1/p' | tail -1)"
+    cats="$(risk_categories_only "$cats")"
+  fi
+  # A self-declared risk_rank lifts the tier one-directionally (ADR-0006), never lowers it.
+  rr="$(field_str "$line" risk_rank)"
+  case "$rr" in irreversible|run-rate) tier="full" ;; esac
+  [ -n "$tier" ] || tier="single-thread"
+  base="$(tier_base_roles "$tier")"
+  for r in $(roles_for_categories "$cats" 2>/dev/null || true); do
+    case " $base " in *" $r "*) : ;; *) base="$base $r" ;; esac
+  done
+  case " $base " in *" code-reviewer "*) : ;; *) base="code-reviewer${base:+ $base}" ;; esac
+  for r in $base; do
+    case " $out " in *" $r "*) : ;; *) out="$out $r" ;; esac
+  done
+  printf '%s' "${out# }"
+}
+
 # json_esc TEXT → TEXT safe inside a JSON string. Control characters are DROPPED rather than escaped:
 # additionalContext is a one-line fact statement, so an embedded newline is a defect, not content.
 json_esc() {

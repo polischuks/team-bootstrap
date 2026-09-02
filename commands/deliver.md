@@ -235,6 +235,16 @@ Then, for **each batch, one at a time**:
    `kind:code` batch closing **after** a lower-rank one (order by risk, bleeding-stopper first). This
    is the *record* of intent, not closure: only `verify-batch.sh` can flip it to `closed`
    (see [../references/enforcement.md](../references/enforcement.md), delivery-occurred layer).
+   - **Predict the review roles up front (#122).** The authoritative required-role set is recomputed at
+     *close* from the real diff (`required_roles_for_batch`, recorded by `verify-batch`), because that is
+     where the diff exists. But a role the diff will earn — e.g. `accessibility-reviewer` on a UI
+     surface — otherwise first surfaces as a post-commit `check-role-dispatch` failure, and review is
+     opened twice (once against the announce guess, once against the closure reality, each paying a full
+     suite + Stryker). To avoid the second round, source `.runs/<run>/batches.jsonl` alongside
+     `bin/delivery-lib.sh` and run `predicted_roles_for_batch <id>` right after writing the announce
+     entry: it dry-runs the classifier over the batch's **declared `files`** and prints the set the batch
+     is likely to need at close, so you can dispatch it now. Advisory only — the closure recompute stays
+     authoritative and can only ever add to (never remove from) this prediction.
    - **Withdrawing an announced batch after a pre-code reviewer no_go (#75).** A reviewer returning
      `no_go` on an announced batch — *before* any code is committed (e.g. `architecture-reviewer`
      rejects the plan: wrong sink/source, the effect already exists upstream) — is a **normal,
