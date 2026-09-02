@@ -21,10 +21,17 @@
 #       GUARDED: refuses `auto` or any string outside the vocabulary — an unguarded pipeline write is a
 #       provenance-forgery surface (issue #98).
 #
-#   marker.sh review-ack --batch <id> --reviewer <who> --context <clean|dirty> --verdict <go|blocked> --commit <sha>
+#   marker.sh review-ack --batch <id> --reviewer <who> --context <clean|dirty> --verdict <go|blocked> --commit <sha> [--replace]
 #       Append a validated review_acks entry — the independent, clean-context adversarial review
 #       check-review-ack reads. `reviewer` must differ from the marker `builder` (default "orchestrator";
-#       no self-review, OQ-4). Refuses a missing/malformed field, naming it (issue #98).
+#       no self-review, OQ-4). Refuses a missing/malformed field, naming it (issue #98). With --replace,
+#       any prior review_acks entry for the same batch is removed first, so a re-anchor after a commit
+#       rebuild REPLACES the stale entry instead of appending a duplicate (issue #121).
+#
+#   marker.sh red-supersede <batch>
+#       Drop a batch's stale red/lock record(s) from .runs/<run>/tdd.jsonl after a legitimate commit
+#       rebuild (split/reorder), so `check-tdd.sh --record-red --batch <id>` can re-anchor cleanly — a
+#       validated op, not hand-deletion of the append-only ledger (issue #121).
 #
 #   marker.sh seam-ack --seam <name> --commit <sha> --note "<file:line + why>"
 #       Append a validated seam_acks entry — the read-in-the-shipped-code ack check-seam-ack reads. The
@@ -54,7 +61,7 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 prog="$(basename "$0")"
 
 usage() {
-  sed -n '2,48p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,55p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 # _revalidate KIND KEY → confirm the just-written marker still parses AND the field the gate reads is
@@ -106,6 +113,56 @@ _append_marker_obj() {
     newarr="[$body,$obj]"
   fi
   record_marker_list "$key" "$newarr"
+}
+
+# _replace_review_acks_batch BATCH → rewrite the active run marker's review_acks array with every object
+# whose "batch" == BATCH removed (issue #121). review_acks entries are FLAT objects (no nested arrays), so
+# splitting on `},{` is exact. Absent/empty array ⇒ no-op success. Used by `review-ack --replace` so a
+# legitimate re-anchor after a commit rebuild REPLACES the stale entry instead of appending a duplicate —
+# no hand-removal of the stale review_acks from RUN.
+_replace_review_acks_batch() {
+  local batch="$1" cur body obj kept="" nl rep split
+  cur="$(marker_list review_acks)"
+  [ -n "$cur" ] && [ "$cur" != "[]" ] || return 0
+  body="${cur#\[}"; body="${body%\]}"
+  [ -n "$body" ] || return 0
+  # Split the flat array of objects on the literal `},{` in pure bash — BSD sed does NOT interpret `\n`
+  # in a replacement (it would emit `}n{` and collapse every object onto one line), and the codebase's
+  # marker rewrites are deliberately sed-free. The replacement carries no backslash, so it also avoids
+  # the bash-5.2 backslash-in-replacement pitfall _marker_strip_flat_key documents.
+  nl=$'\n'; rep="}${nl}{"; split="${body//'},{'/$rep}"
+  while IFS= read -r obj; do
+    [ -n "$obj" ] || continue
+    case "$obj" in \{*) : ;; *) obj="{$obj" ;; esac
+    case "$obj" in *\}) : ;; *) obj="$obj}" ;; esac
+    [ "$(field_str "$obj" batch)" = "$batch" ] && continue   # drop the stale entry for this batch
+    if [ -z "$kept" ]; then kept="$obj"; else kept="$kept,$obj"; fi
+  done <<EOF
+$split
+EOF
+  record_marker_list review_acks "[$kept]"
+}
+
+# _supersede_red_records BATCH → drop every red/lock record bearing "batch":BATCH from the active run's
+# .runs/<run>/tdd.jsonl, atomically (issue #121). Echoes the count removed. rc 1 if there is no active run
+# or no tdd.jsonl. A validated replacement for hand-deleting a stale red line before re-recording.
+_supersede_red_records() {
+  local batch="$1" marker tdd tmp line b n=0
+  marker="$(resolve_marker 2>/dev/null || true)"
+  [ -n "$marker" ] && [ -f "$marker" ] || return 1
+  tdd="$(dirname "$marker")/tdd.jsonl"
+  [ -f "$tdd" ] || return 1
+  tmp="$tdd.tmp.$$"
+  : > "$tmp" || return 1
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    b="$(field_str "$line" batch)"
+    if [ "$b" = "$batch" ]; then n=$((n + 1)); continue; fi
+    printf '%s\n' "$line" >> "$tmp"
+  done < "$tdd"
+  mv "$tmp" "$tdd" || { rm -f "$tmp"; return 1; }
+  printf '%s' "$n"
+  return 0
 }
 
 # _set_pipeline VALUE → set the top-level "pipeline":"VALUE" scalar in the active run marker (insert or
@@ -167,15 +224,18 @@ case "$cmd" in
     ;;
   review-ack)
     # Append a validated review_acks entry check-review-ack reads. Flag-parsed so a missing field is named.
-    batch=""; reviewer=""; context=""; verdict=""; commit=""
+    # --replace (issue #121): first REMOVE any existing review_acks entry for the same batch, so a legit
+    # re-anchor after a commit rebuild replaces the stale entry instead of appending a duplicate.
+    batch=""; reviewer=""; context=""; verdict=""; commit=""; replace=0
     while [ "$#" -gt 0 ]; do
+      if [ "$1" = "--replace" ]; then replace=1; shift; continue; fi
       case "$1" in
         --batch)    batch="${2:-}" ;;
         --reviewer) reviewer="${2:-}" ;;
         --context)  context="${2:-}" ;;
         --verdict)  verdict="${2:-}" ;;
         --commit)   commit="${2:-}" ;;
-        *) echo "$prog: review-ack: unknown option '$1' (need --batch --reviewer --context --verdict --commit)." >&2; exit 64 ;;
+        *) echo "$prog: review-ack: unknown option '$1' (need --batch --reviewer --context --verdict --commit [--replace])." >&2; exit 64 ;;
       esac
       shift; [ "$#" -gt 0 ] && shift    # consume the flag, then its value if present (no shift-2 underflow loop)
     done
@@ -196,11 +256,28 @@ case "$cmd" in
     mk="$(cat "$marker" 2>/dev/null || true)"
     builder="$(field_str "$mk" builder)"; [ -n "$builder" ] || builder="orchestrator"
     [ "$reviewer" = "$builder" ] && { echo "$prog: review-ack: reviewer '$reviewer' == builder '$builder' — a self-review cannot close a batch (OQ-4); refused." >&2; exit 1; }
+    # --replace (#121): drop any stale review_acks entry for this batch BEFORE appending, so a re-anchor
+    # after a commit rebuild is a validated op, not a hand-removal of the old entry from RUN.
+    if [ "$replace" -eq 1 ]; then
+      _replace_review_acks_batch "$batch" || { echo "$prog: review-ack: REFUSED — could not strip the prior entry for '$batch'; left unchanged." >&2; exit 1; }
+    fi
     # Shape check-review-ack reads: flat {batch, reviewer, context, commit, verdict}.
     _append_marker_obj review_acks "{\"batch\":\"$batch\",\"reviewer\":\"$reviewer\",\"context\":\"$context\",\"commit\":\"$commit\",\"verdict\":\"$verdict\"}" \
       || { echo "$prog: review-ack: REFUSED — the marker write did not validate; left unchanged." >&2; exit 1; }
     _revalidate list review_acks || exit 1
-    echo "$prog: review-ack recorded (batch=$batch, reviewer=$reviewer, verdict=$verdict) and validated." ;;
+    echo "$prog: review-ack recorded (batch=$batch, reviewer=$reviewer, verdict=$verdict$([ "$replace" -eq 1 ] && printf ', replaced prior')) and validated." ;;
+  red-supersede)
+    # Supersede (drop) a batch's stale red/lock record(s) in .runs/<run>/tdd.jsonl after a legitimate
+    # commit rebuild, so the operator can re-run `check-tdd.sh --record-red --batch <id>` to re-anchor —
+    # a validated harness op, not hand-deletion of the append-only ledger (issue #121).
+    sbatch="${1:-}"
+    [ -n "$sbatch" ] || { echo "usage: $prog red-supersede <batch>" >&2; exit 64; }
+    _has_bad_punct "$sbatch" && { echo "$prog: red-supersede: batch '$sbatch' carries JSON/parse-hostile punctuation — refused." >&2; exit 64; }
+    n="$(_supersede_red_records "$sbatch")" || { echo "$prog: red-supersede: no unambiguous active run, or no .runs/<run>/tdd.jsonl to supersede in." >&2; exit 1; }
+    if [ "${n:-0}" -eq 0 ]; then
+      echo "$prog: red-supersede: no red/lock record for batch '$sbatch' found — nothing to supersede." >&2; exit 1
+    fi
+    echo "$prog: red-supersede removed $n red/lock record(s) for batch '$sbatch' — commit the failing test, then re-run bin/check-tdd.sh --record-red --batch $sbatch to re-anchor." ;;
   seam-ack)
     # Append a validated seam_acks entry check-seam-ack reads. seam THEN commit is load-bearing.
     seam=""; commit=""; note=""
@@ -228,5 +305,5 @@ case "$cmd" in
     _revalidate list seam_acks || exit 1
     echo "$prog: seam-ack recorded (seam=$seam, commit=$commit) and validated." ;;
   ""|-h|--help|help) usage; [ "$cmd" = "" ] && exit 64 || exit 0 ;;
-  *) echo "$prog: unknown command '$cmd' (set|waive|review-ack|seam-ack)." >&2; exit 64 ;;
+  *) echo "$prog: unknown command '$cmd' (set|waive|review-ack|seam-ack|red-supersede)." >&2; exit 64 ;;
 esac

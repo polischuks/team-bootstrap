@@ -355,6 +355,27 @@ if [ "${1:-}" = "--record-red" ]; then
     exit 5
   fi
 
+  # #121 STALE-RED-SHA TRAP: --record-red stamps red_sha = current HEAD. If the failing test is still
+  # UNCOMMITTED (recorded from a dirty tree), red_sha points at HEAD — which does NOT contain the test —
+  # so the batch's F1 window [prev_tip..red_sha] later resolves empty and the batch fails downstream with
+  # "red changed no committed test file". The failure surfaces far from its cause. Enforce the "commit the
+  # failing test FIRST" rule AT RECORD TIME: if the working tree carries an uncommitted change to a test
+  # path (staged or unstaged), refuse — the red would be anchored at the wrong sha. This is stricter than
+  # the committed-window check below (which a STALE already-committed test could satisfy while the real
+  # red is uncommitted), so it runs first.
+  rr_dirty_test=0
+  while IFS= read -r rr_line; do
+    [ -n "$rr_line" ] || continue
+    rr_p="${rr_line#???}"; rr_p="${rr_p##* -> }"           # strip XY status; take a rename's destination
+    [ -n "$rr_p" ] || continue
+    case "$rr_p" in .runs/*|.runs) continue ;; esac        # the harness ledger is never the batch's test
+    if is_test_path "$rr_p" "$(read_test_globs)"; then rr_dirty_test=1; break; fi
+  done < <(git status --porcelain 2>/dev/null)
+  if [ "$rr_dirty_test" -eq 1 ]; then
+    echo "check-tdd --record-red: an uncommitted test-file change is in the working tree ('$rr_p') — red_sha would be stamped at HEAD, NOT at the commit that introduces your failing test, leaving an EMPTY F1 window that fails the batch downstream. Commit your failing test FIRST, then re-run (#121). To re-anchor after a legitimate commit rebuild: bin/marker.sh red-supersede <batch>, then --record-red again." >&2
+    exit 4
+  fi
+
   # F1 (red-touches-tests): the red must be caused by a COMMITTED test-file change, so the red_sha this
   # writes sits in the same window _find_red later verifies. An --allow-empty red, a non-test-only red,
   # or a worktree-only test would all record a sha the ordering check cannot honestly credit.
@@ -614,6 +635,11 @@ if [ "${1:-}" = "--self-test" ]; then
   # empty-output red (e.g. a bare \`test -f\`) → accepted (must not false-reject a real red)
   ( cd "$WC" && : > out.txt )
   _ec "--record-red, empty-output red → accepted (no false-reject)" "$(_rr)" 0
+  # #121 stale-red-sha: an UNCOMMITTED test file in the working tree → red_sha would be stamped at HEAD
+  # (empty F1 window) → refuse with exit 4 (commit the failing test first).
+  ( cd "$WC" && printf 'FAIL\nAssertionError: x\n1 failed\n' > out.txt && echo t > dirty_test.sh )
+  _ec "--record-red, uncommitted test in tree → refuse (#121 stale-red-sha)" "$(_rr)" 4
+  ( cd "$WC" && rm -f dirty_test.sh )
   rm -rf "$WC"
 
   if [ "$fail" -eq 0 ]; then echo "check-tdd --self-test: OK"; exit 0; fi
