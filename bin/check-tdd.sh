@@ -229,7 +229,24 @@ _evaluate() {
     fi
   fi
 
-  [ "$viol" -eq 0 ] || return 1
+  if [ "$viol" -ne 0 ]; then
+    # #120 — a governed host_structural tdd-waiver relieves the red-ordering violations printed above,
+    # for the batch whose red is genuinely unresolvable by the current Test: (its package is excluded from
+    # the top-level suite). Parity with check-mutation's mutation_waiver: the finding is already surfaced,
+    # then a VALID governed tdd_waiver (ack+by+reason+unexpired-YYYY-MM-DD) clears the fail; a bare/expired
+    # one does not. Routed through the SAME governed_waiver_ok the peer gates decide on — one definition.
+    # It does NOT relieve a genuinely RED suite at HEAD (checked below): that is a different failure.
+    if governed_waiver_ok \
+         "$(field_in_obj "$mk" tdd_waiver ack)" \
+         "$(field_in_obj "$mk" tdd_waiver by)" \
+         "$(field_in_obj "$mk" tdd_waiver reason)" \
+         "$(field_in_obj "$mk" tdd_waiver expires)"; then
+      echo "check-tdd: WAIVED by a governed tdd_waiver (finding(s) surfaced above; by/reason/expires recorded, expiry forces re-review) — the batch's red is unresolvable by the top-level Test: (host_structural). See references/enforcement.md." >&2
+      viol=0
+    else
+      return 1
+    fi
+  fi
 
   # #97 — a kind:doc batch close changes no code, so HEAD's code is exactly what the last CODE batch
   # already proved green at its OWN close. Running the whole Test: suite (~3.5 min) to close a doc batch
@@ -271,6 +288,30 @@ _evaluate() {
   echo "check-tdd: per-batch red→green verified — every code batch had its own red step before its code, and the suite is green at HEAD."
   return 0
 }
+
+# --- --waive: the governed host_structural tdd-waiver door (issue #120) ------------------------------
+# `--waive BY REASON EXPIRES(YYYY-MM-DD)` records a governed `tdd_waiver` in the active run marker — the
+# same door the other enforce gates already carry (check-mutation → mutation_waiver, check-gate-integrity
+# → gate_integrity_waiver). It exists because a batch confined to a package the top-level `Test:` command
+# does NOT run (e.g. a dashboard suite standing-red at the monorepo level and excluded from Test:) can
+# never produce an observable red on that Test:, so it has no sanctioned red-first escape short of manual
+# ledger surgery (deleting/re-recording tdd.jsonl + review_acks by hand). Validation is
+# record_governed_waiver's, which is governed_waiver_ok's, which is _evaluate's below — ONE definition, so
+# a waiver that records always relieves the gate and one that would not is refused here with a reason. The
+# finding is still PRINTED by the gate; a waiver dates and attributes the escape, it does not hide it.
+if [ "${1:-}" = "--waive" ]; then
+  shift
+  if [ "$#" -ne 3 ]; then
+    echo "usage: $(basename "$0") --waive BY REASON EXPIRES(YYYY-MM-DD)" >&2
+    echo "  records a governed tdd_waiver in the active run marker (host_structural: the batch's red is unresolvable by the top-level Test:). Expiry is mandatory and must be in the future." >&2
+    exit 64
+  fi
+  record_governed_waiver tdd_waiver "$1" "$2" "$3" || {
+    echo "$(basename "$0"): REFUSED to record tdd_waiver — needs a non-empty by and reason, and a future YYYY-MM-DD expires, under an unambiguous active run." >&2
+    exit 1
+  }
+  exit 0
+fi
 
 # --- --record-red: the observation step (moved here from the deleted bin/tdd-red.sh) -----------------
 if [ "${1:-}" = "--record-red" ]; then
@@ -455,6 +496,25 @@ if [ "${1:-}" = "--self-test" ]; then
   ( cd "$T" && rm -f .green && git commit -qam "regress" ) >/dev/null 2>&1
   _chk "both reds present but HEAD is RED → fail" 1
   ( cd "$T" && : > .green && git add .green && git commit -qm regreen ) >/dev/null 2>&1
+
+  # ---- #120 governed host_structural tdd-waiver: an unresolvable-red batch closes on a governed waiver --
+  # B2's red is missing (its package is excluded from the top-level Test:, so no red is observable). With
+  # no waiver the batch fails-closed; a governed tdd_waiver relieves it; an expired one does not.
+  printf '%s\n' "{\"batch\":\"B1\",\"red_sha\":\"$rA\",\"observed\":\"red\"}" > "$T/.runs/r/tdd.jsonl"
+  printf '{"run":"r","intends_code":true,"source":"harness","baseline_sha":"%s"}\n' "$base" > "$T/.runs/r/RUN"
+  _chk "B2 red unresolvable, no waiver → fail-closed (#120 baseline)" 1
+  ( cd "$T" && TEAM_BOOTSTRAP_RUN=r "$here/check-tdd.sh" --waive founder "dashboard pkg excluded from Test:" 2999-01-01 ) >/dev/null 2>&1
+  case "$(cat "$T/.runs/r/RUN")" in *'"tdd_waiver":{'*'"by":"founder"'*) echo "  PASS --waive wrote a governed tdd_waiver" ;;
+    *) echo "  FAIL --waive did not write tdd_waiver: $(cat "$T/.runs/r/RUN")" >&2; fail=$((fail + 1)) ;; esac
+  _chk "B2 red unresolvable + valid governed tdd_waiver → pass (#120)" 0
+  printf '{"run":"r","intends_code":true,"source":"harness","baseline_sha":"%s","tdd_waiver":{"ack":true,"by":"x","reason":"r","expires":"2000-01-01"}}\n' "$base" > "$T/.runs/r/RUN"
+  got_exp="$( ( cd "$T" && TEAM_BOOTSTRAP_RUN=r TEAM_BOOTSTRAP_NOW=2026-08-28 "$here/check-tdd.sh" . >/dev/null 2>&1 ); echo $? )"
+  if [ "$got_exp" = "1" ]; then echo "  PASS EXPIRED tdd_waiver is not a waiver → fail (#120)"; else echo "  FAIL expired tdd_waiver got exit $got_exp want 1" >&2; fail=$((fail + 1)); fi
+  # --waive with a past expiry is REFUSED (exit 64/1), writes nothing.
+  printf '{"run":"r","intends_code":true,"source":"harness","baseline_sha":"%s"}\n' "$base" > "$T/.runs/r/RUN"
+  got_ref="$( ( cd "$T" && TEAM_BOOTSTRAP_RUN=r "$here/check-tdd.sh" --waive x r 2000-01-01 >/dev/null 2>&1 ); echo $? )"
+  if [ "$got_ref" = "1" ]; then echo "  PASS --waive past expiry → refused (#120)"; else echo "  FAIL --waive past expiry got exit $got_ref want 1" >&2; fail=$((fail + 1)); fi
+
   # marker-less → skip
   ( cd "$T" && rm -f .runs/r/RUN )
   _chk "no active marker → skip (exit 0)" 0
