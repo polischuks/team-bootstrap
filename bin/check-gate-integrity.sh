@@ -493,12 +493,45 @@ done
 [ "$BLIND" -eq 0 ] || viol=$((viol + BLIND))
 
 # 3) a gate that can't fail: continue-on-error on a CI job -----------------------
+# Delta-scoped exactly like clause 1 (issue #123, same class as #71/#119). A `continue-on-error: true`
+# in a workflow the batch never touched — the target repo's ambient e2e.yml — must not force a per-batch
+# waiver to close a batch that did not introduce it. When the green-by-skip scan is scoped (gi_scoped=1),
+# a signature OUTSIDE the batch's file delta is reported as informational (standing state, new-vs-
+# pre-existing) and does NOT block; only a continue-on-error in a file THIS batch changed gates the batch.
+# Under --audit / CI / no resolvable base (gi_scoped=0) the whole-tree block is unchanged, so a disabled
+# CI gate anywhere is never hidden from the audit.
 if [ -d .github/workflows ]; then
   ce="$(grep -rnE 'continue-on-error:[[:space:]]*true' .github/workflows 2>/dev/null | head -20)"
   if [ -n "$ce" ]; then
-    echo "check-gate-integrity: gate cannot fail (continue-on-error) in CI:" >&2
-    printf '%s\n' "$ce" | sed 's/^/    /' >&2
-    viol=$((viol + 1))
+    if [ "$gi_scoped" -eq 1 ]; then
+      ce_intro=""; ce_pre=""
+      while IFS= read -r cl; do
+        [ -n "$cl" ] || continue
+        cf="${cl%%:*}"; cf="${cf#./}"          # grep -rn line is `path:lineno:text`
+        if printf '%s\n' "$gi_scope_delta" | grep -qxF "$cf"; then
+          ce_intro="${ce_intro}${cl}
+"
+        else
+          ce_pre="${ce_pre}${cl}
+"
+        fi
+      done <<< "$ce"
+      ce_pre="$(printf '%s' "$ce_pre" | grep -vE '^$' || true)"
+      ce_intro="$(printf '%s' "$ce_intro" | grep -vE '^$' || true)"
+      if [ -n "$ce_pre" ]; then
+        echo "check-gate-integrity: INFO — pre-existing continue-on-error OUTSIDE this batch's delta (standing repo state this batch did not introduce; NOT blocking — run --audit to gate the whole tree):" >&2
+        printf '%s\n' "$ce_pre" | sed 's/^/    /' >&2
+      fi
+      if [ -n "$ce_intro" ]; then
+        echo "check-gate-integrity: gate cannot fail (continue-on-error) INTRODUCED by this batch's delta in CI:" >&2
+        printf '%s\n' "$ce_intro" | sed 's/^/    /' >&2
+        viol=$((viol + 1))
+      fi
+    else
+      echo "check-gate-integrity: gate cannot fail (continue-on-error) in CI:" >&2
+      printf '%s\n' "$ce" | sed 's/^/    /' >&2
+      viol=$((viol + 1))
+    fi
   fi
 fi
 
