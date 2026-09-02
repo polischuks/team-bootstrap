@@ -423,6 +423,11 @@ Then, for **each batch, one at a time**:
    the batch while `regressions_found > 0`, the suite isn't current, or a gate didn't actually run —
    this is what stops "closed for the workflow that existed that day." See
    [../references/regression-and-invariants.md](../references/regression-and-invariants.md).
+   **Know the close-time contract BEFORE you run the backstop (#107).** Run
+   `${CLAUDE_PLUGIN_ROOT}/bin/check-review-ack.sh --contract` — it prints this batch's full close-time
+   requirement set (the sized review roles, the `tasks.md` `- [x]` checkbox format, the `review_acks`/
+   `seam_acks` shapes, and the AC→test scoping `--final` enforces) so you satisfy them up front instead
+   of learning each one from a gate failure and re-running the whole cascade.
    Then the **machine backstop (hard):** run `${CLAUDE_PLUGIN_ROOT}/bin/verify-batch.sh` — the same
    script CI runs — which re-checks the OUTCOMES (dead code / drift / green-by-skip) regardless of
    which roles ran. A non-zero exit blocks the batch.
