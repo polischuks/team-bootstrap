@@ -1887,9 +1887,27 @@ current_batch_base() {
   # origin/main. Using origin/main here can drag pre-run commits (even the run baseline itself)
   # into commit_shas, which check-delivery then flags as predate/forged and check-tdd's oldest-
   # commit anchor breaks on. baseline_sha is the run's declared start — the correct window base.
+  #
+  # #104 — but `baseline_sha` is stamped by delivery-marker-init at the moment /deliver ARMS the run,
+  # BEFORE Phase A commits `docs(spec-…)` + feature.json. Those Phase-A commits land after baseline and
+  # before the first code batch, so they fall inside the first batch's window. #93's impl-delta filter
+  # drops a Phase-A commit that is pure doc OR pure test, but a Phase-A commit that ALSO touches a
+  # non-test-non-doc artifact (feature.json / config) has impl_delta > 0 and survives — becoming the
+  # first batch's oldest commit_sha and the wrong tdd anchor. `code_baseline_sha`, when the harness has
+  # recorded the A→B boundary (after Phase-A producing/doc commits, before the first red), advances the
+  # FIRST batch's window past all of Phase A in one boundary rather than a per-gate filter. It is used
+  # ONLY here (the batch window); the /deliver-time baseline_sha still backs the reachable-from-HEAD /
+  # predate / gate-cache checks (closure_anchor, code_since_baseline, gate_cache_key read it directly).
+  # Operator-safe and additive: absent/unresolvable/== HEAD ⇒ fall through to baseline_sha, unchanged.
   marker="$(resolve_marker)"
   if [ -n "$marker" ] && [ -f "$marker" ]; then
-    mk="$(cat "$marker" 2>/dev/null || true)"; bsha="$(field_str "$mk" baseline_sha)"
+    mk="$(cat "$marker" 2>/dev/null || true)"
+    local cbsha; cbsha="$(field_str "$mk" code_baseline_sha)"
+    if [ -n "$cbsha" ] && git rev-parse --verify -q "$cbsha^{commit}" >/dev/null 2>&1 \
+       && [ "$(git rev-parse -q "$cbsha^{commit}" 2>/dev/null)" != "$(git rev-parse -q HEAD 2>/dev/null)" ]; then
+      printf '%s' "$cbsha"; return 0
+    fi
+    bsha="$(field_str "$mk" baseline_sha)"
     if [ -n "$bsha" ] && git rev-parse --verify -q "$bsha^{commit}" >/dev/null 2>&1 \
        && [ "$(git rev-parse -q "$bsha^{commit}" 2>/dev/null)" != "$(git rev-parse -q HEAD 2>/dev/null)" ]; then
       printf '%s' "$bsha"; return 0
