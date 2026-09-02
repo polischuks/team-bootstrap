@@ -1804,6 +1804,38 @@ nondoc_delta_of_shas() {
   done
   printf '%s' "$total"
 }
+
+# impl_delta_of_shas "sha1 sha2 …" → Σ (added+deleted) lines on IMPL files across the commits, counted
+# PER COMMIT. IMPL = neither a doc path (_is_doc_path) NOR a test path (is_test_path). This is the strict
+# "code that carries behaviour" delta: nondoc_delta_of_shas still counts TEST lines (a test file is
+# non-doc), so a test-only commit has nondoc_delta > 0 but impl_delta == 0.
+#
+# WHY (#93 definitive). stamp_batch_closed anchors check-tdd on the OLDEST commit_sha, so any commit that
+# carries no impl — a doc-only Phase-A `docs(spec-…)`, OR a test-only orphan (a rejected wrong-cause red
+# replaced by a stub, never recorded, left dangling) — must not be a code batch's anchor. Filtering by
+# `nondoc_delta == 0` catches only the doc-only case; filtering by `impl_delta == 0` (every changed file
+# is test-or-doc) subsumes it and closes the test-only-orphan hole. Composed from the two existing helpers
+# (_is_doc_path, is_test_path), so "impl" means the same thing everywhere. TestGlobs: extends is_test_path.
+impl_delta_of_shas() {
+  local shas="$1" sha full add del path total=0 tglobs
+  tglobs="$(read_test_globs 2>/dev/null || true)"
+  local -a list=()
+  IFS=' ' read -r -a list <<<"$shas"
+  for sha in "${list[@]}"; do
+    [ -n "$sha" ] || continue
+    full="$(resolve_sha "$sha")" || full=""
+    [ -n "$full" ] || continue
+    while IFS="$(printf '\t')" read -r add del path; do
+      [ -n "${path:-}" ] || continue
+      _is_doc_path "$path" && continue
+      is_test_path "$path" "$tglobs" && continue
+      case "$add" in ''|*[!0-9]*) add=0 ;; esac
+      case "$del" in ''|*[!0-9]*) del=0 ;; esac
+      total=$((total + add + del))
+    done < <(git show --numstat --format= "$full" 2>/dev/null)
+  done
+  printf '%s' "$total"
+}
 # last_closure_sha → the first commit_sha of the LAST closed ledger entry, if git can resolve it; empty
 # otherwise. The one definition of "where the previous closure ended", read by current_batch_base (the
 # batch window) and by closure_anchor (D7). It used to be inline in current_batch_base only.

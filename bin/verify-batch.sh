@@ -68,19 +68,25 @@ stamp_batch_closed() {
   local shas_list shas
   shas_list="$(git log --format=%h "$range" 2>/dev/null | head -50 | tr '\n' ' ' || true)"
 
-  # Exclude test-only RED commits AND doc-only commits from commit_shas. commit_shas must be the
-  # batch's own CODE commits, because check-tdd anchors on the OLDEST commit_sha:
-  #   - RED: the TDD red step commits the failing test FIRST (that commit is the red_sha). Left in,
-  #     it is the oldest commit_sha, and red_sha cannot be a proper ancestor of itself, so the batch
+  # Exclude a batch's non-IMPL commits from commit_shas. commit_shas must be the batch's own CODE
+  # commits, because check-tdd anchors on the OLDEST commit_sha, and check-delivery recomputes code_delta
+  # over exactly these SHAs. A commit that carries no impl — every file it changed is a test path OR a doc
+  # path — is never a code anchor:
+  #   - RED: the TDD red step commits the failing test FIRST (that commit is the red_sha, test-only). Left
+  #     in, it is the oldest commit_sha, and red_sha cannot be a proper ancestor of itself, so the batch
   #     would FAIL after it was closed.
-  #   - DOC (#93): the FIRST code batch's window starts at the run baseline, so a Phase-A `docs(spec-…)`
-  #     commit (spec/plan/tasks) that landed after baseline and before the batch's code is inside the
-  #     range. Left in, it is the oldest commit_sha → check-tdd's anchor is a DOC commit, and the
-  #     batch's own red (committed AFTER the doc commit) is not an ancestor of it, so a LATER batch's
-  #     re-verification FAILS a batch that passed its own close. It also stretches code_delta over a
-  #     wider-than-the-batch window. A doc-only commit contributes 0 non-doc delta, so dropping it
-  #     never lowers an honest code_delta.
-  # Drop any stamped commit that is a recorded red_sha for this run, or that touches no non-doc file.
+  #   - DOC (#93): a Phase-A `docs(spec-…)` commit (spec/plan/tasks) after baseline and before the batch's
+  #     code sits in the range. Left in, it is the oldest commit_sha → check-tdd's anchor is a DOC commit,
+  #     the batch's own red (committed AFTER it) is not its ancestor → a LATER batch's re-verification
+  #     FAILS a batch that passed its own close.
+  #   - TEST-ONLY ORPHAN (#93 definitive): a rejected wrong-cause first-red (#68) replaced by an importable
+  #     stub and NOT recorded in tdd.jsonl leaves a clean test-only commit orphaned. It is not a recorded
+  #     red_sha and its nondoc_delta > 0 (a test file is non-doc), so the old doc-only filter kept it — it
+  #     became the oldest commit_sha and the leaked anchor.
+  # The one filter that subsumes all three: drop any commit whose IMPL delta is zero (impl_delta_of_shas
+  # composes _is_doc_path + is_test_path). The recorded-red exclusion is kept as belt-and-suspenders below.
+  # code_delta is then computed on the SAME impl-only basis, so a mixed test+impl window is not inflated by
+  # its test lines and stays ≤ check-delivery's nondoc recompute (AC-2 holds by construction).
   local tdd rl rs rf red_fulls="" s sfull filtered=""
   tdd="$(dirname "$ledger")/tdd.jsonl"
   if [ -f "$tdd" ]; then
@@ -93,19 +99,21 @@ stamp_batch_closed() {
   for s in $shas_list; do
     sfull="$(resolve_sha "$s")"
     case " $red_fulls " in *" $sfull "*) continue ;; esac
-    # doc-only commit (no non-doc delta) → never the code-anchor of a code batch (#93).
-    [ "$(nondoc_delta_of_shas "$s")" = "0" ] && continue
+    # impl-empty commit (every changed file is a test path OR a doc path) → never the code-anchor of a
+    # code batch (#93 definitive: subsumes doc-only + test-only-orphan; recorded reds are dropped above).
+    [ "$(impl_delta_of_shas "$s")" = "0" ] && continue
     filtered="$filtered $s"
   done
   shas_list="$(printf '%s' "$filtered" | xargs 2>/dev/null || true)"
   shas="$(printf '%s' "$shas_list" | sed 's/[[:space:]]*$//;s/  */,/g')"
 
-  # code_delta from the SAME shared function check-delivery.sh recomputes with
-  # (delivery-lib.sh nondoc_delta_of_shas) — per-commit non-doc sum over exactly the
-  # stamped SHAs. Sharing this makes stamp == recompute by construction (spec R1),
-  # so a batch this script closes always survives the check-delivery recompute.
+  # code_delta on the IMPL-only basis (impl_delta_of_shas) — the same non-test-non-doc definition the
+  # filter above used. Because every stamped SHA has impl_delta > 0, the sum is > 0 (no false "changed no
+  # code"); and impl_delta ≤ nondoc_delta over the same SHAs, so this stamped value never EXCEEDS
+  # check-delivery's nondoc recompute (AC-2's `delta > recomputed` → forged), which stays honest by
+  # construction. A mixed test+impl window is therefore credited only for its impl lines, never inflated.
   local delta
-  delta="$(nondoc_delta_of_shas "$shas_list")"; case "$delta" in ''|*[!0-9]*) delta=0 ;; esac
+  delta="$(impl_delta_of_shas "$shas_list")"; case "$delta" in ''|*[!0-9]*) delta=0 ;; esac
 
   local shas_json="[]"
   [ -n "$shas" ] && shas_json="[\"$(printf '%s' "$shas" | sed 's/,/","/g')\"]"
@@ -174,6 +182,29 @@ if [ "${1:-}" = "--self-test" ]; then
     echo "  PASS spaced '\"status\": \"announced\"' stamped closed (whitespace-tolerant)"
   else echo "  FAIL spaced status left unstamped: $(cat "$T2/.runs/r/batches.jsonl")" >&2; fail=$((fail + 1)); fi
   rm -rf "$T2"
+
+  # #93 definitive — a TEST-ONLY ORPHAN commit (a clean test-only commit that is NOT a recorded red_sha:
+  # e.g. a #68-rejected first-red replaced by an importable stub, left dangling) must be excluded from
+  # commit_shas by the IMPL-delta filter, even though its nondoc_delta > 0 (a test file is non-doc) and
+  # the old doc-only filter kept it. Left in, it is the oldest commit_sha and leaks as the tdd anchor.
+  T3="$(mktemp -d)"
+  ( cd "$T3" && git init -q && git config user.email t@t && git config user.name t
+    echo base > app.sh && git add . && git commit -qm c0 ) >/dev/null 2>&1
+  o3base="$(cd "$T3" && git rev-parse --short HEAD)"
+  ( cd "$T3" && echo t > orphan_test.sh && git add orphan_test.sh && git commit -qm "orphan test (not a recorded red)" ) >/dev/null 2>&1
+  o3orphan="$(cd "$T3" && git rev-parse --short HEAD)"
+  ( cd "$T3" && echo impl >> app.sh && git add app.sh && git commit -qm IMPL ) >/dev/null 2>&1
+  o3impl="$(cd "$T3" && git rev-parse --short HEAD)"
+  mkdir -p "$T3/.runs/r"
+  printf '{"run":"r","intends_code":true,"baseline_sha":"%s"}\n' "$o3base" > "$T3/.runs/r/RUN"
+  printf '{"id":"B1","kind":"code","status":"announced"}\n' > "$T3/.runs/r/batches.jsonl"
+  : > "$T3/.runs/r/tdd.jsonl"   # the orphan is NOT recorded as a red
+  ( cd "$T3" && TEAM_BOOTSTRAP_RUN=r stamp_batch_closed ) 2>/dev/null
+  got3="$(grep -oE '"commit_shas":\[[^]]*\]' "$T3/.runs/r/batches.jsonl" 2>/dev/null)"
+  if printf '%s' "$got3" | grep -q "$o3impl" && ! printf '%s' "$got3" | grep -q "$o3orphan"; then
+    echo "  PASS test-only orphan excluded from commit_shas by impl-delta filter ($got3) — #93 definitive"
+  else echo "  FAIL test-only orphan leaked: $got3 (want IMPL=$o3impl present, orphan=$o3orphan absent)" >&2; fail=$((fail + 1)); fi
+  rm -rf "$T3"
 
   if [ "$fail" -eq 0 ]; then echo "verify-batch --self-test: OK"; exit 0; fi
   echo "verify-batch --self-test: $fail case(s) FAILED" >&2; exit 1
