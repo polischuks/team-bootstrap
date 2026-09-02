@@ -347,6 +347,85 @@ if [ "${1:-}" = "--self-test" ]; then
   echo "check-review-ack --self-test: $fail case(s) FAILED" >&2; exit 1
 fi
 
+# --- the contract card (issue #107) ------------------------------------------
+# `--contract [project-dir]` prints THIS batch's FULL close-time requirement set BEFORE verify-batch
+# enforces it — the close-time analogue of `check-role-verdict --fields` (#88), widened from one gate's
+# fields to every artifact the close will demand. On spec-103 each requirement (tasks.md [x] format,
+# review_acks, seam_acks, AC→test scoping) was learned only by hitting the gate that enforces it and
+# reading its source; the card states them upfront so the operator satisfies them in one pass. It only
+# REPORTS — it enforces nothing and never fails a batch (exit 0 unless it cannot resolve a run/batch).
+_contract() {
+  local marker mk bline bid bkind pipeline builder feat spec slug roles r
+  marker="$(resolve_marker 2>/dev/null || true)"
+  [ -n "$marker" ] && [ -f "$marker" ] || { echo "check-review-ack --contract: no active delivery run — nothing to describe."; return 0; }
+  mk="$(cat "$marker" 2>/dev/null || true)"
+  bline="$(inflight_batch 2>/dev/null || true)"
+  bid="$(field_str "$bline" id)"
+  [ -n "$bid" ] || { echo "check-review-ack --contract: no in-flight batch — announce a batch to see its close-time contract."; return 0; }
+  bkind="$(field_str "$bline" kind)"
+  pipeline="$(field_str "$mk" pipeline)"; [ -n "$pipeline" ] || pipeline="(unset)"
+  builder="$(field_str "$mk" builder)"; [ -n "$builder" ] || builder="orchestrator"
+
+  echo "==================================================================="
+  echo "CLOSE-TIME CONTRACT CARD — batch '$bid' (kind=${bkind:-?}, pipeline=$pipeline)"
+  echo "  What verify-batch will require to CLOSE this batch. Satisfy it upfront (#107)."
+  echo "==================================================================="
+
+  if [ "$bkind" != "code" ]; then
+    echo "- kind:$bkind batch — the review/ack gates (roles, review_acks, seam_acks) do not apply; only"
+    echo "  tasks.md completeness for its declared tasks is checked."
+  fi
+
+  # 1) required REVIEW ROLES (already sized for this batch) — the single-sourced set the gates read.
+  roles="$(required_review_roles "$bid" 2>/dev/null || true)"
+  echo "- Required review roles (sized for this batch): ${roles:-none}"
+  echo "    Each required role must be DISPATCHED under its own review subagent type and return a typed"
+  echo "    verdict (check-role-dispatch + check-role-verdict). Record each with:"
+  echo "      bin/check-role-verdict.sh --record <role>   (the role's typed verdict JSON on stdin)"
+  echo "    See its required fields upfront with: bin/check-role-verdict.sh --fields <role>"
+
+  # 2) review_acks — the independent clean-context adversarial review (gate C).
+  echo "- review_acks (gate C): ONE entry for this batch —"
+  echo "      {batch:$bid, reviewer:<who>, context:clean, verdict:go, commit:<sha>}"
+  echo "    reviewer must ≠ builder ('$builder'); context must be 'clean'; verdict must be 'go';"
+  echo "    commit must resolve, be reachable from HEAD, and be post-baseline."
+  echo "    #106: recording the code-reviewer verdict (approval_status:approved) with"
+  echo "      bin/check-role-verdict.sh --record code-reviewer"
+  echo "    AUTO-DERIVES this review_acks entry — no separate hand write needed. Otherwise record by hand:"
+  echo "      bin/marker.sh review-ack --batch $bid --reviewer <who> --context clean --verdict go --commit <sha>"
+
+  # 3) seam_acks — only when the batch diff touches a control-surface seam.
+  echo "- seam_acks (check-seam-ack): REQUIRED only if this batch touches a control-surface seam."
+  echo "    One entry per touched seam: {seam:<name>, commit:<sha>, note:<file:line + why>}. Record with:"
+  echo "      bin/marker.sh seam-ack --seam <name> --commit <sha> --note \"<file:line + why>\""
+
+  # 4) tasks.md checkbox format — read by check-completeness (per-batch AC-3, milestone AC-4).
+  feat="$(field_str "$mk" feature)"
+  case "$feat" in
+    "") spec=""; slug="" ;;
+    *.md) spec="$feat"; slug="$(basename "$(dirname "$feat")")" ;;
+    *) spec="specs/${feat#specs/}"; spec="${spec%/}/spec.md"; slug="$(basename "${feat%/}")" ;;
+  esac
+  echo "- tasks.md format (check-completeness): tasks live in ${slug:+specs/$slug/}tasks.md as GFM"
+  echo "    checkboxes '- [x]' (done) / '- [ ]' (open) — a task TABLE is not read. This batch's declared"
+  echo "    task_ids must be '- [x]' to close (AC-3); NO '- [ ]' may remain at milestone --final (AC-4)."
+
+  # 5) AC→test mapping — the scoping --final enforces (#94).
+  echo "- AC→test mapping (check-completeness --final, #94): every 'AC-N' token in ${spec:-specs/<slug>/spec.md}"
+  echo "    must appear in >=1 SPEC-SCOPED test file — one under the spec dir OR naming the slug"
+  echo "    '${slug:-<slug>}' in its path/content — within 3 lines of a test/assertion construct. A bare or"
+  echo "    cross-spec AC mention does NOT count (the slug is the discriminator)."
+  echo "==================================================================="
+  return 0
+}
+
+case "${1:-}" in
+  --contract) shift
+              root="${1:-.}"
+              cd "$root" 2>/dev/null || { echo "check-review-ack: bad dir '$root'" >&2; exit 64; }
+              _contract; exit $? ;;
+esac
+
 root="${1:-.}"
 cd "$root" 2>/dev/null || { echo "check-review-ack: bad dir '$root'" >&2; exit 64; }
 if _evaluate; then exit 0; else exit 1; fi
