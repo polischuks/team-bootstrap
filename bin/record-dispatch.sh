@@ -49,6 +49,16 @@ _inflight_batch_id() {
   [ -n "$line" ] && field_str "$line" id
 }
 
+# _open_code_batch_in_flight → rc 0 iff the active run's ledger has an ANNOUNCED (unclosed) kind:code
+# entry — the only batch a reviewer dispatch can legitimately attribute to. Closure flips the entry's
+# status announced→closed in place (verify-batch.sh), so a closed batch no longer matches `announced`.
+_open_code_batch_in_flight() {
+  local ledger
+  ledger="$(resolve_ledger)"; [ -n "$ledger" ] && [ -f "$ledger" ] || return 1
+  grep '"status":[[:space:]]*"announced"' "$ledger" 2>/dev/null \
+    | grep -q '"kind":[[:space:]]*"code"'
+}
+
 # record_dispatch PAYLOAD → the pure core (own function so the self-test can drive it): parse the
 # subagent_type, and on a review type under an active marker, append a dispatch record. Always rc 0.
 record_dispatch() {
@@ -82,6 +92,23 @@ record_dispatch() {
   # field_num and ignore unknown keys, so pre-#61 records with no `ts` still count toward the floor.
   printf '{"batch":"%s","subagent_type":"%s","outcome":"attempted","ts":%s}\n' \
     "$bid" "$stype" "$(_now_epoch)" >> "$rundir/dispatch.jsonl" 2>/dev/null || true
+
+  # #129 — ANNOUNCE-BEFORE-DISPATCH guard. This dispatch attributes to the in-flight batch ($bid). If
+  # there is NO announced-unclosed kind:code batch, $bid resolved to a CLOSED batch (or "") and
+  # check-role-verdict --record will later REFUSE the verdict because that batch is not in flight — the
+  # spec-110 trap, where 4 dispatches credited a closed B3 and dispatch.jsonl had to be relabelled by
+  # hand. Surface the ordering error HERE, at dispatch, before that refusal. NON-BLOCKING: the record is
+  # already written above; announcing the batch's ledger entry (kind:code, status:announced) FIRST is the
+  # fix. To stderr — the record-only hook exits 0, so this never disrupts the dispatch.
+  #
+  # Scoped to intends_code runs: an analysis pipeline (audit/audit-dd/l2p) legitimately never arms a
+  # kind:code batch, so a review-typed dispatch there is NOT the announce-before-dispatch error — warning
+  # on it would be pure noise. A code run has intends_code=true, and its reviewers belong to a code batch.
+  if [ "$(field_bool "$(cat "$marker" 2>/dev/null)" intends_code)" = "true" ] \
+     && ! _open_code_batch_in_flight; then
+    printf 'record-dispatch: WARNING (#129 announce-before-dispatch) — reviewer "%s" was dispatched but no announced-unclosed kind:code batch is in flight; this dispatch attributes to "%s" and check-role-verdict --record will refuse it. Announce the batch ledger entry (kind:code, status:announced) BEFORE dispatching its reviewers.\n' \
+      "$stype" "${bid:-<none>}" >&2
+  fi
   return 0
 }
 
@@ -118,6 +145,23 @@ if [ "${1:-}" = "--self-test" ]; then
   printf '{"run":"r","pipeline":"full","intends_code":true,"source":"harness","baseline_sha":"%s"}\n' "$base" > "$T/.runs/r/RUN"
   ec2="$(_run '{"tool_name":"Agent","tool_input":{"subagent_type":"code-reviewer"}}'; echo $?)"
   _chk "$ec2" 0 "review dispatch under active marker → non-blocking exit 0"
+
+  # #129 — announce-before-dispatch warning. batches.jsonl still holds B1 announced (kind:code).
+  # (a) an OPEN kind:code batch in flight → NO warning
+  w1="$(_run '{"tool_name":"Agent","tool_input":{"subagent_type":"code-reviewer","prompt":"r"}}' 2>&1 >/dev/null)"
+  _chk "$(printf '%s' "$w1" | grep -c '#129')" 0 "open kind:code batch in flight → no announce-before-dispatch warning"
+  # (b) the in-flight batch CLOSED (announced→closed) → warning naming the ordering error
+  sed 's/"status":"announced"/"status":"closed"/' "$T/.runs/r/batches.jsonl" > "$T/.runs/r/b.tmp" && mv "$T/.runs/r/b.tmp" "$T/.runs/r/batches.jsonl"
+  w2="$(_run '{"tool_name":"Agent","tool_input":{"subagent_type":"code-reviewer","prompt":"r"}}' 2>&1 >/dev/null)"
+  _chk "$(printf '%s' "$w2" | grep -c '#129')" 1 "reviewer dispatched with the in-flight batch CLOSED → announce-before-dispatch warning"
+  # (c) NO batch announced at all → warning
+  rm -f "$T/.runs/r/batches.jsonl"
+  w3="$(_run '{"tool_name":"Agent","tool_input":{"subagent_type":"code-reviewer","prompt":"r"}}' 2>&1 >/dev/null)"
+  _chk "$(printf '%s' "$w3" | grep -c '#129')" 1 "reviewer dispatched with NO kind:code batch announced → announce-before-dispatch warning"
+  # (d) an ANALYSIS run (intends_code=false) never arms a code batch → NO warning (not the error)
+  printf '{"run":"r","pipeline":"audit","intends_code":false,"source":"harness","baseline_sha":"%s"}\n' "$base" > "$T/.runs/r/RUN"
+  w4="$(_run '{"tool_name":"Agent","tool_input":{"subagent_type":"code-reviewer","prompt":"r"}}' 2>&1 >/dev/null)"
+  _chk "$(printf '%s' "$w4" | grep -c '#129')" 0 "analysis run (intends_code=false) with no code batch → no announce-before-dispatch warning"
 
   rm -rf "$T"
   if [ "$fail" -eq 0 ]; then echo "record-dispatch --self-test: OK"; exit 0; fi
