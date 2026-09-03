@@ -332,7 +332,11 @@ Then, for **each batch, one at a time**:
    dodge the gate. Ship it as `kind:code` with the **regression-lock** form (#67): commit the test that
    pins the property, then run `${CLAUDE_PLUGIN_ROOT}/bin/check-tdd.sh --record-lock --batch <id>` with the
    locked behaviour **mutated** (uncommitted) in the tree — the lock must REDDEN under the mutation
-   (mutation-kill proof), then revert so HEAD is green. `check-tdd` accepts a code batch on **either** a
+   (mutation-kill proof), then revert so HEAD is green. **Commit the green implementation BEFORE you
+   mutate (#128):** the natural revert is `git checkout -- <file>`, which discards **all** uncommitted
+   changes in that file, not just the mutation — on spec-110 it wiped co-located uncommitted green work.
+   Commit green first (so the mutation is the only uncommitted change) or `git stash`/`stash pop` around
+   the mutation. `check-tdd` accepts a code batch on **either** a
    red record **or** a lock record; the lock test need not precede the code (a lock *is* a test). This is
    the honest proof for a green-on-arrival property — see [../references/tdd.md](../references/tdd.md).
    **Scoped suite for the inner loop; full suite only at close (#86).** The full `Test:` suite is
