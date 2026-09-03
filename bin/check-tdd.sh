@@ -405,9 +405,16 @@ fi
 # A regression-lock pins already-correct behaviour so it cannot silently regress. On safe code the lock
 # is GREEN on arrival, so it has no natural red and red-first cannot express it. Its honest proof is a
 # MUTATION check on the lock: with the locked behaviour MUTATED in the working tree, the suite must go
-# RED — the lock kills the mutant. Run it AFTER committing the lock test, with the mutation applied but
-# UNCOMMITTED (so it is never shipped), then revert the mutation. Same trust model as --record-red: the
-# record exists only because the observation actually ran and SAW the lock redden under the mutation.
+# RED — the lock kills the mutant. Run it AFTER committing the lock test AND the green implementation,
+# with the mutation applied but UNCOMMITTED (so it is never shipped), then revert the mutation. Same
+# trust model as --record-red: the record exists only because the observation actually ran and SAW the
+# lock redden under the mutation.
+#
+# #128 — DESTRUCTIVE-REVERT HAZARD. The natural revert is `git checkout -- <file>`, which discards ALL
+# uncommitted changes in that file, not only the mutation. On spec-110 it wiped co-located uncommitted
+# green edits. So COMMIT the green implementation BEFORE mutating (leaving the mutation as the only
+# uncommitted change), or `git stash` before mutating and `git stash pop` after — either way the revert
+# touches only the mutant. The Stryker `inPlace` variant rewrites the working tree the same way.
 #
 # Usage: bin/check-tdd.sh --record-lock [--batch <id>] [project-dir]
 # Exit:  0 lock proven (recorded) · 1 suite stayed GREEN under the mutation (lock did not catch it) ·
@@ -437,7 +444,7 @@ if [ "${1:-}" = "--record-lock" ]; then
     rl_mut=1; break
   done < <(git diff HEAD --name-only 2>/dev/null)
   if [ "$rl_mut" -eq 0 ]; then
-    echo "check-tdd --record-lock: no uncommitted non-test change in the working tree — MUTATE the locked behaviour first (leave it uncommitted), then re-run so the lock can be seen to redden (#67)." >&2
+    echo "check-tdd --record-lock: no uncommitted non-test change in the working tree — MUTATE the locked behaviour first (leave it uncommitted), then re-run so the lock can be seen to redden (#67). COMMIT the green implementation FIRST so the mutation is the ONLY uncommitted change: the revert afterward (\`git checkout -- <file>\`) discards ALL uncommitted changes in the file, not just the mutation — or \`git stash\`/\`stash pop\` around the mutation to preserve co-located work (#128)." >&2
     exit 4
   fi
 
@@ -467,7 +474,7 @@ if [ "${1:-}" = "--record-lock" ]; then
   rl_esc="$(printf '%s' "$rl_cmd" | sed 's/\\/\\\\/g; s/"/\\"/g')"
   printf '{"batch":"%s","lock_sha":"%s","test_cmd":"%s","observed":"lock-kill"}\n' \
     "$rl_batch" "$rl_sha" "$rl_esc" >> ".runs/$rl_run/tdd.jsonl"
-  echo "check-tdd --record-lock: LOCK proven (run=$rl_run batch=$rl_batch lock_sha=$rl_sha) — the lock reddened under the mutation. Revert the mutation so HEAD is green, then close." >&2
+  echo "check-tdd --record-lock: LOCK proven (run=$rl_run batch=$rl_batch lock_sha=$rl_sha) — the lock reddened under the mutation. Revert the mutation so HEAD is green, then close. NB (#128): \`git checkout -- <file>\` reverts ALL uncommitted changes in that file, not only the mutation — safe only because you committed green first (or stashed); if not, \`git stash pop\` your work back rather than re-typing it." >&2
   exit 0
 fi
 

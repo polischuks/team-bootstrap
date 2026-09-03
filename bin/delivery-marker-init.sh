@@ -246,6 +246,32 @@ if [ -f "$marker" ]; then
   # spec_path) — only the fields the hook owns are spliced (precond / preflight / repro_env / the acks
   # survive; baseline_sha is never touched), and a run that sized cleanly is left alone. On a re-size it
   # returns the RE-SIZED notice; empty ⇒ nothing to recompute, so re-state the stored verdict.
+  # ISSUE #104 — advance the code-delivery baseline PAST Phase A. `baseline_sha` is stamped at /deliver,
+  # before Phase A commits spec/plan/tasks (and `feature.json`), so those commits fall inside the FIRST
+  # code batch's `baseline..HEAD` window and become its tdd anchor — a bug #93's impl-delta filter cannot
+  # catch for a commit that touches a non-doc, non-test file like `feature.json`. Stamp `code_baseline_sha`
+  # ONCE at the A->B boundary so `current_batch_base` uses it for the first batch. The boundary is proven,
+  # not guessed: tasks.md must be COMMITTED at HEAD (`git cat-file -e HEAD:<tasks>`), so HEAD is *after*
+  # the Phase-A docs commits — cbsha=HEAD then excludes them from the first batch's window. Fires only on
+  # an armed harness run with no code batch announced yet and the field unset; additive (baseline_sha is
+  # never touched, so predate/reachable checks are unaffected); once set, a later prompt leaves it alone.
+  if [ -z "$(field_str "$_mk_prev" code_baseline_sha)" ]; then
+    _cb_spec="$(field_str "$_mk_prev" spec_path)"; [ -n "$_cb_spec" ] || _cb_spec="$(field_str "$_mk_prev" feature)"
+    _cb_tasks=""
+    case "$_cb_spec" in ""|unknown) : ;; *.md) _cb_tasks="$(dirname "$_cb_spec")/tasks.md" ;; *) _cb_tasks="${_cb_spec%/}/tasks.md" ;; esac
+    # Read THIS run's own ledger — the one beside the marker being stamped (.runs/$run) — never
+    # resolve_ledger, which honours $TEAM_BOOTSTRAP_RUN and could point at a different run than the
+    # path-derived $run this arm is writing (a real skew: the harness exports the active run id).
+    _cb_led=".runs/$run/batches.jsonl"
+    _cb_hascode=0
+    [ -f "$_cb_led" ] && grep -q '"kind"[[:space:]]*:[[:space:]]*"code"' "$_cb_led" 2>/dev/null && _cb_hascode=1
+    _cb_head="$(git rev-parse --short HEAD 2>/dev/null || true)"
+    if [ -n "$_cb_tasks" ] && [ "$_cb_hascode" -eq 0 ] && [ -n "$_cb_head" ] \
+       && git cat-file -e "HEAD:$_cb_tasks" 2>/dev/null; then
+      splice_marker_fields "$marker" "code_baseline_sha=$_cb_head" 2>/dev/null || true
+    fi
+  fi
+
   _rs_note="$(resize_degraded_marker "$marker" "$tier_source" "$run")"
   if [ -n "$_rs_note" ]; then
     _emit_ctx "$(_json_esc "$_rs_note")"

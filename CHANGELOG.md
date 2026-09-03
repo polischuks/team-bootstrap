@@ -2,6 +2,21 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.10.1] — 2026-09-03
+
+**Retro-fix batch (#104 writer, #127–#129).** Four issues from live `/deliver` runs (spec-110, spec-187), each shipped red-first with a revert-check.
+
+### Fixed
+
+- **`code_baseline_sha` WRITER shipped** (#104, reopened): 3.10.0 released only the consumer (`current_batch_base` reads the field) — the writer was never added, so the field stayed unset and a Phase-A `feature.json` commit kept leaking into the first code batch's tdd anchor. `delivery-marker-init` now stamps `code_baseline_sha=HEAD` at the A→B boundary (armed harness run, `tasks.md` committed at HEAD, no code batch announced, field unset). The code-batch guard reads the run's **own** ledger (`.runs/$run`), not `resolve_ledger` — which honours the exported `TEAM_BOOTSTRAP_RUN` and could point at a different run than the arm is stamping.
+- **Delta helpers survive an empty sha list** (#127, regression from 3.10.0): `nondoc_delta_of_shas`/`impl_delta_of_shas` crashed with `unbound variable` on an empty list under `set -u` (bash 3.2). Guarded with `${list[@]+"${list[@]}"}`; the test runs under `set -u` so it reddens without the fix.
+- **`--record-lock` doctrine warns the mutation-revert is destructive** (#128): `git checkout -- <file>` reverts **all** uncommitted changes in the file, not just the mutation — on spec-110 it wiped co-located green edits. `check-tdd`'s messages and `deliver.md` now tell the operator to commit green (or stash) first.
+- **Announce-before-dispatch warning** (#129): dispatching a reviewer before its `kind:code` batch is announced attributes the dispatch to the previous **closed** batch, and `check-role-verdict --record` then refuses. `record-dispatch` now emits a non-blocking warning (scoped to `intends_code` runs) naming the ordering error before the refusal.
+
+### Notes
+- Activation needs a plugin reinstall at 3.10.1.
+- CI-suite policy (#53/#54/#59, `ci.yml continue-on-error`) remains a deferred follow-up.
+
 ## [3.7.0] — 2026-08-28
 
 **Test-infrastructure + delivery-integrity batch (#53–#81).** Ten issues from the spec-176 live run and a 3.6.0 test-cost analysis, integrated with one acceptance-caught stale-green fixed on the way in.
