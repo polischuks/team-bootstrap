@@ -1951,7 +1951,7 @@ nondoc_delta_of_shas() {
   local shas="$1" sha full add del path total=0
   local -a list=()
   IFS=' ' read -r -a list <<<"$shas"
-  for sha in "${list[@]}"; do
+  for sha in ${list[@]+"${list[@]}"}; do
     [ -n "$sha" ] || continue
     full="$(resolve_sha "$sha")" || full=""
     [ -n "$full" ] || continue
@@ -1982,7 +1982,7 @@ impl_delta_of_shas() {
   tglobs="$(read_test_globs 2>/dev/null || true)"
   local -a list=()
   IFS=' ' read -r -a list <<<"$shas"
-  for sha in "${list[@]}"; do
+  for sha in ${list[@]+"${list[@]}"}; do
     [ -n "$sha" ] || continue
     full="$(resolve_sha "$sha")" || full=""
     [ -n "$full" ] || continue
