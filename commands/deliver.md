@@ -183,7 +183,11 @@ generate them. Do not present a produced-by-speckit artifact as automatic when t
    log each drift catch (Step 3).
 4. **Skill `speckit-plan`** — architecture, phase decomposition, compliance matrix (Step 4).
 5. **Skill `speckit-tasks`** — numbered tasks; every acceptance criterion maps to ≥1 task (Step 5).
-6. **Skill `speckit-analyze`** — cross-artifact consistency guard (spec ↔ plan ↔ tasks).
+6. **Skill `speckit-analyze`** — cross-artifact consistency guard (spec ↔ plan ↔ tasks), **including a
+   plan-requirement ↔ acceptance-criterion contradiction pass (#132):** for EACH plan requirement
+   (`FR-N`), check it against EVERY acceptance criterion — not only spec↔plan structure. A plan FR that
+   directly contradicts an AC (e.g. a new-flag / new-class FR vs a byte-equivalence AC) is a Phase-A
+   blocker, not a B3 surprise — the contradiction is cheapest to resolve in the plan, before any code.
 7. **Role `architecture-reviewer` (`review_mode: soundness`)** — an independent review of `plan.md`
    against the project's [architecture baseline](../references/architecture-baseline.md): is the
    *planned* architecture correct and does it fit the app as a whole? `analyze` checks that the
