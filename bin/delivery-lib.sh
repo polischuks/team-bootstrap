@@ -2001,13 +2001,28 @@ impl_delta_of_shas() {
 # otherwise. The one definition of "where the previous closure ended", read by current_batch_base (the
 # batch window) and by closure_anchor (D7). It used to be inline in current_batch_base only.
 last_closure_sha() {
-  local ledger since
+  local ledger line sha since=""
   ledger="$(resolve_ledger)"
   [ -n "$ledger" ] && [ -f "$ledger" ] || return 0
-  since="$(grep '"status":"closed"' "$ledger" 2>/dev/null | tail -1 \
-    | sed -nE 's/.*"commit_shas":\[[[:space:]]*"([0-9a-fA-F]+)".*/\1/p')"
-  [ -n "$since" ] && git rev-parse --verify -q "$since^{commit}" >/dev/null 2>&1 || return 0
-  printf '%s' "$since"
+  # Scan ALL closed entries in ledger (chronological close) order and keep the newest one that recorded
+  # a CODE commit. #131: reading only the LAST closed entry (`tail -1`) returned empty whenever that
+  # entry was a DOC batch — or any batch whose commits were all impl-empty — because stamp_batch_closed
+  # filters impl-empty commits, so such a batch stamps `commit_shas:[]`. An empty result then regressed
+  # current_batch_base to the run baseline and re-attributed every prior commit + the Phase-A doc commit
+  # to the next code batch. Skipping empties restores the true closure boundary. A doc batch's own
+  # commits sit after this boundary but are impl-empty, so the next window's impl_delta filter drops
+  # them — the slightly-wider base is harmless. `commit_shas[0]` is the batch's NEWEST commit (git log
+  # is newest-first), which is exactly the base the next batch's window must start after.
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    sha="$(printf '%s' "$line" | sed -nE 's/.*"commit_shas":\[[[:space:]]*"([0-9a-fA-F]+)".*/\1/p')"
+    [ -n "$sha" ] || continue
+    git rev-parse --verify -q "$sha^{commit}" >/dev/null 2>&1 || continue
+    since="$sha"
+  done <<EOF
+$(grep '"status":"closed"' "$ledger" 2>/dev/null)
+EOF
+  [ -n "$since" ] && printf '%s' "$since"
 }
 
 # closure_anchor → the sha past which code is NOT covered by any closure: the last closure if there is
