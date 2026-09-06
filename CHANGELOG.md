@@ -2,6 +2,19 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.10.2] — 2026-09-03
+
+**Retro-fix batch (#131, #132).** Two findings from the spec-118 live run, each shipped red-first with a revert-check.
+
+### Fixed
+
+- **commit_shas over-attribution across batches** (#131): `last_closure_sha` parsed only the single last closed ledger entry and read its `commit_shas[0]`. A closed **doc batch** (or any batch whose commits were all impl-empty) stamps `commit_shas:[]`, so when the last closed entry was a doc batch the helper returned empty — regressing `current_batch_base` to the run baseline and re-attributing every prior commit + the Phase-A doc commit to the next code batch (on spec-118: 3 manual ledger edits + 2 re-verifies). It now scans **all** closed entries and returns the newest one that recorded a code commit, so an interleaved doc batch no longer loses the closure boundary. Distinct from #104 (first-batch boundary) and #93/#128 (in-window doc/test filtering).
+- **Phase-A plan↔AC contradiction pass** (#132): `speckit-analyze` (step 6) now explicitly checks each plan requirement (`FR-N`) against **every** acceptance criterion for direct contradiction — so a plan FR that contradicts an AC (e.g. a new-flag/new-class FR vs a byte-equivalence AC) is a Phase-A blocker, not a B3 surprise. On spec-118 an FR-4↔AC-5 contradiction sat in plan v2 from the start and surfaced only at B3.
+
+### Notes
+- Activation needs a plugin reinstall at 3.10.2.
+- CI-suite policy (#53/#54/#59) remains a deferred follow-up.
+
 ## [3.10.1] — 2026-09-03
 
 **Retro-fix batch (#104 writer, #127–#129).** Four issues from live `/deliver` runs (spec-110, spec-187), each shipped red-first with a revert-check.
