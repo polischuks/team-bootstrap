@@ -2,6 +2,18 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.10.3] — 2026-09-07
+
+**Retro-fix (#134).** One finding from the spec-194 live run (confirmed on 3.10.2), shipped red-first with a revert-check.
+
+### Fixed
+
+- **A pure test-only/verification/proof batch can now close standalone** (#134): `check-delivery` flagged any `kind:code` batch with empty `commit_shas` as FORGED (`check-delivery.sh:365`) / UNEARNED (`code_delta ≤ 0`). A verification batch ships a test and no impl (`impl_delta 0`), so `stamp_batch_closed` filters every commit and it closes with `commit_shas:[]` / `code_delta:0` — tripping both on every subsequent batch's verify (on spec-194 a B6 AC-6 proof batch read as forged on B7, forcing a manual B6→B5 consolidation; a recurrence of the spec-183 gotcha). `check-delivery` now exempts such a batch when `tdd.jsonl` records an earned proof for its id (`observed:"red"` + resolvable `red_sha`, or `observed:"lock-kill"`, #67/#89): earned-by-test (P9), credited rather than forged. Guard preserved — an empty closure with no recorded proof, or one still claiming a nonzero `code_delta`, stays FORGED. Distinct from #131 (`last_closure_sha`/window).
+
+### Notes
+- Activation needs a plugin reinstall at 3.10.3.
+- CI-suite policy (#53/#54/#59) remains a deferred follow-up.
+
 ## [3.10.2] — 2026-09-03
 
 **Retro-fix batch (#131, #132).** Two findings from the spec-118 live run, each shipped red-first with a revert-check.
