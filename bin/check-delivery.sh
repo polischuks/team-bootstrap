@@ -345,6 +345,28 @@ while [ "$_i" -lt "$total" ]; do
 done
 first_kind="${dkind_arr[0]:-}"
 
+# _batch_tdd_proven ID → rc 0 iff .runs/<run>/tdd.jsonl records an EARNED proof for this batch id: an
+# observed:"red" step with a resolvable red_sha, or an observed:"lock-kill" (#67/#89). #134: a pure
+# test-only / verification / proof batch ships a test and no impl (impl_delta 0), so stamp_batch_closed
+# filters every commit and commit_shas is []. Its closure is earned by THIS recorded proof, not by an
+# impl commit — so an empty-commit_shas closure that carries one is a verification batch, not a forgery.
+_batch_tdd_proven() {
+  local _bid="$1" _tdd _l _obs _rs
+  _tdd="$(dirname "$ledger")/tdd.jsonl"
+  [ -f "$_tdd" ] || return 1
+  while IFS= read -r _l; do
+    [ -n "$_l" ] || continue
+    [ "$(field_str "$_l" batch)" = "$_bid" ] || continue
+    _obs="$(field_str "$_l" observed)"
+    [ "$_obs" = "lock-kill" ] && return 0
+    if [ "$_obs" = "red" ]; then
+      _rs="$(field_str "$_l" red_sha)"
+      [ -n "$_rs" ] && [ -n "$(resolve_sha "$_rs")" ] && return 0
+    fi
+  done < "$_tdd"
+  return 1
+}
+
 # Process each distinct batch by its RESOLVED latest status. `_bi` is the current index; `_b` is
 # advanced BEFORE the body so a `continue` inside the closure block (forged SHA, inflation, etc.)
 # can never skip the increment and spin — the closure block keeps its original continue semantics.
@@ -362,6 +384,15 @@ while [ "$_b" -lt "$dn" ]; do
     shas="$(shas_of_line "$line")"
     # AC-1 — closure must be tied to commits git can prove.
     if [ -z "$shas" ]; then
+      # #134 — a pure test-only / verification / proof batch has NO impl commit (impl_delta 0), so
+      # commit_shas is [] and code_delta is 0. Its closure is earned by a RECORDED tdd.jsonl proof
+      # (observed:"red"+red_sha, or observed:"lock-kill" #67/#89), not by an impl commit — credit it
+      # rather than forging it. GUARD PRESERVED: an empty closure with no recorded proof, or one that
+      # still CLAIMS a nonzero code_delta (impl asserted but no commits), stays forged below.
+      if [ "$delta" -le 0 ] && _batch_tdd_proven "$id"; then
+        echo "  EARNED (test-only): batch '$id' closed kind:code with no impl commit but a recorded TDD proof (red/lock-kill) — verification batch, closure earned by test (P9, #134)." >&2
+        closed_code=$((closed_code + 1)); continue
+      fi
       echo "  FORGED: batch '$id' closed kind:code with no commit_shas — closure tied to no commit." >&2
       viol=$((viol + 1)); continue
     fi
