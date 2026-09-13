@@ -7,11 +7,14 @@ number of subagent dispatches on sequential build batches, versus the inline-bui
 **Metric:** subagent dispatches recorded on the `/deliver` run that shipped this milestone
 (`.runs/148-roles-as-first-class-agents/dispatch.jsonl`, the harness-observed `PreToolUse[Agent]` record).
 
-**After (this run), by batch:** P0=6, WA=5, WB=7, WC=6, WD=5 — **29 total, every one a REVIEW role**
-(integration-verifier, architecture-reviewer, regression-guardian, code-reviewer, plus the risk-sized
-devops-platform / chaos-engineer / data-schema-reviewer). **Zero delivery/build-role dispatches**: not one
-`backend-engineer`, `frontend-engineer`, `ai-engineer`, `product-manager`, … was dispatched as a subagent,
-even though all 37 now exist as first-class agents.
+**After (this run), by migration batch (snapshot at migration close P0–WD):** P0=6, WA=5, WB=7, WC=6, WD=5.
+`dispatch.jsonl` is an append-only log, so the running total keeps growing as later batches (P5, …) run
+their OWN review fan-outs — do not read a fixed total as the metric. **The metric is the KIND of dispatch,
+and it is invariant: every recorded dispatch is a REVIEW role** (integration-verifier, architecture-reviewer,
+regression-guardian, `tb-code-reviewer` [the code-reviewer role's slug], plus the risk-sized
+devops-platform / chaos-engineer / data-schema-reviewer). **Zero delivery/build-role dispatches** across the
+whole run: not one `backend-engineer`, `frontend-engineer`, `ai-engineer`, `product-manager`, … was
+dispatched as a subagent, even though all 37 now exist as first-class agents.
 
 **Before (baseline policy):** a sequential build batch dispatches builders per the pipeline only when the
 pipeline chooses to; the recommended default is inline single-thread (#144, constitution P1). The review
