@@ -502,6 +502,16 @@ done
 # CI gate anywhere is never hidden from the audit.
 if [ -d .github/workflows ]; then
   ce="$(grep -rnE 'continue-on-error:[[:space:]]*true' .github/workflows 2>/dev/null | head -20)"
+  # #59 governed waiver: a `continue-on-error: true` carrying an inline `# gate-integrity-waiver: <reason>`
+  # annotation is a DEFERRED, TRACKED, auditable exception — mirrors the preflight/enforcement governed-waiver
+  # pattern (presence enforced, honesty is the human's). It is reported as INFO, never a blocking violation.
+  # A BARE marker with no reason (`gate-integrity-waiver:` then nothing) is NOT a waiver and still blocks.
+  ce_waived="$(printf '%s\n' "$ce" | grep -E 'gate-integrity-waiver:[[:space:]]+[^[:space:]]' || true)"
+  ce="$(printf '%s\n' "$ce" | grep -vE 'gate-integrity-waiver:[[:space:]]+[^[:space:]]' | grep -vE '^$' || true)"
+  if [ -n "$ce_waived" ]; then
+    echo "check-gate-integrity: INFO — continue-on-error with a gate-integrity-waiver (deferred/tracked, NOT blocking):" >&2
+    printf '%s\n' "$ce_waived" | sed 's/^/    /' >&2
+  fi
   if [ -n "$ce" ]; then
     if [ "$gi_scoped" -eq 1 ]; then
       ce_intro=""; ce_pre=""

@@ -80,7 +80,7 @@ jobs:
     # macos-26, which fails ~7 members that pass on the maintainer's local macOS; ubuntu fails the
     # portability set). The suite RUNS and its per-member failures are VISIBLE in CI (issue #53's
     # "run it in CI" goal); making the check BLOCKING/required awaits #59 making the suite portable.
-    continue-on-error: true
+    continue-on-error: true  # gate-integrity-waiver: #59 — suite not yet portable on GitHub runners (macos-26 fails ~7 members that pass on local macOS; ubuntu fails the portability set); informational until #59 makes the suite portable, then remove this and make the check blocking.
     steps:
       - uses: actions/checkout@v4
         with:
