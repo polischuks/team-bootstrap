@@ -52,6 +52,14 @@ _listed() { awk -F'\t' -v s="$2" '!/^#/ && $1==s {f=1} END{exit !f}' "$1/referen
 # _has_slug ROOT SLUG → 0 if the exact slug appears with a NON-EMPTY role column.
 _has_slug() { awk -F'\t' -v s="$2" '!/^#/ && $1==s && NF>1 && $2!="" {f=1} END{exit !f}' "$1/references/review-types.txt"; }
 
+# _listed_delivery ROOT SLUG → 0 if SLUG appears in references/delivery-types.txt — the DELIVERY-agent
+# sanction manifest (milestone 148, T002). It is a SEPARATE file from review-types.txt and is read by
+# NOTHING in the review machinery (delivery-lib review_types/is_review_type, record-dispatch,
+# check-role-dispatch, check-review-ack) — that file-separation is what keeps the anti-builder guarantee:
+# a delivery agent can never be miscounted toward the review floor because the review floor never reads
+# this file. One slug per line; '#'/blank ignored; exact match.
+_listed_delivery() { [ -f "$1/references/delivery-types.txt" ] && awk -v s="$2" '!/^#/ && $1==s {f=1} END{exit !f}' "$1/references/delivery-types.txt"; }
+
 # _registry_row ROOT SLUG → the role-registry.md "Dispatchable slugs" row for SLUG (empty if none).
 _registry_row() { grep -E "^\| \`$2\` \|" "$1/references/role-registry.md" 2>/dev/null | head -1; }
 
@@ -82,8 +90,16 @@ _check() {
       # A generic still has to BE THERE in both forms — the exemption covers attribution, not presence.
       _listed "$root" "$slug"                || { echo "  $slug: generic, but the bare slug is absent from review-types.txt" >&2; n=$((n + 1)); }
       _listed "$root" "team-bootstrap:$slug" || { echo "  $slug: generic, but the prefixed slug is absent from review-types.txt" >&2; n=$((n + 1)); }
+    elif _listed_delivery "$root" "$slug"; then
+      # DELIVERY agent (milestone 148): sanctioned by delivery-types.txt (both forms), and it MUST NOT
+      # carry a review role in review-types.txt — the load-bearing anti-builder guarantee (a builder never
+      # maps to a review slug; the review floor reads ONLY review-types.txt, so a delivery agent there
+      # would be miscounted as a review dispatch).
+      _listed_delivery "$root" "team-bootstrap:$slug" || { echo "  $slug: delivery agent, but the prefixed slug is absent from delivery-types.txt" >&2; n=$((n + 1)); }
+      ! _has_slug "$root" "$slug"                || { echo "  $slug: delivery agent must NOT carry a review role in review-types.txt (anti-builder)" >&2; n=$((n + 1)); }
+      ! _has_slug "$root" "team-bootstrap:$slug" || { echo "  $slug: delivery agent must NOT carry a prefixed review role in review-types.txt (anti-builder)" >&2; n=$((n + 1)); }
     else
-      _has_slug "$root" "$slug"                || { echo "  $slug: no bare slug with a role column in review-types.txt" >&2; n=$((n + 1)); }
+      _has_slug "$root" "$slug"                || { echo "  $slug: no bare slug with a role column in review-types.txt (nor listed in delivery-types.txt)" >&2; n=$((n + 1)); }
       _has_slug "$root" "team-bootstrap:$slug" || { echo "  $slug: no team-bootstrap:-prefixed slug with a role column in review-types.txt" >&2; n=$((n + 1)); }
     fi
 

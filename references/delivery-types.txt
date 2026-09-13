@@ -1,0 +1,17 @@
+# delivery-types.txt — the sanction manifest for DELIVERY agents (milestone 148, roles-as-first-class-agents).
+#
+# A delivery agent is a non-review role (builder / architect / product / delivery / GTM / UX) that ships
+# in agents/<slug>.md as a self-contained, in-repo team-bootstrap:<slug> type. This file sanctions such
+# agents for bin/check-role-triples.sh — one slug per line, BOTH forms (bare and team-bootstrap:-prefixed);
+# blank lines and '#' comments ignored; exact whole-slug match.
+#
+# WHY A SEPARATE FILE FROM review-types.txt (the load-bearing anti-builder guarantee). The review
+# machinery — delivery-lib.sh review_types()/is_review_type(), bin/record-dispatch.sh,
+# bin/check-role-dispatch.sh, bin/check-review-ack.sh — reads ONLY references/review-types.txt and MUST
+# NEVER read this file. That file-separation is what guarantees a delivery agent can never be miscounted
+# toward the review floor: a builder in THIS file is sanctioned as a delivery agent, but is invisible to
+# the review-dispatch attribution, so it can never satisfy the ≥1 independent-review floor. A delivery
+# slug that also appears in review-types.txt with a role column is a HARD FAILURE in check-role-triples
+# (a builder must never map to a review slug).
+#
+# Populated per migration wave (Waves B–D). Empty until the first non-review agent lands.
