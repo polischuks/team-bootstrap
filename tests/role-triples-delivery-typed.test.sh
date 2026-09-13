@@ -30,6 +30,15 @@ _c "$(_run "$T")" 0 "delivery agent with a role-output.schema.json \$def PASSES 
 T="$(_fixture)"; printf '{"$defs":{"someone-else":{"allOf":[{"required":["x"]}]}}}\n' > "$T/references/schemas/role-output.schema.json"
 _c "$([ "$(_run "$T")" -ge 1 ] && echo caught || echo missed)" caught "delivery agent with schema but no \$def is caught (not Typed)"; rm -rf "$T"
 
+# RL1-F1: base-only $def (required comes from an allOf $ref to base, NOT a top-level allOf required) →
+# this is how the REAL schema types delivery roles (cto-architect, product-manager). Must be Typed.
+T="$(_fixture)"; printf '{"$defs":{"base":{"required":["status","role","summary"]},"backend-engineer":{"allOf":[{"$ref":"#/$defs/base"},{"properties":{"role":{"const":"backend-engineer"}}}]}}}\n' > "$T/references/schemas/role-output.schema.json"
+_c "$(_run "$T")" 0 "base-only \$def (required via \$ref to base) is Typed — matches the real schema convention (RL1-F1)"; rm -rf "$T"
+
+# RL1-F1: conditional required (if status=completed then required) → also Typed
+T="$(_fixture)"; printf '{"$defs":{"base":{"required":["status"]},"backend-engineer":{"allOf":[{"$ref":"#/$defs/base"},{"if":{"properties":{"status":{"const":"completed"}}},"then":{"required":["verification_evidence"]}}]}}}\n' > "$T/references/schemas/role-output.schema.json"
+_c "$(_run "$T")" 0 "conditional if/then required is Typed (RL1-F1)"; rm -rf "$T"
+
 # delivery agent with NO schema file at all → Typed check not applicable → PASS (fixtures/foreign repos)
 T="$(_fixture)"; rm -rf "$T/references/schemas"
 _c "$(_run "$T")" 0 "no schema file → Typed check not applicable → PASSES"; rm -rf "$T"

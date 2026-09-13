@@ -70,9 +70,24 @@ _typed_ok() {
   local sch="$1/references/schemas/role-output.schema.json"
   [ -f "$sch" ] || return 0
   command -v python3 >/dev/null 2>&1 || return 0
+  # RL1-F1: the schema types roles via `allOf: [{$ref: base}, {properties…}]` and conditional
+  # `if/then: {required}` blocks — the required set is NOT a top-level `allOf`-branch `required`. Resolve
+  # transitively: own required, $ref (#/$defs/*, incl. base's 11 required), allOf branches, if/then/else.
+  # A role with a $def is Typed iff that resolved set is non-empty. Malformed/absent $def ⇒ empty ⇒ not Typed.
   [ -n "$(python3 -c 'import json,sys
-d=json.load(open(sys.argv[1])).get("$defs",{}).get(sys.argv[2],{})
-print(" ".join(f for b in d.get("allOf",[]) for f in b.get("required",[])))' "$sch" "$2" 2>/dev/null)" ]
+d=json.load(open(sys.argv[1])); root=d.get("$defs",{}); x=root.get(sys.argv[2])
+if x is None: print(""); sys.exit()
+req=set(); seen=set()
+def walk(n):
+    if not isinstance(n,dict): return
+    for f in n.get("required",[]) or []: req.add(f)
+    r=n.get("$ref")
+    if isinstance(r,str) and r.startswith("#/$defs/") and r not in seen:
+        seen.add(r); walk(root.get(r.split("/")[-1],{}))
+    for b in n.get("allOf",[]) or []: walk(b)
+    for k in ("then","else","if"):
+        if isinstance(n.get(k),dict): walk(n[k])
+walk(x); print(" ".join(sorted(req)))' "$sch" "$2" 2>/dev/null)" ]
 }
 
 # _registry_row ROOT SLUG → the role-registry.md "Dispatchable slugs" row for SLUG (empty if none).
@@ -90,6 +105,9 @@ _check() {
   for f in "$root"/agents/*.md; do
     [ -f "$f" ] || continue
     slug="$(basename "$f" .md)"
+    # Resolve the attribution role once, up front (slug!=role, e.g. tb-code-reviewer→code-reviewer), so
+    # both the sanction branch (Typed lookup) and the mind block use the same value (RL1-F2).
+    role="$(_role_of "$root" "$slug")"; [ -n "$role" ] || role="$slug"
 
     for k in name description tools; do
       v="$(_fm "$k" "$f")"
@@ -113,7 +131,7 @@ _check() {
       _listed_delivery "$root" "team-bootstrap:$slug" || { echo "  $slug: delivery agent, but the prefixed slug is absent from delivery-types.txt" >&2; n=$((n + 1)); }
       ! _has_slug "$root" "$slug"                || { echo "  $slug: delivery agent must NOT carry a review role in review-types.txt (anti-builder)" >&2; n=$((n + 1)); }
       ! _has_slug "$root" "team-bootstrap:$slug" || { echo "  $slug: delivery agent must NOT carry a prefixed review role in review-types.txt (anti-builder)" >&2; n=$((n + 1)); }
-      _typed_ok "$root" "$slug" || { echo "  $slug: delivery agent is not Typed — no \$def with a required field in references/schemas/role-output.schema.json (#147/AC-7)" >&2; n=$((n + 1)); }
+      _typed_ok "$root" "$role" || { echo "  $slug: delivery agent is not Typed — no \$def with a required field in references/schemas/role-output.schema.json (#147/AC-7)" >&2; n=$((n + 1)); }
     else
       _has_slug "$root" "$slug"                || { echo "  $slug: no bare slug with a role column in review-types.txt (nor listed in delivery-types.txt)" >&2; n=$((n + 1)); }
       _has_slug "$root" "team-bootstrap:$slug" || { echo "  $slug: no team-bootstrap:-prefixed slug with a role column in review-types.txt" >&2; n=$((n + 1)); }
@@ -126,9 +144,7 @@ _check() {
     #   - playbook ABSENT   → SELF-CONTAINED form: the agent carries its own mind. No playbook to
     #     reference, no ceiling — but it must carry a NON-TRIVIAL body (>= BODY_MIN), or it is a shell
     #     that dropped its playbook without folding the criteria in.
-    # The playbook is resolved through the ATTRIBUTION column, not the slug: tb-code-reviewer attributes
-    # to code-reviewer and reads references/roles/code-reviewer.md — slug!=role indirection preserved.
-    role="$(_role_of "$root" "$slug")"; [ -n "$role" ] || role="$slug"
+    # (role resolved up top — slug!=role indirection preserved, e.g. tb-code-reviewer→code-reviewer.)
     body="$(_body_lines "$f")"
     if [ -n "$row" ] && _is_generic "$row"; then
       :                                           # a generic has no playbook and no mind, by definition

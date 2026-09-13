@@ -32,6 +32,12 @@ _c "$([ "$(_run "$T")" -ge 1 ] && echo caught || echo missed)" caught "delivery 
 T="$(_delivery_fixture)"; : > "$T/references/delivery-types.txt"
 _c "$([ "$(_run "$T")" -ge 1 ] && echo caught || echo missed)" caught "delivery agent absent from delivery-types.txt is caught"; rm -rf "$T"
 
+# RL1-F3: a slug marked generic in the registry AND listed in delivery-types.txt is a misconfiguration
+# (a delivery agent cannot be a generic) — must be CAUGHT, not silently taking the generic branch and
+# bypassing the delivery anti-builder assertion.
+T="$(_delivery_fixture)"; printf '| `backend-engineer` | generic | — | x |\n' > "$T/references/role-registry.md"
+_c "$([ "$(_run "$T")" -ge 1 ] && echo caught || echo missed)" caught "generic AND delivery-listed is caught (RL1-F3 misconfiguration)"; rm -rf "$T"
+
 # a REVIEW agent (legacy form) still passes — the split does not disturb the existing path
 T="$(mktemp -d)"; mkdir -p "$T/agents" "$T/references/roles"
 printf 'y\treviewer-y\nteam-bootstrap:y\treviewer-y\n' > "$T/references/review-types.txt"
