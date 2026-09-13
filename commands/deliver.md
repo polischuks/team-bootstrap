@@ -317,6 +317,17 @@ Then, for **each batch, one at a time**:
    briefs, or another review pass. Answering a delivery command with analysis is a policy violation
    ([../references/failure-policy.md](../references/failure-policy.md)); the ledger enforces it — the
    next batch cannot be announced until this one is closed by a real run.
+   **Build inline by default; delegate a builder-subagent only for large, separable batches (#144).** A
+   role is a *specified agent* (what it does), not necessarily a separate *dispatch*. For the common case
+   — sequential build with dependencies — the main thread builds **under the role's contract**: a
+   cold-context builder-subagent re-reads the whole diff from scratch and pays the ~15× multi-agent token
+   multiplier for no parallelism gain, and the vendor flags exactly this shape (shared context + many
+   inter-agent dependencies, "most coding tasks") as a poor multi-agent fit. **Delegate to a
+   builder-subagent only when the batch is large and multi-file enough that a fresh dedicated context pays
+   for the cold re-read** — not for small or dependency-chained batches. Builder-subagents were the single
+   largest token line of a measured full run (~1.45M); this is the build-side half of the cost envelope.
+   The parallel review fan-out (genuinely independent, clean-context) is **unaffected** — it stays
+   dispatched; only the *build* defaults to inline. (P1 single-thread-by-default is the same instinct.)
 4. Subagents **commit locally only**, on a feature/milestone branch — never on the default branch
    (`main`/`master`). A `PreToolUse[Bash]` guard ([../bin/guard-git.sh](../bin/guard-git.sh), ADR-0011)
    machine-blocks a `git commit`/`git merge` while HEAD is the default branch (exit 2, "branch first") on an

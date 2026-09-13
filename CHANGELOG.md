@@ -2,6 +2,20 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.11.0] — 2026-09-13
+
+**Cost-tiered delivery (#144; #143, #142 resolved).** Token-cost reductions from the spec-199 cost retro, shipped red-first. MINOR: doctrine behaviour change to the build step, no breaking change.
+
+### Added
+
+- **Inline build by default (#144).** `commands/deliver.md`'s build step now states that build is **inline by default** — a role is a *specified agent* (what it does), not necessarily a separate *dispatch* — and a builder-subagent is delegated **only for large, separable batches**. Builder-subagents were the single largest token line of a measured full run (~1.45M): a cold-context subagent re-reads the whole diff and pays the ~15× multi-agent multiplier for no parallelism gain — the shape the vendor flags as a poor multi-agent fit for sequential-dependency coding ("most coding tasks"). The parallel review fan-out (genuinely independent, clean-context) is **unaffected**. Asserted by `tests/inline-build-doctrine.test.sh` (red-first).
+
+### Notes
+
+- **#143 (scoped remediation re-review) was already doctrine** (`deliver.md:412-414`, #23 item 3) — closed as already-covered; the retro friction was operator over-insurance, not a missing rule.
+- **#142 (repeated full suite) reframed + deferred.** `regression-guardian`'s full cross-workflow suite is intentional (it is the cross-workflow regression gate), so "reviewers run a subset" would gut it. The real lever is deduping the `regression-guardian` ↔ `verify-batch` double full-run — a correctness-sensitive gate-machinery change that reduces **wall-clock, not tokens**, and is tracked separately rather than rushed into this milestone.
+- Activation needs a plugin reinstall at 3.11.0.
+
 ## [3.10.3] — 2026-09-07
 
 **Retro-fix (#134).** One finding from the spec-194 live run (confirmed on 3.10.2), shipped red-first with a revert-check.
