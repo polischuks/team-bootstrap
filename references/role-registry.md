@@ -96,6 +96,16 @@ as a subagent only for a large, separable batch. Each is Typed by its `role-outp
 | `release-manager` | release-manager | self-contained (agent-is-source) | delivery agent; the release_decision gate (go/hold) |
 | `discovery-research` | discovery-research | self-contained (agent-is-source) | delivery agent; best-practices briefs (web-grounded) |
 | `documentation-agent` | documentation-agent | self-contained (agent-is-source) | delivery agent; docs/ADRs against the shipped change |
+| `growth-marketer` | growth-marketer | self-contained (agent-is-source) | delivery agent; growth experiments + acquisition/retention |
+| `product-marketer` | product-marketer | self-contained (agent-is-source) | delivery agent; positioning, messaging, launch narrative |
+| `community-manager` | community-manager | self-contained (agent-is-source) | delivery agent; community engagement + moderation |
+| `customer-success-manager` | customer-success-manager | self-contained (agent-is-source) | delivery agent; onboarding, retention, expansion |
+| `partnerships-lead` | partnerships-lead | self-contained (agent-is-source) | delivery agent; partnership strategy + deals |
+| `stakeholder-communicator` | stakeholder-communicator | self-contained (agent-is-source) | delivery agent; stakeholder updates + comms (read-only) |
+| `ui-designer` | ui-designer | self-contained (agent-is-source) | delivery agent; UI design + component specs |
+| `ux-designer` | ux-designer | self-contained (agent-is-source) | delivery agent; UX flows + interaction design |
+| `ux-researcher` | ux-researcher | self-contained (agent-is-source) | delivery agent; user research + synthesis (read-only) |
+| `whimsy-injector` | whimsy-injector | self-contained (agent-is-source) | delivery agent; delight + microcopy polish |
 
 ## Not revived — and the reason, per role
 
