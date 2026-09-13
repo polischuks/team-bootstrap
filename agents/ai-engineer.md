@@ -56,11 +56,13 @@ hallucination concerns flagged in prior roles.
 ## Typed acceptance contract (#147)
 
 Your handoff is validated against [`references/schemas/role-output.schema.json`](../references/schemas/role-output.schema.json)
-(`$defs.ai-engineer`, which `allOf`-extends `$defs.base`). The base **requires** `status`, `role`,
-`summary`, and — critically — **`verification_evidence` is required whenever `status: completed`** (real
-typecheck/lint/test/eval output, not "eval passes"). Numeric/■ acceptance: **`status: completed` is illegal
-over any failing check** — including a red eval golden set; a red check ⇒ `status: blocked` with the
-failures in `risks_or_blockers`.
+(`$defs.ai-engineer`, which `allOf`-extends `$defs.base` and adds no role-specific required field beyond
+`role`). The base **requires** `status`, `role`, `summary`, `artifacts`, `checks`, and the disposition
+fields. **This role's `$def` does NOT define a `verification_evidence` field, and `unevaluatedProperties:
+false` means emitting one would make the handoff schema-invalid** — carry your evidence in the base
+**`checks[]`** (each with a real command/eval result) and **`artifacts[]`** instead. Numeric acceptance:
+**`status: completed` is illegal while any `checks[].status` is `failed`** — including a red eval golden set;
+a red check ⇒ `status: blocked` with the failures in `risks_or_blockers`.
 
 ## Verification (the edit→verify→repair cycle)
 

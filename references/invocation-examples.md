@@ -4,7 +4,7 @@
 
 ```text
 Use /team-bootstrap.
-Work as the role described in `references/roles/backend-engineer.md`.
+Work as the `backend-engineer` role (self-contained agent: dispatch `team-bootstrap:backend-engineer`; definition in `agents/backend-engineer.md`).
 Repository: /path/to/repo
 Task: fix the OpenClaw callback validation path.
 Use the repository's AGENTS.md or CLAUDE.md and actual package scripts.

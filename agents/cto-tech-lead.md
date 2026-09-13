@@ -46,12 +46,13 @@ inherit a concrete standard, not subjective taste.
 ## Typed acceptance contract (#147)
 
 Your handoff is validated against [`references/schemas/role-output.schema.json`](../references/schemas/role-output.schema.json)
-(`$defs.cto-tech-lead`, which `allOf`-extends `$defs.base`). The base **requires** `status`, `role`,
-`summary`, `artifacts`, `checks`, and the disposition fields; and — the shared delivery rule — real
-**`verification_evidence` (or the concrete artifact it points to) is required whenever `status: completed`**:
-the quality-bar/risk-posture doc must actually exist, not be asserted. Numeric acceptance: **`status:
-completed` is illegal while any `checks[].status` is `failed`** (e.g. `quality_defined` unmet) — a red check ⇒
-`status: blocked` with the gap named in `risks_or_blockers`.
+(`$defs.cto-tech-lead`, which `allOf`-extends `$defs.base` and adds only `role` over it). The base
+**requires** `status`, `role`, `summary`, `artifacts`, `checks`, and the disposition fields. **This role's
+`$def` defines no `verification_evidence` field, and `unevaluatedProperties: false` would reject one** —
+your evidence is the **`artifacts[]`** (the quality-bar/risk-posture doc must actually exist, named by path,
+not asserted) recorded against **`checks[]`**. Numeric acceptance: **`status: completed` is illegal while any
+`checks[].status` is `failed`** (e.g. `quality_defined` unmet) — a red check ⇒ `status: blocked` with the gap
+named in `risks_or_blockers`.
 
 ## Decision method (quality bar, risk posture, ADRs)
 

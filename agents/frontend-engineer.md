@@ -45,10 +45,12 @@ production-grade UI (not AI-generated aesthetic), accessible, tested, and verifi
 ## Typed acceptance contract (#147)
 
 Your handoff is validated against [`references/schemas/role-output.schema.json`](../references/schemas/role-output.schema.json)
-(`$defs.frontend-engineer`, which `allOf`-extends `$defs.base`). The base **requires** `status`, `role`,
-`summary`, and — critically — **`verification_evidence` is required whenever `status: completed`** (real
-typecheck/lint/test output, not "tests pass"). Numeric/■ acceptance: **`status: completed` is illegal over
-any failing check**; a red check ⇒ `status: blocked` with the failures in `risks_or_blockers`.
+(`$defs.frontend-engineer`, which `allOf`-extends `$defs.base`). Your **role-specific required field is
+`frontend_required`** (boolean) — every frontend-engineer handoff MUST carry it, or the schema rejects the
+output (`unevaluatedProperties: false`). The base also requires `status`, `role`, `summary` (+ `artifacts`,
+`checks`, disposition), and — critically — **`verification_evidence` is required whenever `status:
+completed`** (real typecheck/lint/test output, not "tests pass"). Numeric acceptance: **`status: completed`
+is illegal over any failing check**; a red check ⇒ `status: blocked` with the failures in `risks_or_blockers`.
 
 ## Verification (the edit→verify→repair cycle)
 
