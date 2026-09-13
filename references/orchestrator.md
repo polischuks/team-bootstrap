@@ -55,7 +55,7 @@ For multi-role pipelines, pipeline = ordered role list. For single-thread, pipel
 
 ### Step 2 — Load the next role
 
-Read `references/roles/<role>.md`. Validate the frontmatter against [schemas/role-frontmatter.schema.json](schemas/role-frontmatter.schema.json). Verify `compatible_pipelines` includes the active pipeline; if not, refuse to run and emit `stop_reason: unexpected_next_role`.
+Resolve the role's mind **AGENT-FIRST** (milestone 148, agent-is-source): read `agents/<role>.md` when the role is self-contained (no `references/roles/<role>.md`), else the **legacy** `references/roles/<role>.md`. This is the **inline-activation read path** — the SECOND consumer of the role's mind besides the reviewer dispatch-prompt supply in [subagent-dispatch.md](subagent-dispatch.md); **both consumers resolve agent-first**. Validate the frontmatter against [schemas/role-frontmatter.schema.json](schemas/role-frontmatter.schema.json). Verify `compatible_pipelines` includes the active pipeline; if not, refuse to run and emit `stop_reason: unexpected_next_role`.
 
 ### Step 3 — Decide inline vs subagent (and resolve subagent_type)
 

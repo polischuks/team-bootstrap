@@ -6,6 +6,7 @@ This file is the **single source of truth** for that mapping. It replaces the pr
 
 ## How the orchestrator uses this file
 
+0. **AGENT-FIRST (milestone 148, agent-is-source):** if `agents/<role>.md` is self-contained (no `references/roles/<role>.md`), skip this whole file — dispatch `team-bootstrap:<role>` directly (an in-repo type, always resolvable). The steps below are the **legacy** path for a not-yet-migrated role only.
 1. Read the role playbook's `preferred_subagent_types: [...]` list from frontmatter (validated by [schemas/role-frontmatter.schema.json](schemas/role-frontmatter.schema.json)).
 2. Walk the list left-to-right. Pick the **first** slug that is:
    - registered in the host environment (resolvable by `Task`), AND

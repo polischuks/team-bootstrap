@@ -103,13 +103,13 @@ This is the only place team-bootstrap intentionally fans out. The `full` pipelin
 
 ## Implementation note for orchestrator
 
-Use Claude Code's `Task` tool. **Resolve `subagent_type` from the role's `preferred_subagent_types` frontmatter** per [subagent-mapping.md](subagent-mapping.md):
+Use Claude Code's `Task` tool. **Resolve the role AGENT-FIRST** (milestone 148, agent-is-source), transition-aware:
 
-1. Read `preferred_subagent_types: [...]` from `references/roles/<role>.md` frontmatter.
-2. Apply stack overrides from [subagent-mapping.md](subagent-mapping.md) — e.g. `nextjs-developer` when `AGENTS.md > ## Stack` lists Next.js, `fastapi-developer` for FastAPI, etc. Stack vector is resolved **once** at run start and cached in run metadata.
-3. Walk the (possibly stack-overridden) list left-to-right; pick the first slug that resolves in the host environment.
-4. If none resolve, fall back to `subagent_type: general-purpose`.
-5. Record the resolved slug as `team_bootstrap.subagent_type` on the role span ([tracing.md](tracing.md)) so eval/replay sees the routing decision.
+1. **Self-contained (migrated, v4.0.0):** if `agents/<role>.md` carries the role's mind and there is **no** `references/roles/<role>.md`, the agent *is* the source and the dispatch type. Dispatch `subagent_type: team-bootstrap:<role>` — an in-repo type installed with the plugin, so it always resolves without any external/host catalog. Nothing about the role is read from `references/roles/`.
+2. **Legacy (not-yet-migrated) fallback:** if the role still ships `references/roles/<role>.md` with `preferred_subagent_types: [...]`, resolve from that list per [subagent-mapping.md](subagent-mapping.md) — stack overrides (`nextjs-developer` for Next.js, `fastapi-developer` for FastAPI; stack vector resolved once at run start and cached), first host-resolvable slug left-to-right, else `general-purpose`.
+3. Record the resolved slug as `team_bootstrap.subagent_type` on the role span ([tracing.md](tracing.md)) so eval/replay sees the routing decision.
+
+The migration flips each role from (2) to (1) one at a time; both paths are honoured until the cast is fully migrated.
 
 The orchestrator's own guardrails (`tool_surface`, `permission_mode`, irreversibility class) are applied on top of the specialist's defaults — the specialist's expertise is used, but team-bootstrap wins on tools and permissions.
 
@@ -169,7 +169,9 @@ all four under `independent-reviewer`" mandate.
 attributes, `roles_covered`/`missing_roles` compute the gap, and `check-role-dispatch.sh` / `check-review-ack.sh`
 enforce that a `full`/`mvp` `kind:code` batch covers **every** mandated role (`full` = all four; `mvp` =
 `code-reviewer` + `regression-guardian`). Dispatch the dedicated agents in `agents/` (`integration-verifier.md`
-etc.), supplying the role playbook `references/roles/<role>.md` in the prompt.
+etc.). **A self-contained (migrated) agent carries its own mind, so nothing is supplied in the prompt** —
+dispatching `team-bootstrap:<role>` is sufficient. Only a **legacy** (not-yet-migrated) agent needs its
+playbook `references/roles/<role>.md` supplied in the prompt.
 
 **warn → enforce ramp (mechanical, evidence-gated, no version tripwire).** The per-role floor ships in **warn**
 (announces the missing roles, does not fail — the ≥1 floor stays hard beneath it). It flips to **enforce** only
