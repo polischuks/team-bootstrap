@@ -12,8 +12,9 @@ _mk(){ mkdir -p "$1/agents" "$1/references/roles"; }
 
 # AC-2: migrated self-contained agent (no playbook) → OK
 T="$(mktemp -d)"; _mk "$T"
-{ printf -- '---\nname: r\ndescription: d\ntools: Read\n---\n\n# R\n'; for i in $(seq 1 20); do echo "criterion $i"; done; } > "$T/agents/r.md"
-_c "$(_run "$T")" 0 "migrated self-contained agent (no playbook) passes"; rm -rf "$T"
+# AC-6/AC-7 (#148 T062): a migrated self-contained agent must carry version + read-map + typed contract.
+{ printf -- '---\nname: r\ndescription: d\ntools: Read\nversion: 1.0.0\n---\n\n# R\n## Read-map\nrole-output.schema.json\n'; for i in $(seq 1 20); do echo "criterion $i"; done; } > "$T/agents/r.md"
+_c "$(_run "$T")" 0 "migrated self-contained agent (version+read-map+typed contract, no playbook) passes"; rm -rf "$T"
 
 # AC-2: legacy thin shell that REFERENCES its playbook (both exist) → OK (allowed during transition)
 T="$(mktemp -d)"; _mk "$T"; printf '# playbook\n' > "$T/references/roles/r.md"

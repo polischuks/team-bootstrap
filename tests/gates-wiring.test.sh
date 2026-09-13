@@ -27,6 +27,7 @@ done
 # which is a grep, in milliseconds. Whether the gate PASSES is answered once, where it belongs.
 for s in check-enforcement check-completeness check-seam-ack check-tdd check-diff-coverage \
          check-mutation check-version-sync check-delivery check-role-triples check-context-phrasing check-role-liveness \
+         check-roles-portable \
          check-roles-are-agents \
          verify-batch; do
   [ -f "$here/bin/$s.sh" ] || { echo "  FAIL AC-7 $s: script missing" >&2; fail=$((fail + 1)); continue; }
