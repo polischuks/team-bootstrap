@@ -2,6 +2,23 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.11.1] — 2026-09-13
+
+**Release-consistency patch.** v3.11.0 shipped with `.claude-plugin/marketplace.json` left at `3.10.3` (VERSION + plugin.json were bumped, the marketplace manifest was not) — so the client compared installed (3.10.3) against advertised (3.10.3) and left the **"Update" button disabled**. Fixed, and hardened against recurrence.
+
+### Fixed
+
+- **marketplace.json version synced to 3.11.1** (`metadata.version` + `plugins[].version`) — this is the field the client reads to offer updates. `bin/check-version-sync.sh` already asserts VERSION == plugin.json == every marketplace.json version field, but it is **marker-gated and not wired into CI**, so a direct (non-`verify-batch`) release bypassed it.
+
+### Added
+
+- **`release.yml` now verifies `marketplace.json`** version fields against the tag, not just VERSION/plugin.json — the marker-independent backstop a direct release needs. A future release with a stale marketplace field fails at the tag.
+
+### Notes
+
+- Follow-up tracked: wire `check-version-sync` (marker-independent mode) into PR CI so drift is caught before the tag, not only at release.
+- Activation needs a plugin update/reinstall at 3.11.1.
+
 ## [3.11.0] — 2026-09-13
 
 **Cost-tiered delivery (#144; #143, #142 resolved).** Token-cost reductions from the spec-199 cost retro, shipped red-first. MINOR: doctrine behaviour change to the build step, no breaking change.
