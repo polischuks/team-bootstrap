@@ -17,11 +17,12 @@ _impl "agents/backend-engineer.md"
 _impl "agents/architecture-reviewer.md"
 _impl "agents/tb-code-reviewer.md"
 
-echo "#148 — real docs stay doc (regression guard — the exemption is agents/ only):"
+echo "#148 — real docs stay doc (regression guard — the exemption is agents/<role>.md only):"
 _doc "references/roles/backend-engineer.md"
 _doc "references/enforcement.md"
 _doc "docs/adr/0001-x.md"
 _doc "README.md"
+_doc "agents/README.md"    # a stray prose doc under agents/ is NOT a role definition — stays doc
 
 echo "#148 — real code stays impl:"
 _impl "bin/check-role-triples.sh"

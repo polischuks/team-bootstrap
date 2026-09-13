@@ -627,6 +627,37 @@ if [ "${1:-}" = "--self-test" ]; then
   _ec "lock batch that shipped no lock test in its window → fail (a lock must be a test)" "$(_rc2)" 1
   rm -rf "$CL2"
 
+  # ---- #148 empty-commit_shas code batch (all changes doc/test-classified) ------------------------
+  # A closed kind:code batch whose commits are all doc/test-classified has commit_shas:[] — no impl
+  # commit to order the red against. It passes IFF a red record resolves (ancestor of HEAD, descendant
+  # of base) whose window touched a test; else fail-closed. (This is the no-impl-commit path; a real
+  # impl change classifies as impl — agents/*.md included, #148 — and takes the ordered path above.)
+  CE="$(mktemp -d)"
+  ( cd "$CE" && git init -q && git config user.email t@t && git config user.name t
+    printf '# AGENTS\n\n- Test: `test -f .green`\n' > AGENTS.md && : > .green
+    git add . && git commit -qm baseline ) >/dev/null 2>&1
+  cebase="$( cd "$CE" && git rev-parse --short HEAD )"
+  ( cd "$CE" && echo x > nt.txt && git add nt.txt && git commit -qm "non-test change" ) >/dev/null 2>&1
+  ceNT="$( cd "$CE" && git rev-parse --short HEAD )"
+  ( cd "$CE" && echo t > ee_test.sh && git add ee_test.sh && git commit -qm "red: failing test" ) >/dev/null 2>&1
+  ceT="$( cd "$CE" && git rev-parse --short HEAD )"
+  # a REAL head commit after the red, so HEAD != ceT (else _find_red rejects red==anchor); .green persists.
+  ( cd "$CE" && echo h > head.txt && git add head.txt && git commit -qm "green head" ) >/dev/null 2>&1
+  mkdir -p "$CE/.runs/r"
+  printf '{"run":"r","intends_code":true,"source":"harness","baseline_sha":"%s"}\n' "$cebase" > "$CE/.runs/r/RUN"
+  printf '%s\n' "{\"id\":\"B3\",\"kind\":\"code\",\"status\":\"closed\",\"commit_shas\":[]}" > "$CE/.runs/r/batches.jsonl"
+  _rce() { ( cd "$CE" && TEAM_BOOTSTRAP_RUN=r "$here/check-tdd.sh" . >/dev/null 2>&1 ); echo $?; }
+  # empty commit_shas + a red whose window touched a test → pass (#148 no-impl-commit path)
+  printf '%s\n' "{\"batch\":\"B3\",\"red_sha\":\"$ceT\",\"observed\":\"red\"}" > "$CE/.runs/r/tdd.jsonl"
+  _ec "empty commit_shas + red touching a test → pass (#148 no-impl-commit)" "$(_rce)" 0
+  # empty commit_shas + NO red → fail-closed
+  : > "$CE/.runs/r/tdd.jsonl"
+  _ec "empty commit_shas + no red → fail-closed (#148 not a rubber stamp)" "$(_rce)" 1
+  # empty commit_shas + a red whose window touched NO test → fail-closed (F1 still bites)
+  printf '%s\n' "{\"batch\":\"B3\",\"red_sha\":\"$ceNT\",\"observed\":\"red\"}" > "$CE/.runs/r/tdd.jsonl"
+  _ec "empty commit_shas + red touching no test → fail-closed (#148 red must touch a test)" "$(_rce)" 1
+  rm -rf "$CE"
+
   # ---- #68 red-by-cause bar in --record-red ------------------------------------------------------
   # The red must fail for a plausible target-behaviour reason, not a wrong-cause (collection/import/
   # syntax/missing-file) error that reddens the suite while proving nothing about the batch.

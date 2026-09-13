@@ -1742,7 +1742,8 @@ _is_doc_path() {
   # window (last_closure_sha), and yields resolvable commit_shas the red-ordering check needs. Exempt it
   # BEFORE the .md-is-doc rule below.
   case "$1" in
-    agents/*) return 1 ;;
+    agents/README.md|agents/README|agents/index.md) : ;;  # prose under agents/ → fall through to doc
+    agents/*.md) return 1 ;;                               # a role definition is the executable product
   esac
   _is_doc_file "$1" && return 0
   case "$1" in
