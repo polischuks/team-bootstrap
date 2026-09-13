@@ -6,6 +6,23 @@ When a role runs **inline** in the main thread vs. dispatched as a **subagent** 
 
 **Inline.** The orchestrator activates the role's instructions as the active output style and continues in the main thread. The role reads the shared blackboard ([shared-blackboard.md](shared-blackboard.md)) and emits its handoff. This preserves shared context — the central principle from Cognition's "Don't Build Multi-Agents."
 
+## Definition ≠ dispatch (agent-is-source, #148 / AC-5)
+
+Every delivery role is now a **first-class in-repo agent** (`agents/<role>.md`, [ADR-0024](../docs/adr/0024-roles-as-first-class-agents.md)).
+That is the role's **definition** — it does **not** mean the role is always a separate subagent spawn.
+The two are orthogonal:
+
+- **Definition** (always): the role's mind is the self-contained `agents/<role>.md`, dispatched (when it
+  is) as the in-repo `team-bootstrap:<role>` type — no external catalog.
+- **Dispatch** (only when it pays): inline by default (the "## Default" above, constitution P1); a
+  builder-subagent is delegated only for a large, separable batch where a fresh context pays for the
+  cold re-read (#144). A sequential build with dependencies builds **inline** under the role's contract.
+
+Making all 36 non-reviewer roles first-class agents therefore added **zero** per-role build dispatches
+(AC-8, measured in [cost-measure-148.md](../docs/cost-measure-148.md)) — the cost envelope
+([[cost-tiered-verification]], #145) is preserved because agent-as-definition never forces
+agent-as-dispatch.
+
 ## When to dispatch as subagent
 
 Dispatch **only** when context isolation strictly outweighs the cost of summarization:

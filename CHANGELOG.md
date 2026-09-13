@@ -2,6 +2,31 @@
 
 All notable changes to team-bootstrap. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.0] — 2026-09-13
+
+**Roles are first-class agents (agent-is-source).** MAJOR — the delivery cast is now 37 self-contained
+in-repo agents (`agents/<role>.md`), not playbooks pointing at an external host catalog. Each carries its
+own mission + folded criteria + typed `role-output.schema.json` contract + read-map + `version` +
+freshness sourcing; the `references/roles/<role>.md` playbook is folded in and deleted; dispatch targets
+the in-repo `team-bootstrap:<role>` type with no external `preferred_subagent_types`. See
+[ADR-0024](docs/adr/0024-roles-as-first-class-agents.md) and `specs/148-roles-as-first-class-agents`.
+
+- **Portability (AC-4):** a fresh install with no host catalog yields the full cast —
+  `bin/check-roles-portable.sh` asserts every cast role resolves from the plugin's own `agents/` (wired
+  into `verify-batch`).
+- **Review-agent vs delivery-agent (AC-9b):** delivery/builder agents are sanctioned in a separate
+  `references/delivery-types.txt`; the review machinery reads only `review-types.txt`, so a builder can
+  never satisfy the independent-review floor (anti-builder, file-separation).
+- **Definition ≠ dispatch (AC-5/AC-8):** making all roles first-class agents added **zero** per-role build
+  dispatches; inline-build-by-default (#144) is unchanged. Cost envelope preserved
+  ([cost measure](docs/cost-measure-148.md)).
+- **Standing enforcement:** `check-roles-are-agents.sh` now gates AC-1/AC-2/AC-3/AC-6/AC-7 (every
+  self-contained agent carries version + read-map + typed contract, no duplicate playbook, no external
+  dispatch); `agents/*.md` classified as impl so migrations earn delivery credit.
+- **Migration note:** 36 roles migrated across 4 waves (15 reviewers, 6 engineering, 6 product/delivery,
+  10 GTM/UX) + the governance-core flip. The 15 remaining `references/roles/` files are non-dispatchable
+  pipeline personas (out of the dispatchable cast).
+
 ## [3.11.1] — 2026-09-13
 
 **Release-consistency patch.** v3.11.0 shipped with `.claude-plugin/marketplace.json` left at `3.10.3` (VERSION + plugin.json were bumped, the marketplace manifest was not) — so the client compared installed (3.10.3) against advertised (3.10.3) and left the **"Update" button disabled**. Fixed, and hardened against recurrence.
