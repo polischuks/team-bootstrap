@@ -15,7 +15,7 @@ the agent cannot stop over red checks.
 `quality-gate.sh` runs the **fast** checks (`Typecheck`, `Lint`) declared in the project's
 `AGENTS.md` / `CLAUDE.md`. It is deliberately fast:
 
-- Full unit / E2E suites stay with [integration-verifier](roles/integration-verifier.md) and CI —
+- Full unit / E2E suites stay with [integration-verifier](../agents/integration-verifier.md) and CI —
   too slow to run on every Stop.
 - It **no-ops** (exit 0) when there is no `AGENTS.md`/`CLAUDE.md` (a non-team-bootstrap session)
   or when a command is `N/A`, so it is safe to have active globally.

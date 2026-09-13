@@ -221,6 +221,8 @@ gate "orphans (dead code / not wired)"       "$here/check-orphans.sh"
 gate "architecture (drift vs baseline)"      "$here/check-architecture.sh" .
 gate "gate-integrity (no skip / disabled)"   "$here/check-gate-integrity.sh" .
 gate "role-triples (a dispatchable role is complete)" "$here/check-role-triples.sh" .
+gate "roles-are-agents (agent-is-source: no dup playbook, no external dispatch, #148)" "$here/check-roles-are-agents.sh" .
+gate "roles-portable (cast resolves from agents/ alone, AC-4)" "$here/check-roles-portable.sh" .
 gate "role-liveness (every routed role is load-bearing, P12)" "$here/check-role-liveness.sh" .
 gate "context-phrasing (facts, never imperatives)" "$here/check-context-phrasing.sh" .
 gate "version-sync (manifests agree)"        "$here/check-version-sync.sh" .

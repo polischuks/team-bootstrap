@@ -6,7 +6,8 @@
 #
 #   agents/<slug>.md ................ or it cannot carry a subagent_type at all
 #   review-types.txt, BOTH forms .... or the dispatch happens and the harness does not see it
-#   references/roles/<role>.md ...... or the agent has no criteria to execute
+#   the ROLE'S MIND ................. either a self-contained agent body (agent-is-source, milestone 148)
+#                                     OR, for an un-migrated role, references/roles/<role>.md it points at
 #   references/role-registry.md ..... or nobody can say why this role exists
 #
 # Before this gate the four were kept in step by hand. `bin/eval-role.sh --liveness` catches an
@@ -19,17 +20,21 @@
 # in only one form is attributable exactly half the time, which is worse than either extreme because it
 # looks correct in a spot check.
 #
-# THE DUPLICATION CEILING (AC-8) is 40 substantive body lines, calibrated against the shipped agents
-# (measured 21-39, median 23) rather than taken from the spec's unvalidated 15 — which no existing agent
-# passes, so applying it as written would have failed eleven files that duplicate nothing. The
-# load-bearing half of the rule is the other one, and it is strict: the agent body MUST reference its
-# playbook, so the single source of truth is structural rather than a matter of length.
+# SOURCE OF TRUTH (milestone 148 — agent-is-source, transition-aware). A role's mind is EITHER folded
+# into the agent body (self-contained: no playbook, no ceiling, but a BODY_MIN floor so a shell cannot
+# drop its playbook without folding the criteria in) OR, for a role not yet migrated, carried by
+# references/roles/<role>.md that a thin-shell agent references (the pre-148 LEGACY rule: reference + a
+# BODY_MAX duplication ceiling). Both are accepted during the migration so it can proceed role-by-role;
+# AC-2's single-source lint (a separate gate) forbids a migrated role from keeping BOTH.
 #
 # Usage: bin/check-role-triples.sh [project-dir]  ·  bin/check-role-triples.sh --self-test
 # Exit:  0 every agent is complete · 1 an incomplete triple · 64 bad usage
 set -uo pipefail
 
 BODY_MAX="${TEAM_BOOTSTRAP_AGENT_BODY_MAX:-40}"
+# Self-contained (agent-is-source) floor: a migrated agent that carries its own mind must have a
+# non-trivial body. Guards against a thin shell that deleted its playbook without folding the criteria in.
+BODY_MIN="${TEAM_BOOTSTRAP_AGENT_BODY_MIN:-5}"
 
 # _fm FILE KEY → the value of a top-level frontmatter key (empty if absent).
 _fm() { awk -v k="$1" 'BEGIN{fm=0} /^---$/{fm++; if(fm==2) exit; next}
@@ -47,6 +52,44 @@ _listed() { awk -F'\t' -v s="$2" '!/^#/ && $1==s {f=1} END{exit !f}' "$1/referen
 # _has_slug ROOT SLUG → 0 if the exact slug appears with a NON-EMPTY role column.
 _has_slug() { awk -F'\t' -v s="$2" '!/^#/ && $1==s && NF>1 && $2!="" {f=1} END{exit !f}' "$1/references/review-types.txt"; }
 
+# _listed_delivery ROOT SLUG → 0 if SLUG appears in references/delivery-types.txt — the DELIVERY-agent
+# sanction manifest (milestone 148, T002). It is a SEPARATE file from review-types.txt and is read by
+# NOTHING in the review machinery (delivery-lib review_types/is_review_type, record-dispatch,
+# check-role-dispatch, check-review-ack) — that file-separation is what keeps the anti-builder guarantee:
+# a delivery agent can never be miscounted toward the review floor because the review floor never reads
+# this file. One slug per line; '#'/blank ignored; exact match.
+_listed_delivery() { [ -f "$1/references/delivery-types.txt" ] && awk -v s="$2" '!/^#/ && $1==s {f=1} END{exit !f}' "$1/references/delivery-types.txt"; }
+
+# _typed_ok ROOT SLUG → 0 if SLUG is Typed: EITHER no references/schemas/role-output.schema.json exists
+# (Typed not applicable — a foreign repo / fixture), OR the schema carries a $def for SLUG with >=1
+# required field (its numeric acceptance contract, #147/AC-7). Non-zero only when the schema EXISTS but
+# the slug has no typed $def. This is the "Typed" liveness condition (role-registry.md:16) for a delivery
+# agent — eval-role --liveness measures only ROUTED bindings, so an unrouted delivery agent needs its
+# Typed check where it is already iterated: here. python3-guarded (never breaks a repo without it).
+_typed_ok() {
+  local sch="$1/references/schemas/role-output.schema.json"
+  [ -f "$sch" ] || return 0
+  command -v python3 >/dev/null 2>&1 || return 0
+  # RL1-F1: the schema types roles via `allOf: [{$ref: base}, {properties…}]` and conditional
+  # `if/then: {required}` blocks — the required set is NOT a top-level `allOf`-branch `required`. Resolve
+  # transitively: own required, $ref (#/$defs/*, incl. base's 11 required), allOf branches, if/then/else.
+  # A role with a $def is Typed iff that resolved set is non-empty. Malformed/absent $def ⇒ empty ⇒ not Typed.
+  [ -n "$(python3 -c 'import json,sys
+d=json.load(open(sys.argv[1])); root=d.get("$defs",{}); x=root.get(sys.argv[2])
+if x is None: print(""); sys.exit()
+req=set(); seen=set()
+def walk(n):
+    if not isinstance(n,dict): return
+    for f in n.get("required",[]) or []: req.add(f)
+    r=n.get("$ref")
+    if isinstance(r,str) and r.startswith("#/$defs/") and r not in seen:
+        seen.add(r); walk(root.get(r.split("/")[-1],{}))
+    for b in n.get("allOf",[]) or []: walk(b)
+    for k in ("then","else","if"):
+        if isinstance(n.get(k),dict): walk(n[k])
+walk(x); print(" ".join(sorted(req)))' "$sch" "$2" 2>/dev/null)" ]
+}
+
 # _registry_row ROOT SLUG → the role-registry.md "Dispatchable slugs" row for SLUG (empty if none).
 _registry_row() { grep -E "^\| \`$2\` \|" "$1/references/role-registry.md" 2>/dev/null | head -1; }
 
@@ -62,6 +105,9 @@ _check() {
   for f in "$root"/agents/*.md; do
     [ -f "$f" ] || continue
     slug="$(basename "$f" .md)"
+    # Resolve the attribution role once, up front (slug!=role, e.g. tb-code-reviewer→code-reviewer), so
+    # both the sanction branch (Typed lookup) and the mind block use the same value (RL1-F2).
+    role="$(_role_of "$root" "$slug")"; [ -n "$role" ] || role="$slug"
 
     for k in name description tools; do
       v="$(_fm "$k" "$f")"
@@ -77,27 +123,40 @@ _check() {
       # A generic still has to BE THERE in both forms — the exemption covers attribution, not presence.
       _listed "$root" "$slug"                || { echo "  $slug: generic, but the bare slug is absent from review-types.txt" >&2; n=$((n + 1)); }
       _listed "$root" "team-bootstrap:$slug" || { echo "  $slug: generic, but the prefixed slug is absent from review-types.txt" >&2; n=$((n + 1)); }
+    elif _listed_delivery "$root" "$slug"; then
+      # DELIVERY agent (milestone 148): sanctioned by delivery-types.txt (both forms), and it MUST NOT
+      # carry a review role in review-types.txt — the load-bearing anti-builder guarantee (a builder never
+      # maps to a review slug; the review floor reads ONLY review-types.txt, so a delivery agent there
+      # would be miscounted as a review dispatch).
+      _listed_delivery "$root" "team-bootstrap:$slug" || { echo "  $slug: delivery agent, but the prefixed slug is absent from delivery-types.txt" >&2; n=$((n + 1)); }
+      ! _has_slug "$root" "$slug"                || { echo "  $slug: delivery agent must NOT carry a review role in review-types.txt (anti-builder)" >&2; n=$((n + 1)); }
+      ! _has_slug "$root" "team-bootstrap:$slug" || { echo "  $slug: delivery agent must NOT carry a prefixed review role in review-types.txt (anti-builder)" >&2; n=$((n + 1)); }
+      _typed_ok "$root" "$role" || { echo "  $slug: delivery agent is not Typed — no \$def with a required field in references/schemas/role-output.schema.json (#147/AC-7)" >&2; n=$((n + 1)); }
     else
-      _has_slug "$root" "$slug"                || { echo "  $slug: no bare slug with a role column in review-types.txt" >&2; n=$((n + 1)); }
+      _has_slug "$root" "$slug"                || { echo "  $slug: no bare slug with a role column in review-types.txt (nor listed in delivery-types.txt)" >&2; n=$((n + 1)); }
       _has_slug "$root" "team-bootstrap:$slug" || { echo "  $slug: no team-bootstrap:-prefixed slug with a role column in review-types.txt" >&2; n=$((n + 1)); }
     fi
 
-    # The playbook is resolved through the ATTRIBUTION column, not the slug: tb-code-reviewer attributes
-    # to code-reviewer and reads references/roles/code-reviewer.md. Resolving by slug would demand a
-    # playbook that was never supposed to exist.
-    role="$(_role_of "$root" "$slug")"; [ -n "$role" ] || role="$slug"
+    # Source-of-truth is AGENT-IS-SOURCE (milestone 148), transition-aware so a migration can proceed
+    # role-by-role without the gate rejecting whatever has not moved yet:
+    #   - playbook PRESENT  → LEGACY form: the agent is a thin shell, so it must reference the playbook
+    #     and stay under the duplication ceiling (the pre-148 rule, kept for un-migrated agents).
+    #   - playbook ABSENT   → SELF-CONTAINED form: the agent carries its own mind. No playbook to
+    #     reference, no ceiling — but it must carry a NON-TRIVIAL body (>= BODY_MIN), or it is a shell
+    #     that dropped its playbook without folding the criteria in.
+    # (role resolved up top — slug!=role indirection preserved, e.g. tb-code-reviewer→code-reviewer.)
+    body="$(_body_lines "$f")"
     if [ -n "$row" ] && _is_generic "$row"; then
-      :                                           # a generic has no playbook, by definition
+      :                                           # a generic has no playbook and no mind, by definition
     elif [ -f "$root/references/roles/$role.md" ]; then
       grep -qF "references/roles/$role.md" "$f" \
-        || { echo "  $slug: the agent body does not reference its playbook (references/roles/$role.md)" >&2; n=$((n + 1)); }
+        || { echo "  $slug: legacy form (playbook present) but the agent body does not reference references/roles/$role.md" >&2; n=$((n + 1)); }
+      [ "$body" -le "$BODY_MAX" ] \
+        || { echo "  $slug: legacy form body is $body substantive lines (ceiling $BODY_MAX) — restating the playbook, or migrate to self-contained (delete the playbook)" >&2; n=$((n + 1)); }
     else
-      echo "  $slug: no playbook at references/roles/$role.md, and the registry does not mark it generic" >&2; n=$((n + 1))
+      [ "$body" -ge "$BODY_MIN" ] \
+        || { echo "  $slug: self-contained form (no playbook) but body is only $body substantive lines (floor $BODY_MIN) — the agent must carry its own criteria" >&2; n=$((n + 1)); }
     fi
-
-    body="$(_body_lines "$f")"
-    [ "$body" -le "$BODY_MAX" ] \
-      || { echo "  $slug: agent body is $body substantive lines (ceiling $BODY_MAX) — it is restating the playbook" >&2; n=$((n + 1)); }
 
   done
   printf '%s' "$n"
@@ -138,9 +197,17 @@ A
   T="$(_fixture)"; printf 'x\nteam-bootstrap:x\n' > "$T/references/review-types.txt"
   _c "$([ "$(_check "$T")" -ge 1 ] && echo caught || echo missed)" caught "a slug with NO role column is caught"; rm -rf "$T"
 
+  # AGENT-IS-SOURCE (148), transition-aware: a missing playbook is NOT itself a failure — it is the
+  # self-contained form. The _fixture body is a 1-line shell, so a bare removal is caught by the
+  # BODY_MIN floor (a shell that dropped its playbook without folding the mind in) …
   T="$(_fixture)"; rm "$T/references/roles/reviewer-x.md"
   _c "$([ "$(_check "$T")" -ge 1 ] && echo caught || echo missed)" caught \
-    "a missing playbook is caught — a sanctioning row is not a generic marker"; rm -rf "$T"
+    "playbook removed but body still a 1-line shell → caught (self-contained BODY_MIN floor)"; rm -rf "$T"
+
+  # … and the SAME role, once its mind is folded into a non-trivial body, PASSES with no playbook.
+  T="$(_fixture)"; rm "$T/references/roles/reviewer-x.md"
+  { for i in $(seq 1 20); do echo "folded criterion $i"; done; } >> "$T/agents/x.md"
+  _c "$(_check "$T")" 0 "playbook removed AND mind folded into the agent body → PASSES (agent is source)"; rm -rf "$T"
 
   # A GENERIC passes without a role column and without a playbook — but only because the registry says
   # `generic`, never because both happen to be absent.
@@ -183,7 +250,7 @@ root="${1:-.}"
 n="$(_check "$root")"
 total="$(find "$root/agents" -maxdepth 1 -name '*.md' | grep -c . || true)"
 if [ "${n:-0}" -eq 0 ]; then
-  echo "check-role-triples: OK — all $total dispatchable role(s) complete (agent + both slug forms + playbook + registry row)."
+  echo "check-role-triples: OK — all $total dispatchable role(s) complete (agent + both slug forms + a mind [self-contained body OR playbook] + registry row)."
   exit 0
 fi
 echo "check-role-triples: FAIL — $n incomplete-role problem(s) across $total agent file(s)." >&2

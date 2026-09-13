@@ -6,6 +6,23 @@ When a role runs **inline** in the main thread vs. dispatched as a **subagent** 
 
 **Inline.** The orchestrator activates the role's instructions as the active output style and continues in the main thread. The role reads the shared blackboard ([shared-blackboard.md](shared-blackboard.md)) and emits its handoff. This preserves shared context — the central principle from Cognition's "Don't Build Multi-Agents."
 
+## Definition ≠ dispatch (agent-is-source, #148 / AC-5)
+
+Every delivery role is now a **first-class in-repo agent** (`agents/<role>.md`, [ADR-0024](../docs/adr/0024-roles-as-first-class-agents.md)).
+That is the role's **definition** — it does **not** mean the role is always a separate subagent spawn.
+The two are orthogonal:
+
+- **Definition** (always): the role's mind is the self-contained `agents/<role>.md`, dispatched (when it
+  is) as the in-repo `team-bootstrap:<role>` type — no external catalog.
+- **Dispatch** (only when it pays): inline by default (the "## Default" above, constitution P1); a
+  builder-subagent is delegated only for a large, separable batch where a fresh context pays for the
+  cold re-read (#144). A sequential build with dependencies builds **inline** under the role's contract.
+
+Making all 36 non-reviewer roles first-class agents therefore added **zero** per-role build dispatches
+(AC-8, measured in [cost-measure-148.md](../docs/cost-measure-148.md)) — the cost envelope
+([[cost-tiered-verification]], #145) is preserved because agent-as-definition never forces
+agent-as-dispatch.
+
 ## When to dispatch as subagent
 
 Dispatch **only** when context isolation strictly outweighs the cost of summarization:
@@ -103,13 +120,13 @@ This is the only place team-bootstrap intentionally fans out. The `full` pipelin
 
 ## Implementation note for orchestrator
 
-Use Claude Code's `Task` tool. **Resolve `subagent_type` from the role's `preferred_subagent_types` frontmatter** per [subagent-mapping.md](subagent-mapping.md):
+Use Claude Code's `Task` tool. **Resolve the role AGENT-FIRST** (milestone 148, agent-is-source), transition-aware:
 
-1. Read `preferred_subagent_types: [...]` from `references/roles/<role>.md` frontmatter.
-2. Apply stack overrides from [subagent-mapping.md](subagent-mapping.md) — e.g. `nextjs-developer` when `AGENTS.md > ## Stack` lists Next.js, `fastapi-developer` for FastAPI, etc. Stack vector is resolved **once** at run start and cached in run metadata.
-3. Walk the (possibly stack-overridden) list left-to-right; pick the first slug that resolves in the host environment.
-4. If none resolve, fall back to `subagent_type: general-purpose`.
-5. Record the resolved slug as `team_bootstrap.subagent_type` on the role span ([tracing.md](tracing.md)) so eval/replay sees the routing decision.
+1. **Self-contained (migrated, agent-is-source):** if `agents/<role>.md` carries the role's mind and there is **no** `references/roles/<role>.md`, the agent *is* the source and the dispatch type. Dispatch `subagent_type: team-bootstrap:<role>` — an in-repo type installed with the plugin, so it always resolves without any external/host catalog. Nothing about the role is read from `references/roles/`.
+2. **Legacy (not-yet-migrated) fallback:** if the role still ships `references/roles/<role>.md` with `preferred_subagent_types: [...]`, resolve from that list per [subagent-mapping.md](subagent-mapping.md) — stack overrides (`nextjs-developer` for Next.js, `fastapi-developer` for FastAPI; stack vector resolved once at run start and cached), first host-resolvable slug left-to-right, else `general-purpose`.
+3. Record the resolved slug as `team_bootstrap.subagent_type` on the role span ([tracing.md](tracing.md)) so eval/replay sees the routing decision.
+
+The migration flips each role from (2) to (1) one at a time; both paths are honoured until the cast is fully migrated.
 
 The orchestrator's own guardrails (`tool_surface`, `permission_mode`, irreversibility class) are applied on top of the specialist's defaults — the specialist's expertise is used, but team-bootstrap wins on tools and permissions.
 
@@ -123,7 +140,7 @@ A `kind:code` batch's post-code review is dispatched as a **clean-context subage
 the diff + the enumerated refutation criteria** — never the builder's run document or reasoning. This is
 what makes the review independent (generator≠verifier): a same-context reviewer inherits the biases that
 produced the code. The reviewer is prompted to **refute** (Refute-or-Promote), returns
-`review_acks`/`review_refutations` ([roles/code-reviewer.md](roles/code-reviewer.md)), and the orchestrator
+`review_acks`/`review_refutations` ([roles/code-reviewer.md](../agents/tb-code-reviewer.md)), and the orchestrator
 transcribes them to the run marker. `check-review-ack.sh` blocks closure without a valid entry
 (reviewer≠builder, context:clean, verdict:go, commit anchored). **Escalation:** an `irreversible`-classed
 batch, or a review that leaves a credible refutation unresolved, emits `verdict:blocked` → **human ack**;
@@ -169,7 +186,9 @@ all four under `independent-reviewer`" mandate.
 attributes, `roles_covered`/`missing_roles` compute the gap, and `check-role-dispatch.sh` / `check-review-ack.sh`
 enforce that a `full`/`mvp` `kind:code` batch covers **every** mandated role (`full` = all four; `mvp` =
 `code-reviewer` + `regression-guardian`). Dispatch the dedicated agents in `agents/` (`integration-verifier.md`
-etc.), supplying the role playbook `references/roles/<role>.md` in the prompt.
+etc.). **A self-contained (migrated) agent carries its own mind, so nothing is supplied in the prompt** —
+dispatching `team-bootstrap:<role>` is sufficient. Only a **legacy** (not-yet-migrated) agent needs its
+playbook `references/roles/<role>.md` supplied in the prompt.
 
 **warn → enforce ramp (mechanical, evidence-gated, no version tripwire).** The per-role floor ships in **warn**
 (announces the missing roles, does not fail — the ≥1 floor stays hard beneath it). It flips to **enforce** only

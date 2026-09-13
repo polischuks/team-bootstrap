@@ -54,26 +54,58 @@ anti-collapse floor **without attributing** to any role, so by construction it c
 in `review-types.txt` and has no playbook of its own. Marking it here is what keeps that from being
 indistinguishable from an oversight.
 
-| Slug | Role | Playbook | Why it exists |
+| Slug | Role | Mind (source) | Why it exists |
 |---|---|---|---|
-| `accessibility-reviewer` | accessibility-reviewer | `references/roles/accessibility-reviewer.md` | routed from `ui` |
-| `architecture-reviewer` | architecture-reviewer | `references/roles/architecture-reviewer.md` | mandatory review role, tier base set |
-| `chaos-engineer` | chaos-engineer | `references/roles/chaos-engineer.md` | routed from `infra/deploy` |
-| `data-schema-reviewer` | data-schema-reviewer | `references/roles/data-schema-reviewer.md` | routed from `data/schema` |
-| `devops-platform` | devops-platform | `references/roles/devops-platform.md` | routed from `infra/deploy` |
+| `accessibility-reviewer` | accessibility-reviewer | self-contained (agent-is-source) | routed from `ui` |
+| `architecture-reviewer` | architecture-reviewer | self-contained (agent-is-source) | mandatory review role, tier base set |
+| `chaos-engineer` | chaos-engineer | self-contained (agent-is-source) | routed from `infra/deploy` |
+| `data-schema-reviewer` | data-schema-reviewer | self-contained (agent-is-source) | routed from `data/schema` |
+| `devops-platform` | devops-platform | self-contained (agent-is-source) | routed from `infra/deploy` |
 | `independent-reviewer` | generic | — | satisfies the ≥1 floor without attributing; kept for host compatibility (OQ-6) |
-| `integration-verifier` | integration-verifier | `references/roles/integration-verifier.md` | mandatory review role, tier base set |
-| `ip-contracts-reviewer` | ip-contracts-reviewer | `references/roles/ip-contracts-reviewer.md` | routed from `deps` |
-| `legal-compliance-checker` | legal-compliance-checker | `references/roles/legal-compliance-checker.md` | routed from `licence` |
-| `overengineering-reviewer` | overengineering-reviewer | `references/roles/overengineering-reviewer.md` | routed from `deps` |
-| `performance-reviewer` | performance-reviewer | `references/roles/performance-reviewer.md` | routed from `perf` |
-| `regression-guardian` | regression-guardian | `references/roles/regression-guardian.md` | mandatory review role, tier base set |
-| `security-reviewer` | security-reviewer | `references/roles/security-reviewer.md` | routed from `security/auth`, `deps` |
-| `tb-code-reviewer` | code-reviewer | `references/roles/code-reviewer.md` | mandatory review role; the slug is `tb-` prefixed so it stays attributable even when the `team-bootstrap:` prefix is stripped |
-| `test-designer` | test-designer | `references/roles/test-designer.md` | routed from `no-tests` |
+| `integration-verifier` | integration-verifier | self-contained (agent-is-source) | mandatory review role, tier base set |
+| `ip-contracts-reviewer` | ip-contracts-reviewer | self-contained (agent-is-source) | routed from `deps` |
+| `legal-compliance-checker` | legal-compliance-checker | self-contained (agent-is-source) | routed from `licence` |
+| `overengineering-reviewer` | overengineering-reviewer | self-contained (agent-is-source) | routed from `deps` |
+| `performance-reviewer` | performance-reviewer | self-contained (agent-is-source) | routed from `perf` |
+| `regression-guardian` | regression-guardian | self-contained (agent-is-source) | mandatory review role, tier base set |
+| `security-reviewer` | security-reviewer | self-contained (agent-is-source) | routed from `security/auth`, `deps` |
+| `tb-code-reviewer` | code-reviewer | self-contained (agent-is-source) | mandatory review role; the slug is `tb-` prefixed so it stays attributable even when the `team-bootstrap:` prefix is stripped |
+| `test-designer` | test-designer | self-contained (agent-is-source) | routed from `no-tests` |
 
 `independent-reviewer` is kept deliberately (OQ-6): removing it breaks compatibility with external hosts
 whose own review slugs resolve through it.
+
+## Delivery agents (agent-is-source, Waves B–D)
+
+Non-review roles (builders / architects / product / delivery / GTM / UX) that ship as self-contained
+in-repo `team-bootstrap:<slug>` agents, sanctioned in [delivery-types.txt](delivery-types.txt) (NOT
+review-types.txt — the anti-builder file-separation). They run **inline by default** (#144); dispatched
+as a subagent only for a large, separable batch. Each is Typed by its `role-output.schema.json` `$def`.
+
+| Slug | Role | Mind (source) | Why it exists |
+|---|---|---|---|
+| `backend-engineer` | backend-engineer | self-contained (agent-is-source) | delivery agent (builder); implements backend behavior TDD red→green |
+| `frontend-engineer` | frontend-engineer | self-contained (agent-is-source) | delivery agent (builder); implements UI behavior against accepted contracts |
+| `solution-architect` | solution-architect | self-contained (agent-is-source) | delivery agent; designs the solution architecture + ADR-worthy decisions |
+| `cto-tech-lead` | cto-tech-lead | self-contained (agent-is-source) | delivery agent; technical leadership, tech strategy + cross-cutting decisions |
+| `ai-engineer` | ai-engineer | self-contained (agent-is-source) | delivery agent (builder); LLM/AI feature implementation |
+| `qa-test-engineer` | qa-test-engineer | self-contained (agent-is-source) | delivery agent; test strategy + coverage against acceptance criteria |
+| `product-manager` | product-manager | self-contained (agent-is-source) | delivery agent; product framing, scope + priorities |
+| `business-analyst` | business-analyst | self-contained (agent-is-source) | delivery agent; requirements analysis + acceptance criteria |
+| `delivery-manager` | delivery-manager | self-contained (agent-is-source) | delivery agent; batch sequencing, risk + delivery coordination |
+| `release-manager` | release-manager | self-contained (agent-is-source) | delivery agent; the release_decision gate (go/hold) |
+| `discovery-research` | discovery-research | self-contained (agent-is-source) | delivery agent; best-practices briefs (web-grounded) |
+| `documentation-agent` | documentation-agent | self-contained (agent-is-source) | delivery agent; docs/ADRs against the shipped change |
+| `growth-marketer` | growth-marketer | self-contained (agent-is-source) | delivery agent; growth experiments + acquisition/retention |
+| `product-marketer` | product-marketer | self-contained (agent-is-source) | delivery agent; positioning, messaging, launch narrative |
+| `community-manager` | community-manager | self-contained (agent-is-source) | delivery agent; community engagement + moderation |
+| `customer-success-manager` | customer-success-manager | self-contained (agent-is-source) | delivery agent; onboarding, retention, expansion |
+| `partnerships-lead` | partnerships-lead | self-contained (agent-is-source) | delivery agent; partnership strategy + deals |
+| `stakeholder-communicator` | stakeholder-communicator | self-contained (agent-is-source) | delivery agent; stakeholder updates + comms (read-only) |
+| `ui-designer` | ui-designer | self-contained (agent-is-source) | delivery agent; UI design + component specs |
+| `ux-designer` | ux-designer | self-contained (agent-is-source) | delivery agent; UX flows + interaction design |
+| `ux-researcher` | ux-researcher | self-contained (agent-is-source) | delivery agent; user research + synthesis (read-only) |
+| `whimsy-injector` | whimsy-injector | self-contained (agent-is-source) | delivery agent; delight + microcopy polish |
 
 ## Not revived — and the reason, per role
 

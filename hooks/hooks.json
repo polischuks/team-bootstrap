@@ -52,7 +52,7 @@
     ],
     "SubagentStart": [
       {
-        "matcher": "team-bootstrap:.*|.*-reviewer|.*-verifier|.*-guardian|chaos-engineer|devops-platform|test-designer|legal-compliance-checker",
+        "matcher": "team-bootstrap:.*|.*-reviewer|.*-verifier|.*-guardian|.*-engineer|.*-architect|.*-lead|.*-manager|.*-analyst|.*-research|.*-researcher|.*-agent|.*-marketer|.*-communicator|.*-designer|.*-injector|chaos-engineer|devops-platform|test-designer|legal-compliance-checker",
         "hooks": [
           {
             "type": "command",
@@ -63,7 +63,7 @@
     ],
     "SubagentStop": [
       {
-        "matcher": "team-bootstrap:.*|.*-reviewer|.*-verifier|.*-guardian|chaos-engineer|devops-platform|test-designer|legal-compliance-checker",
+        "matcher": "team-bootstrap:.*|.*-reviewer|.*-verifier|.*-guardian|.*-engineer|.*-architect|.*-lead|.*-manager|.*-analyst|.*-research|.*-researcher|.*-agent|.*-marketer|.*-communicator|.*-designer|.*-injector|chaos-engineer|devops-platform|test-designer|legal-compliance-checker",
         "hooks": [
           {
             "type": "command",

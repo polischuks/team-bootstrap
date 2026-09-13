@@ -227,30 +227,34 @@ for r in sys.argv[1].split():
 print(",".join(bad) or "none")' "$WAVE2")"
 _chk "$_own" none "every wave-2 role names a field of its own"
 
-echo "AC-9/AC-10 — the triple exists: agent + BOTH slug forms with attribution + playbook:"
+echo "AC-9/AC-10 — the triple exists: agent + BOTH slug forms with attribution + agent-is-source (#148):"
 for r in $WAVE2; do
   _chk "$([ -f "$here/agents/$r.md" ] && echo yes || echo no)" yes "$r: agents/$r.md exists"
   _chk "$(awk -F'\t' -v s="$r" '$1==s && $2!="" {f=1} END{exit !f}' "$here/references/review-types.txt" && echo yes || echo no)" yes \
     "$r: bare slug carries an attribution column"
   _chk "$(awk -F'\t' -v s="team-bootstrap:$r" '$1==s && $2!="" {f=1} END{exit !f}' "$here/references/review-types.txt" && echo yes || echo no)" yes \
     "$r: prefixed slug carries an attribution column"
-  _chk "$([ -f "$here/references/roles/$r.md" ] && echo yes || echo no)" yes "$r: playbook exists"
+  # agent-is-source (#148): the playbook is folded in and deleted.
+  _chk "$([ -f "$here/references/roles/$r.md" ] && echo yes || echo no)" no "$r: playbook deleted (agent-is-source)"
 done
 
-echo "AC-8 — the agent body does not restate the playbook (single source of truth):"
+echo "AC-8 — the agent is self-contained: carries its own mind, no playbook to defer to (#148):"
 for r in $WAVE2; do
   [ -f "$here/agents/$r.md" ] || continue
-  _chk "$(grep -qF "references/roles/$r.md" "$here/agents/$r.md" && echo yes || echo no)" yes \
-    "$r: the agent points at its playbook"
-  _chk "$(awk 'BEGIN{fm=0} /^---$/{fm++; next} fm>=2 && NF>0 {n++} END{v=(n+0)<=40 ? "ok" : "over"; print v}' "$here/agents/$r.md")" ok \
-    "$r: agent body is within the calibrated 40-line duplication ceiling"
+  # No pointer to a (now-deleted) playbook, and the mind is present (read-map + typed contract).
+  _chk "$(grep -qF "references/roles/$r.md" "$here/agents/$r.md" && echo yes || echo no)" no \
+    "$r: the agent does not point at a deleted playbook"
+  _chk "$(grep -qiE 'read-?map' "$here/agents/$r.md" && grep -qF 'role-output.schema.json' "$here/agents/$r.md" && echo yes || echo no)" yes \
+    "$r: the agent carries its own read-map + typed contract (self-contained)"
 done
 
 echo "AC-12 — anti-builder invariant holds for every new slug (no builder is dispatchable as a reviewer):"
 for r in $WAVE2; do
-  [ -f "$here/references/roles/$r.md" ] || continue
-  _chk "$(grep -qE '^[[:space:]]*deny:.*(Write|Edit)' "$here/references/roles/$r.md" && echo yes || echo no)" yes \
-    "$r: the playbook denies Write/Edit"
+  [ -f "$here/agents/$r.md" ] || continue
+  # agent-is-source: the guarantee now lives on the AGENT — its tool surface must not grant Write/Edit.
+  # Harden: require a tools: line to EXIST (a missing one must fail, not silently pass — #148 WA code-review nit) AND grant no Write/Edit.
+  _chk "$(awk 'BEGIN{fm=0;seen=0;bad=0} /^---$/{fm++; if(fm==2) exit; next} fm==1 && /^tools:/ {seen=1; if(/(Write|Edit)/) bad=1} END{exit (seen && !bad)?0:1}' "$here/agents/$r.md" && echo yes || echo no)" yes \
+    "$r: the agent declares a tools: line granting no Write/Edit (read-only reviewer)"
 done
 
 echo "AC-10b — each new role is routed by a category the classifier actually emits:"

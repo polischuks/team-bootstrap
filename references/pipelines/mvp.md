@@ -50,7 +50,7 @@ and scans for orphans (any endpoint/component the batch produced that has no liv
 batch **cannot advance** while `orphans_found > 0` or the E2E path fails — the verifier emits
 `blocked`, the orphan is sent back to the builder, and after 3–5 failed attempts the run stops
 for human intervention / rollback. This is the fix for "backend built the endpoint, frontend
-never called it, both reported done." See [../roles/integration-verifier.md](../roles/integration-verifier.md).
+never called it, both reported done." See [../roles/integration-verifier.md](../../agents/integration-verifier.md).
 
 ## Architecture conformance gate (hard)
 
@@ -60,7 +60,7 @@ using fitness functions ([../../bin/check-architecture.sh](../../bin/check-archi
 E2E is not enough: a batch can work and still **drift** (wrong layer, bypassed boundary). The batch
 **cannot advance** while `drift_findings > 0`; drift goes back to the builder, 3–5 attempts → human
 / rollback. This catches architectural erosion that the integration gate can't see. See
-[../roles/architecture-reviewer.md](../roles/architecture-reviewer.md).
+[../roles/architecture-reviewer.md](../../agents/architecture-reviewer.md).
 
 ## Regression & invariant gate (hard)
 
@@ -72,4 +72,4 @@ A batch **cannot advance** while `regressions_found > 0`, the suite isn't curren
 actually run. This fixes the dominant real-world failure — a task "closed for the workflow that
 existed that day" that a later milestone silently breaks. See
 [../regression-and-invariants.md](../regression-and-invariants.md) and
-[../roles/regression-guardian.md](../roles/regression-guardian.md).
+[../roles/regression-guardian.md](../../agents/regression-guardian.md).

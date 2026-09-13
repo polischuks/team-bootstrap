@@ -75,12 +75,12 @@ jobs:
       matrix:
         os: [macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
-    # ubuntu is non-blocking; macOS is required (the default — no continue-on-error there).
-    # BOTH legs informational until #59 (suite not green on any GitHub runner — macos-latest is
-    # macos-26, which fails ~7 members that pass on the maintainer's local macOS; ubuntu fails the
-    # portability set). The suite RUNS and its per-member failures are VISIBLE in CI (issue #53's
-    # "run it in CI" goal); making the check BLOCKING/required awaits #59 making the suite portable.
-    continue-on-error: true
+    # BOTH matrix legs (macos-latest AND ubuntu-latest) are non-blocking via the job-level
+    # continue-on-error below — the declared Test: suite is INFORMATIONAL in CI today, not a merge gate,
+    # until #59 makes it portable (macos-26 fails ~7 members that pass on local macOS; ubuntu fails the
+    # portability set). The suite RUNS and its per-member failures are VISIBLE in the CI log (issue #53's
+    # "run it in CI" goal). Once #59 lands, REMOVE the waiver + continue-on-error and make the check blocking.
+    continue-on-error: true  # gate-integrity-waiver: #59 suite not yet portable on GitHub runners (macos-26 ~7 members; ubuntu portability set) by=polishchuks expires=2026-12-31
     steps:
       - uses: actions/checkout@v4
         with:
