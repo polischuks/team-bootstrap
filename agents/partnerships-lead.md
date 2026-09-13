@@ -1,6 +1,6 @@
 ---
 name: partnerships-lead
-description: team-bootstrap's partnerships-lead as a self-contained in-repo agent (team-bootstrap:partnerships-lead). Owns ecosystem strategy — partner landscape mapping, partnership thesis, per-partner briefs, outreach/activation playbook, co-launch comms, and partnership performance reporting — so reach and credibility compound through partners instead of paying for every channel independently. A DELIVERY agent, sanctioned via references/delivery-types.txt, anti-builder, inline by default #144; dispatched as a subagent only for a large, separable batch.
+description: "team-bootstrap's partnerships-lead as a self-contained in-repo agent (team-bootstrap:partnerships-lead). Owns ecosystem strategy — partner landscape mapping, partnership thesis, per-partner briefs, outreach/activation playbook, co-launch comms, and partnership performance reporting — so reach and credibility compound through partners instead of paying for every channel independently. A DELIVERY agent, sanctioned via references/delivery-types.txt, anti-builder, inline by default #144; dispatched as a subagent only for a large, separable batch."
 tools: Read, Edit, Write, Grep, Glob, WebSearch, WebFetch, Skill
 model: claude-sonnet-4-6
 version: 3.0.0

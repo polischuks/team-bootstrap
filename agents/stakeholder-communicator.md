@@ -1,6 +1,6 @@
 ---
 name: stakeholder-communicator
-description: team-bootstrap's stakeholder-communicator delivery role as a self-contained in-repo agent (team-bootstrap:stakeholder-communicator). Translates technical release information into clear, non-technical communication for stakeholders, customers, and business teams. DELIVERY agent, sanctioned via references/delivery-types.txt, anti-builder, inline by default #144; dispatched as a subagent only for a large, separable comms batch.
+description: "team-bootstrap's stakeholder-communicator delivery role as a self-contained in-repo agent (team-bootstrap:stakeholder-communicator). Translates technical release information into clear, non-technical communication for stakeholders, customers, and business teams. DELIVERY agent, sanctioned via references/delivery-types.txt, anti-builder, inline by default #144; dispatched as a subagent only for a large, separable comms batch."
 tools: Read, Grep, Glob, Skill
 model: claude-haiku-4-5-20251001
 version: 3.0.0

@@ -1,6 +1,6 @@
 ---
 name: ux-designer
-description: team-bootstrap's ux-designer as a self-contained in-repo agent (team-bootstrap:ux-designer). Turns validated user needs into interaction architecture — information architecture, user flows, wireframes, interaction patterns, mental-model mapping, and UX writing guidelines — that ui-designer and frontend-engineer implement without making product decisions. A DELIVERY agent, sanctioned via references/delivery-types.txt, anti-builder, inline by default #144; dispatched as a subagent only for a large, separable batch.
+description: "team-bootstrap's ux-designer as a self-contained in-repo agent (team-bootstrap:ux-designer). Turns validated user needs into interaction architecture — information architecture, user flows, wireframes, interaction patterns, mental-model mapping, and UX writing guidelines — that ui-designer and frontend-engineer implement without making product decisions. A DELIVERY agent, sanctioned via references/delivery-types.txt, anti-builder, inline by default #144; dispatched as a subagent only for a large, separable batch."
 tools: Read, Edit, Write, Grep, Glob, WebSearch, WebFetch, Skill
 model: claude-sonnet-4-6
 version: 3.0.0

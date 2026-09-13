@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# wave-d-delivery-agents.test.sh — #148 Wave D (T040-T043). Asserts the 6 engineering DELIVERY roles are
+# wave-d-delivery-agents.test.sh — #148 Wave D (T040-T043). Asserts the 10 GTM/UX DELIVERY roles are
 # created as self-contained in-repo agents (agent-is-source): agents/<slug>.md exists with name==slug, its
 # references/roles/<slug>.md playbook is DELETED (AC-2), it is sanctioned in references/delivery-types.txt
 # (both forms) but NEVER in review-types.txt (the anti-builder guarantee, AC-9b), it is Typed by a

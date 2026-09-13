@@ -1,6 +1,6 @@
 ---
 name: whimsy-injector
-description: team-bootstrap's whimsy-injector delivery role as a self-contained in-repo agent (team-bootstrap:whimsy-injector). Audits recently changed UI surfaces for delight opportunities and adds small, brand-consistent, accessibility-safe touches without bloating the change. DELIVERY agent, sanctioned via references/delivery-types.txt, anti-builder, inline by default #144; dispatched as a subagent only for a large, separable delight batch.
+description: "team-bootstrap's whimsy-injector delivery role as a self-contained in-repo agent (team-bootstrap:whimsy-injector). Audits recently changed UI surfaces for delight opportunities and adds small, brand-consistent, accessibility-safe touches without bloating the change. DELIVERY agent, sanctioned via references/delivery-types.txt, anti-builder, inline by default #144; dispatched as a subagent only for a large, separable delight batch."
 tools: Read, Edit, Write, Grep, Glob, Skill
 model: claude-haiku-4-5-20251001
 version: 3.0.0

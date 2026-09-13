@@ -1,6 +1,6 @@
 ---
 name: ux-researcher
-description: team-bootstrap's ux-researcher delivery role as a self-contained in-repo agent (team-bootstrap:ux-researcher). Surfaces user needs, mental models, friction points, and accessibility/usability constraints before product and design decisions get baked in. DELIVERY agent, sanctioned via references/delivery-types.txt, anti-builder, inline by default #144; dispatched as a subagent only for a large, separable research batch.
+description: "team-bootstrap's ux-researcher delivery role as a self-contained in-repo agent (team-bootstrap:ux-researcher). Surfaces user needs, mental models, friction points, and accessibility/usability constraints before product and design decisions get baked in. DELIVERY agent, sanctioned via references/delivery-types.txt, anti-builder, inline by default #144; dispatched as a subagent only for a large, separable research batch."
 tools: Read, Grep, Glob, WebSearch, WebFetch, Skill
 model: claude-sonnet-4-6
 version: 3.0.0
