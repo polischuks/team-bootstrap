@@ -26,5 +26,12 @@ _c "$(grep -ci 'both consumer\|inline activation\|output style' "$O")" 1 "orches
 echo "#148 B4 — mapping doctrine points at agents/ not the external catalog:"
 _c "$(grep -c 'agent-is-source\|agents/<role>.md' "$M")" 1 "subagent-mapping.md resolves agent-first"
 
+echo "#148 arch-review remediation — inline activation validates frontmatter BY FORM (both consumers consistent):"
+# The two consumers must be consistent: subagent-dispatch.md drops the references/roles binding for a
+# self-contained agent, so orchestrator.md's inline read path must NOT hold that same agent to the
+# legacy role-frontmatter.schema.json (which agent-style frontmatter cannot satisfy). Validation is
+# form-scoped: legacy form → role-frontmatter.schema.json; self-contained → the agent frontmatter contract.
+_c "$(grep -ci 'validate by form\|form-aware\|legacy .*form.*role-frontmatter\|role-frontmatter.*legacy' "$O")" 1 "orchestrator.md scopes role-frontmatter.schema.json validation to the legacy form (self-contained agent validated against the agent contract)"
+
 if [ "$fail" -eq 0 ]; then echo "loader-agent-first-doctrine.test.sh: OK"; exit 0; fi
 echo "loader-agent-first-doctrine.test.sh: $fail case(s) FAILED" >&2; exit 1
