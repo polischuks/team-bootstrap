@@ -54,15 +54,16 @@ rm -rf "$T2"
 echo "1.1 — one slug = agent + attribution + playbook:"
 for r in $WAVE; do
   _chk "$([ -f "$here/agents/$r.md" ] && echo yes || echo no)" yes "agents/$r.md exists (dispatchable)"
-  _chk "$([ -f "$here/references/roles/$r.md" ] && echo yes || echo no)" yes "  playbook exists"
+  # agent-is-source (#148): a migrated reviewer's playbook is deleted, and its mind lives in the agent.
+  _chk "$([ -f "$here/references/roles/$r.md" ] && echo yes || echo no)" no "  playbook deleted (agent-is-source, #148)"
   # BOTH slug forms must attribute — the team-bootstrap: prefix is not reliably delivered
   for form in "team-bootstrap:$r" "$r"; do
     _chk "$(awk -F'\t' -v s="$form" '$1==s && $2!="" {print "yes"; exit}' "$here/references/review-types.txt")" yes \
       "  review-types.txt attributes '$form'"
   done
-  # single source: the agent body must POINT at the playbook, not restate it
-  _chk "$(grep -qF "references/roles/$r.md" "$here/agents/$r.md" && echo yes || echo no)" yes \
-    "  agent body defers to the playbook (no duplicated criteria)"
+  # single source (agent-is-source): the agent carries its own criteria — no playbook to defer to.
+  _chk "$(grep -qiE 'read-?map' "$here/agents/$r.md" && echo yes || echo no)" yes \
+    "  agent body is self-contained (carries its own read-map/criteria)"
 done
 
 echo "1.1 — every agents/*.md frontmatter is VALID YAML (criterion 1 fails invisibly otherwise):"
