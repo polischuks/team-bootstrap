@@ -60,6 +60,21 @@ _has_slug() { awk -F'\t' -v s="$2" '!/^#/ && $1==s && NF>1 && $2!="" {f=1} END{e
 # this file. One slug per line; '#'/blank ignored; exact match.
 _listed_delivery() { [ -f "$1/references/delivery-types.txt" ] && awk -v s="$2" '!/^#/ && $1==s {f=1} END{exit !f}' "$1/references/delivery-types.txt"; }
 
+# _typed_ok ROOT SLUG → 0 if SLUG is Typed: EITHER no references/schemas/role-output.schema.json exists
+# (Typed not applicable — a foreign repo / fixture), OR the schema carries a $def for SLUG with >=1
+# required field (its numeric acceptance contract, #147/AC-7). Non-zero only when the schema EXISTS but
+# the slug has no typed $def. This is the "Typed" liveness condition (role-registry.md:16) for a delivery
+# agent — eval-role --liveness measures only ROUTED bindings, so an unrouted delivery agent needs its
+# Typed check where it is already iterated: here. python3-guarded (never breaks a repo without it).
+_typed_ok() {
+  local sch="$1/references/schemas/role-output.schema.json"
+  [ -f "$sch" ] || return 0
+  command -v python3 >/dev/null 2>&1 || return 0
+  [ -n "$(python3 -c 'import json,sys
+d=json.load(open(sys.argv[1])).get("$defs",{}).get(sys.argv[2],{})
+print(" ".join(f for b in d.get("allOf",[]) for f in b.get("required",[])))' "$sch" "$2" 2>/dev/null)" ]
+}
+
 # _registry_row ROOT SLUG → the role-registry.md "Dispatchable slugs" row for SLUG (empty if none).
 _registry_row() { grep -E "^\| \`$2\` \|" "$1/references/role-registry.md" 2>/dev/null | head -1; }
 
@@ -98,6 +113,7 @@ _check() {
       _listed_delivery "$root" "team-bootstrap:$slug" || { echo "  $slug: delivery agent, but the prefixed slug is absent from delivery-types.txt" >&2; n=$((n + 1)); }
       ! _has_slug "$root" "$slug"                || { echo "  $slug: delivery agent must NOT carry a review role in review-types.txt (anti-builder)" >&2; n=$((n + 1)); }
       ! _has_slug "$root" "team-bootstrap:$slug" || { echo "  $slug: delivery agent must NOT carry a prefixed review role in review-types.txt (anti-builder)" >&2; n=$((n + 1)); }
+      _typed_ok "$root" "$slug" || { echo "  $slug: delivery agent is not Typed — no \$def with a required field in references/schemas/role-output.schema.json (#147/AC-7)" >&2; n=$((n + 1)); }
     else
       _has_slug "$root" "$slug"                || { echo "  $slug: no bare slug with a role column in review-types.txt (nor listed in delivery-types.txt)" >&2; n=$((n + 1)); }
       _has_slug "$root" "team-bootstrap:$slug" || { echo "  $slug: no team-bootstrap:-prefixed slug with a role column in review-types.txt" >&2; n=$((n + 1)); }
