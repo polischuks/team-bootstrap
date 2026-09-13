@@ -65,7 +65,7 @@ and correct against the result — "gain ground truth from the environment at ea
 ([Anthropic — Building Effective Agents](https://www.anthropic.com/engineering/building-effective-agents)).
 The fast typecheck/lint half of this is also harness-enforced by the Stop hook
 ([hooks.md](hooks.md)); the full/integration half is enforced by
-[integration-verifier](roles/integration-verifier.md).
+[integration-verifier](../agents/integration-verifier.md).
 
 ## Who owns what
 

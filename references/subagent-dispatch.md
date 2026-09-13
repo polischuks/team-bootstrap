@@ -123,7 +123,7 @@ A `kind:code` batch's post-code review is dispatched as a **clean-context subage
 the diff + the enumerated refutation criteria** — never the builder's run document or reasoning. This is
 what makes the review independent (generator≠verifier): a same-context reviewer inherits the biases that
 produced the code. The reviewer is prompted to **refute** (Refute-or-Promote), returns
-`review_acks`/`review_refutations` ([roles/code-reviewer.md](roles/code-reviewer.md)), and the orchestrator
+`review_acks`/`review_refutations` ([roles/code-reviewer.md](../agents/tb-code-reviewer.md)), and the orchestrator
 transcribes them to the run marker. `check-review-ack.sh` blocks closure without a valid entry
 (reviewer≠builder, context:clean, verdict:go, commit anchored). **Escalation:** an `irreversible`-classed
 batch, or a review that leaves a credible refutation unresolved, emits `verdict:blocked` → **human ack**;

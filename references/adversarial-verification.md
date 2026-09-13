@@ -13,7 +13,7 @@ critical finding or a release `go`:
   default to "refuted" when uncertain.
 - Accept the claim only if a majority fail to refute it.
 - This composes with [reviewer_consensus](trace-evals.md) (record the tally) and the
-  [integration-verifier](roles/integration-verifier.md) (outcome-based, builder ≠ auditor).
+  [integration-verifier](../agents/integration-verifier.md) (outcome-based, builder ≠ auditor).
 
 Reserve it for what's expensive to get wrong: a release decision, a security finding, an
 irreversible action — not every routine handoff.

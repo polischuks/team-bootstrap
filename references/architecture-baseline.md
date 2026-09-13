@@ -1,11 +1,11 @@
 # Architecture baseline & fitness functions
 
-An implementation can pass every test, wire up end-to-end (the [integration-verifier](roles/integration-verifier.md)
+An implementation can pass every test, wire up end-to-end (the [integration-verifier](../agents/integration-verifier.md)
 gate), and still **violate the application's architecture** — wrong layer, a bypassed boundary, a
 dependency pointing the wrong way, a duplicated abstraction. Left unchecked this is **architectural
 drift**: the implemented architecture diverges from the intended one with no deliberate decision to
 justify it, and compounds into erosion ([architecture drift](https://earezki.com/ai-news/2026-06-08-architecture-drift-detection-keep-your-code-aligned-with-design/)).
-The baseline is the ground truth the [architecture-reviewer](roles/architecture-reviewer.md) checks
+The baseline is the ground truth the [architecture-reviewer](../agents/architecture-reviewer.md) checks
 against.
 
 ## The baseline (ground truth)
@@ -53,4 +53,4 @@ Layer the checks ([automating governance](https://developersvoice.com/blog/archi
 | **Phase B** (per batch) | conformance — did this batch drift from the baseline? | fitness functions + review, hard gate |
 | CI | full fitness-function suite | independent environment |
 
-See [roles/architecture-reviewer.md](roles/architecture-reviewer.md) for the role that runs both.
+See [roles/architecture-reviewer.md](../agents/architecture-reviewer.md) for the role that runs both.

@@ -40,7 +40,7 @@ actually read. Tools are contracts that must be exercised, and progress is judge
 from the environment**, not by declaration
 ([Writing tools for agents](https://www.anthropic.com/engineering/writing-tools-for-agents),
 [Building Effective Agents](https://www.anthropic.com/engineering/building-effective-agents)).
-The [integration-verifier](roles/integration-verifier.md) therefore checks **`declared ⇒
+The [integration-verifier](../agents/integration-verifier.md) therefore checks **`declared ⇒
 exercised`**: every capability/vendor/tool a batch claims must be observably invoked and succeed
 (probe passes), or it is a `capability_gap` finding.
 
@@ -58,4 +58,4 @@ gates ([hooks fail-closed](hooks.md), [The Verification Gap](https://codemyspec.
 - **A gate must be observed to run.** "The guard exists" is not "the guard ran"; the
   `regression-guardian` records which gates actually executed for the batch.
 
-Enforced by the [regression-guardian](roles/regression-guardian.md) role and its schema hard gate.
+Enforced by the [regression-guardian](../agents/regression-guardian.md) role and its schema hard gate.

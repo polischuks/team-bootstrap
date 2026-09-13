@@ -34,7 +34,7 @@ per-task sweep would re-pay the cost N times and re-create the fan-out token bur
 
 ## The brief (what a domain research pass produces)
 
-`discovery-research` ([roles/discovery-research.md](roles/discovery-research.md)), dispatched as a
+`discovery-research` ([roles/discovery-research.md](../agents/discovery-research.md)), dispatched as a
 clean-context subagent per novel domain, emits a **best-practices brief**:
 
 - **Recommended patterns** for the domain, each with a source (URL/doc).
