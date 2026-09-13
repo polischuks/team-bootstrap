@@ -24,6 +24,16 @@ jobs:
             echo "::error::tag ($TAG) must match VERSION ($FILE_VERSION) and plugin.json ($PLUGIN_VERSION)"
             exit 1
           fi
+          # marketplace.json is what the client reads to offer "Update"; a stale field there ships a
+          # release nobody can update to. Assert EVERY version field (metadata.version + each
+          # plugins[].version) equals the tag. (v3.11.0 shipped with marketplace.json left at 3.10.3 —
+          # release.yml checked VERSION/plugin.json but not this file; check-version-sync.sh catches it
+          # but is marker-gated / not in CI, so a direct release bypassed it.)
+          MKT_BAD="$(TAG="$TAG" python3 -c "import json,os; t=os.environ['TAG']; m=json.load(open('.claude-plugin/marketplace.json')); v=([('metadata.version',m['metadata']['version'])] if isinstance(m.get('metadata'),dict) and 'version' in m['metadata'] else [])+[('plugins[%d].version'%i,p['version']) for i,p in enumerate(m.get('plugins',[])) if 'version' in p]; print(' '.join('%s=%s'%(k,x) for k,x in v if x!=t))")"
+          if [ -n "$MKT_BAD" ]; then
+            echo "::error::marketplace.json version field(s) do not match tag ($TAG): $MKT_BAD"
+            exit 1
+          fi
 
       - name: Validate (roles + JSON)
         run: |
