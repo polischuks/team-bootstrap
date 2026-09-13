@@ -75,6 +75,22 @@ indistinguishable from an oversight.
 `independent-reviewer` is kept deliberately (OQ-6): removing it breaks compatibility with external hosts
 whose own review slugs resolve through it.
 
+## Delivery agents (agent-is-source, Waves B–D)
+
+Non-review roles (builders / architects / product / delivery / GTM / UX) that ship as self-contained
+in-repo `team-bootstrap:<slug>` agents, sanctioned in [delivery-types.txt](delivery-types.txt) (NOT
+review-types.txt — the anti-builder file-separation). They run **inline by default** (#144); dispatched
+as a subagent only for a large, separable batch. Each is Typed by its `role-output.schema.json` `$def`.
+
+| Slug | Role | Mind (source) | Why it exists |
+|---|---|---|---|
+| `backend-engineer` | backend-engineer | self-contained (agent-is-source) | delivery agent (builder); implements backend behavior TDD red→green |
+| `frontend-engineer` | frontend-engineer | self-contained (agent-is-source) | delivery agent (builder); implements UI behavior against accepted contracts |
+| `solution-architect` | solution-architect | self-contained (agent-is-source) | delivery agent; designs the solution architecture + ADR-worthy decisions |
+| `cto-tech-lead` | cto-tech-lead | self-contained (agent-is-source) | delivery agent; technical leadership, tech strategy + cross-cutting decisions |
+| `ai-engineer` | ai-engineer | self-contained (agent-is-source) | delivery agent (builder); LLM/AI feature implementation |
+| `qa-test-engineer` | qa-test-engineer | self-contained (agent-is-source) | delivery agent; test strategy + coverage against acceptance criteria |
+
 ## Not revived — and the reason, per role
 
 | Role | Typed? | Reason |

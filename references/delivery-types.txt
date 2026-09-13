@@ -15,3 +15,15 @@
 # (a builder must never map to a review slug).
 #
 # Populated per migration wave (Waves B–D). Empty until the first non-review agent lands.
+backend-engineer
+team-bootstrap:backend-engineer
+frontend-engineer
+team-bootstrap:frontend-engineer
+solution-architect
+team-bootstrap:solution-architect
+cto-tech-lead
+team-bootstrap:cto-tech-lead
+ai-engineer
+team-bootstrap:ai-engineer
+qa-test-engineer
+team-bootstrap:qa-test-engineer
