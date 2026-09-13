@@ -27,3 +27,15 @@ ai-engineer
 team-bootstrap:ai-engineer
 qa-test-engineer
 team-bootstrap:qa-test-engineer
+product-manager
+team-bootstrap:product-manager
+business-analyst
+team-bootstrap:business-analyst
+delivery-manager
+team-bootstrap:delivery-manager
+release-manager
+team-bootstrap:release-manager
+discovery-research
+team-bootstrap:discovery-research
+documentation-agent
+team-bootstrap:documentation-agent

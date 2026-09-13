@@ -90,6 +90,12 @@ as a subagent only for a large, separable batch. Each is Typed by its `role-outp
 | `cto-tech-lead` | cto-tech-lead | self-contained (agent-is-source) | delivery agent; technical leadership, tech strategy + cross-cutting decisions |
 | `ai-engineer` | ai-engineer | self-contained (agent-is-source) | delivery agent (builder); LLM/AI feature implementation |
 | `qa-test-engineer` | qa-test-engineer | self-contained (agent-is-source) | delivery agent; test strategy + coverage against acceptance criteria |
+| `product-manager` | product-manager | self-contained (agent-is-source) | delivery agent; product framing, scope + priorities |
+| `business-analyst` | business-analyst | self-contained (agent-is-source) | delivery agent; requirements analysis + acceptance criteria |
+| `delivery-manager` | delivery-manager | self-contained (agent-is-source) | delivery agent; batch sequencing, risk + delivery coordination |
+| `release-manager` | release-manager | self-contained (agent-is-source) | delivery agent; the release_decision gate (go/hold) |
+| `discovery-research` | discovery-research | self-contained (agent-is-source) | delivery agent; best-practices briefs (web-grounded) |
+| `documentation-agent` | documentation-agent | self-contained (agent-is-source) | delivery agent; docs/ADRs against the shipped change |
 
 ## Not revived — and the reason, per role
 
