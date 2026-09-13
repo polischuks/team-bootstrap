@@ -1736,6 +1736,14 @@ _is_doc_file() {
   esac
 }
 _is_doc_path() {
+  # #148 (roles-as-first-class-agents): agents/<role>.md is the EXECUTABLE PRODUCT — a dispatchable
+  # role definition the harness loads as a team-bootstrap:<role> subagent type — not documentation. It
+  # must count as impl so a migration wave earns delivery credit (code_delta>0), advances the batch
+  # window (last_closure_sha), and yields resolvable commit_shas the red-ordering check needs. Exempt it
+  # BEFORE the .md-is-doc rule below.
+  case "$1" in
+    agents/*) return 1 ;;
+  esac
   _is_doc_file "$1" && return 0
   case "$1" in
     docs/*|references/*) return 0 ;;

@@ -164,7 +164,17 @@ _evaluate() {
         anchor="$(resolve_sha "$(_oldest_sha "$line")")"
         newest="$(resolve_sha "$(_newest_sha "$line")")"
         if [ -z "$anchor" ]; then
-          echo "  FAIL: code batch '$id' commit_shas do not resolve — cannot verify red ordering." >&2; viol=$((viol + 1)); continue
+          # #148: a closed code batch whose commits are ALL doc/test-classified has empty commit_shas —
+          # there is no impl commit to ORDER the red against, but the red step still happened. Accept iff a
+          # red record for THIS batch resolves (proper ancestor of HEAD, descendant of base) AND its window
+          # touched a test. Not a red-first escape: empty commit_shas means genuinely no impl-classified
+          # change (a real impl change — agents/* included, #148 — classifies as impl and takes the ordered
+          # path below); a doc/test-only code batch is still required to have shown a red that touched a test.
+          r="$(_find_red "$id" "$hd" "$bfull" "$used")" || r=""
+          if [ -n "$r" ] && window_touches_test "$prev_tip" "$r" "$tglobs"; then
+            used="$used $r"; continue
+          fi
+          echo "  FAIL: code batch '$id' has empty commit_shas and no red record (window touching a test) proves red-first — cannot verify red ordering." >&2; viol=$((viol + 1)); continue
         fi
         r="$(_find_red "$id" "$anchor" "$bfull" "$used")" || r=""
         if [ -n "$r" ]; then
