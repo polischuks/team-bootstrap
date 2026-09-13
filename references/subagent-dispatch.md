@@ -105,7 +105,7 @@ This is the only place team-bootstrap intentionally fans out. The `full` pipelin
 
 Use Claude Code's `Task` tool. **Resolve the role AGENT-FIRST** (milestone 148, agent-is-source), transition-aware:
 
-1. **Self-contained (migrated, v4.0.0):** if `agents/<role>.md` carries the role's mind and there is **no** `references/roles/<role>.md`, the agent *is* the source and the dispatch type. Dispatch `subagent_type: team-bootstrap:<role>` — an in-repo type installed with the plugin, so it always resolves without any external/host catalog. Nothing about the role is read from `references/roles/`.
+1. **Self-contained (migrated, agent-is-source):** if `agents/<role>.md` carries the role's mind and there is **no** `references/roles/<role>.md`, the agent *is* the source and the dispatch type. Dispatch `subagent_type: team-bootstrap:<role>` — an in-repo type installed with the plugin, so it always resolves without any external/host catalog. Nothing about the role is read from `references/roles/`.
 2. **Legacy (not-yet-migrated) fallback:** if the role still ships `references/roles/<role>.md` with `preferred_subagent_types: [...]`, resolve from that list per [subagent-mapping.md](subagent-mapping.md) — stack overrides (`nextjs-developer` for Next.js, `fastapi-developer` for FastAPI; stack vector resolved once at run start and cached), first host-resolvable slug left-to-right, else `general-purpose`.
 3. Record the resolved slug as `team_bootstrap.subagent_type` on the role span ([tracing.md](tracing.md)) so eval/replay sees the routing decision.
 

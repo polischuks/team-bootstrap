@@ -252,8 +252,9 @@ echo "AC-12 — anti-builder invariant holds for every new slug (no builder is d
 for r in $WAVE2; do
   [ -f "$here/agents/$r.md" ] || continue
   # agent-is-source: the guarantee now lives on the AGENT — its tool surface must not grant Write/Edit.
-  _chk "$(awk 'BEGIN{fm=0} /^---$/{fm++; if(fm==2) exit; next} fm==1 && /^tools:/ && /(Write|Edit)/ {bad=1} END{exit bad}' "$here/agents/$r.md" && echo yes || echo no)" yes \
-    "$r: the agent's tools grant no Write/Edit (read-only reviewer)"
+  # Harden: require a tools: line to EXIST (a missing one must fail, not silently pass — #148 WA code-review nit) AND grant no Write/Edit.
+  _chk "$(awk 'BEGIN{fm=0;seen=0;bad=0} /^---$/{fm++; if(fm==2) exit; next} fm==1 && /^tools:/ {seen=1; if(/(Write|Edit)/) bad=1} END{exit (seen && !bad)?0:1}' "$here/agents/$r.md" && echo yes || echo no)" yes \
+    "$r: the agent declares a tools: line granting no Write/Edit (read-only reviewer)"
 done
 
 echo "AC-10b — each new role is routed by a category the classifier actually emits:"

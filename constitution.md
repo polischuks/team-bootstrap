@@ -68,14 +68,14 @@ and fast checks are harness-enforced by the Stop hook ([references/hooks.md](ref
 **red step itself** is harness-enforced, not self-declared: `bin/check-tdd.sh --record-red` records a git-anchored red
 (`red_sha`), and `bin/check-tdd.sh` (in `verify-batch`) fails a code-shipping run with no valid red record
 ([references/enforcement.md](references/enforcement.md)). Wiring is proven end-to-end by
-[integration-verifier](references/roles/integration-verifier.md), not by self-report. This operationalizes
+[integration-verifier](agents/integration-verifier.md), not by self-report. This operationalizes
 P6 (report truth) for code.
 
 ### P10 — Verification is cumulative and fail-closed
 A closure holds only if its invariant holds **across all workflows now**, not "for the workflow that
 existed that day": verified acceptance **graduates** into a regression suite re-run every batch/
 milestone ([regression-and-invariants.md](references/regression-and-invariants.md),
-[regression-guardian](references/roles/regression-guardian.md)). A declared capability must be
+[regression-guardian](agents/regression-guardian.md)). A declared capability must be
 **exercised**, not merely present (`declared ⇒ exercised`). And a gate that did not actually run —
 green-by-skip, silently disabled, vacuous — is a **failure, not a pass**. Point fixes that close a
 class in one place while leaving it open elsewhere violate P10.

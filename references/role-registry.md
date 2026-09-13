@@ -54,23 +54,23 @@ anti-collapse floor **without attributing** to any role, so by construction it c
 in `review-types.txt` and has no playbook of its own. Marking it here is what keeps that from being
 indistinguishable from an oversight.
 
-| Slug | Role | Playbook | Why it exists |
+| Slug | Role | Mind (source) | Why it exists |
 |---|---|---|---|
-| `accessibility-reviewer` | accessibility-reviewer | `references/roles/accessibility-reviewer.md` | routed from `ui` |
-| `architecture-reviewer` | architecture-reviewer | `references/roles/architecture-reviewer.md` | mandatory review role, tier base set |
-| `chaos-engineer` | chaos-engineer | `references/roles/chaos-engineer.md` | routed from `infra/deploy` |
-| `data-schema-reviewer` | data-schema-reviewer | `references/roles/data-schema-reviewer.md` | routed from `data/schema` |
-| `devops-platform` | devops-platform | `references/roles/devops-platform.md` | routed from `infra/deploy` |
+| `accessibility-reviewer` | accessibility-reviewer | self-contained (agent-is-source) | routed from `ui` |
+| `architecture-reviewer` | architecture-reviewer | self-contained (agent-is-source) | mandatory review role, tier base set |
+| `chaos-engineer` | chaos-engineer | self-contained (agent-is-source) | routed from `infra/deploy` |
+| `data-schema-reviewer` | data-schema-reviewer | self-contained (agent-is-source) | routed from `data/schema` |
+| `devops-platform` | devops-platform | self-contained (agent-is-source) | routed from `infra/deploy` |
 | `independent-reviewer` | generic | — | satisfies the ≥1 floor without attributing; kept for host compatibility (OQ-6) |
-| `integration-verifier` | integration-verifier | `references/roles/integration-verifier.md` | mandatory review role, tier base set |
-| `ip-contracts-reviewer` | ip-contracts-reviewer | `references/roles/ip-contracts-reviewer.md` | routed from `deps` |
-| `legal-compliance-checker` | legal-compliance-checker | `references/roles/legal-compliance-checker.md` | routed from `licence` |
-| `overengineering-reviewer` | overengineering-reviewer | `references/roles/overengineering-reviewer.md` | routed from `deps` |
-| `performance-reviewer` | performance-reviewer | `references/roles/performance-reviewer.md` | routed from `perf` |
-| `regression-guardian` | regression-guardian | `references/roles/regression-guardian.md` | mandatory review role, tier base set |
-| `security-reviewer` | security-reviewer | `references/roles/security-reviewer.md` | routed from `security/auth`, `deps` |
-| `tb-code-reviewer` | code-reviewer | `references/roles/code-reviewer.md` | mandatory review role; the slug is `tb-` prefixed so it stays attributable even when the `team-bootstrap:` prefix is stripped |
-| `test-designer` | test-designer | `references/roles/test-designer.md` | routed from `no-tests` |
+| `integration-verifier` | integration-verifier | self-contained (agent-is-source) | mandatory review role, tier base set |
+| `ip-contracts-reviewer` | ip-contracts-reviewer | self-contained (agent-is-source) | routed from `deps` |
+| `legal-compliance-checker` | legal-compliance-checker | self-contained (agent-is-source) | routed from `licence` |
+| `overengineering-reviewer` | overengineering-reviewer | self-contained (agent-is-source) | routed from `deps` |
+| `performance-reviewer` | performance-reviewer | self-contained (agent-is-source) | routed from `perf` |
+| `regression-guardian` | regression-guardian | self-contained (agent-is-source) | mandatory review role, tier base set |
+| `security-reviewer` | security-reviewer | self-contained (agent-is-source) | routed from `security/auth`, `deps` |
+| `tb-code-reviewer` | code-reviewer | self-contained (agent-is-source) | mandatory review role; the slug is `tb-` prefixed so it stays attributable even when the `team-bootstrap:` prefix is stripped |
+| `test-designer` | test-designer | self-contained (agent-is-source) | routed from `no-tests` |
 
 `independent-reviewer` is kept deliberately (OQ-6): removing it breaks compatibility with external hosts
 whose own review slugs resolve through it.

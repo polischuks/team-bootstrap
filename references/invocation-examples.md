@@ -37,7 +37,7 @@ Stop after `qa-test-engineer` and summarize the release risks.
 
 ```text
 Use /team-bootstrap.
-Work as the role described in `references/roles/overengineering-reviewer.md`.
+Work as the `overengineering-reviewer` role (self-contained agent: `agents/overengineering-reviewer.md`).
 Repository: /path/to/repo
 Product spec: /path/to/spec.md
 Task: audit whether the active workflow or implementation is overengineered relative to product value, package scope, and business goals.
