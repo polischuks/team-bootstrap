@@ -22,16 +22,33 @@ _mk(){ local T; T="$(mktemp -d)"; mkdir -p "$T/.github/workflows"; printf '%s' "
 T="$(_mk)"; printf 'jobs:\n  a:\n    continue-on-error: true\n' > "$T/.github/workflows/ci.yml"
 _c "$(_flagged "$T")" yes "un-waived continue-on-error is flagged"; rm -rf "$T"
 
-# waiver with a reason → NOT flagged (tracked/informational)
-T="$(_mk)"; printf 'jobs:\n  a:\n    continue-on-error: true  # gate-integrity-waiver: #59 — suite not yet portable on CI runners\n' > "$T/.github/workflows/ci.yml"
-_c "$(_flagged "$T")" no "waived continue-on-error is NOT flagged as a violation"; rm -rf "$T"
+# governed waiver (reason + by= + future expires=) → NOT flagged (tracked/informational)
+GW='# gate-integrity-waiver: #59 suite not yet portable by=maintainer expires=2999-01-01'
+T="$(_mk)"; printf 'jobs:\n  a:\n    continue-on-error: true  %s\n' "$GW" > "$T/.github/workflows/ci.yml"
+_c "$(_flagged "$T")" no "governed waiver is NOT flagged as a violation"; rm -rf "$T"
 
-T="$(_mk)"; printf 'jobs:\n  a:\n    continue-on-error: true  # gate-integrity-waiver: #59 — suite not yet portable on CI runners\n' > "$T/.github/workflows/ci.yml"
-_c "$(_waived "$T")" yes "waived continue-on-error is reported as tracked/INFO"; rm -rf "$T"
+T="$(_mk)"; printf 'jobs:\n  a:\n    continue-on-error: true  %s\n' "$GW" > "$T/.github/workflows/ci.yml"
+_c "$(_waived "$T")" yes "governed waiver is reported as tracked/INFO"; rm -rf "$T"
 
 # waiver marker with EMPTY reason → still flagged (a bare bypass is not a governed waiver)
 T="$(_mk)"; printf 'jobs:\n  a:\n    continue-on-error: true  # gate-integrity-waiver:\n' > "$T/.github/workflows/ci.yml"
 _c "$(_flagged "$T")" yes "empty-reason waiver is rejected (still flagged)"; rm -rf "$T"
+
+# GOVERNED-PARITY (chaos-engineer no_go remediation): the waiver must carry by= AND a future expires=
+# to mirror the governed-waiver siblings (attributed + time-boxed → forces re-review, cannot stand forever).
+FUT="2999-01-01"; PAST="2000-01-01"
+# full governed form (reason + by= + future expires=) → waived
+T="$(_mk)"; printf 'jobs:\n  a:\n    continue-on-error: true  # gate-integrity-waiver: #59 not portable yet by=maintainer expires=%s\n' "$FUT" > "$T/.github/workflows/ci.yml"
+_c "$(_flagged "$T")" no "governed waiver (reason + by= + future expires=) is honored"; rm -rf "$T"
+# reason only, NO by=/expires= → still flagged (parity with governed siblings; the old reason-only form is insufficient)
+T="$(_mk)"; printf 'jobs:\n  a:\n    continue-on-error: true  # gate-integrity-waiver: #59 not portable yet\n' > "$T/.github/workflows/ci.yml"
+_c "$(_flagged "$T")" yes "reason-only waiver (no by=/expires=) is rejected"; rm -rf "$T"
+# missing by= → flagged
+T="$(_mk)"; printf 'jobs:\n  a:\n    continue-on-error: true  # gate-integrity-waiver: r expires=%s\n' "$FUT" > "$T/.github/workflows/ci.yml"
+_c "$(_flagged "$T")" yes "waiver missing by= is rejected"; rm -rf "$T"
+# EXPIRED expires= → flagged (forces re-review; cannot stand forever — the chaos-engineer HIGH)
+T="$(_mk)"; printf 'jobs:\n  a:\n    continue-on-error: true  # gate-integrity-waiver: r by=x expires=%s\n' "$PAST" > "$T/.github/workflows/ci.yml"
+_c "$(_flagged "$T")" yes "EXPIRED waiver is rejected (time-boxed, forces re-review)"; rm -rf "$T"
 
 if [ "$fail" -eq 0 ]; then echo "gate-integrity-waiver.test.sh: OK"; exit 0; fi
 echo "gate-integrity-waiver.test.sh: $fail case(s) FAILED" >&2; exit 1

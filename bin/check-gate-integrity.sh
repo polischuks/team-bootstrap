@@ -502,12 +502,34 @@ done
 # CI gate anywhere is never hidden from the audit.
 if [ -d .github/workflows ]; then
   ce="$(grep -rnE 'continue-on-error:[[:space:]]*true' .github/workflows 2>/dev/null | head -20)"
-  # #59 governed waiver: a `continue-on-error: true` carrying an inline `# gate-integrity-waiver: <reason>`
-  # annotation is a DEFERRED, TRACKED, auditable exception — mirrors the preflight/enforcement governed-waiver
-  # pattern (presence enforced, honesty is the human's). It is reported as INFO, never a blocking violation.
-  # A BARE marker with no reason (`gate-integrity-waiver:` then nothing) is NOT a waiver and still blocks.
-  ce_waived="$(printf '%s\n' "$ce" | grep -E 'gate-integrity-waiver:[[:space:]]+[^[:space:]]' || true)"
-  ce="$(printf '%s\n' "$ce" | grep -vE 'gate-integrity-waiver:[[:space:]]+[^[:space:]]' | grep -vE '^$' || true)"
+  # #59 GOVERNED waiver — genuinely mirrors the preflight/enforcement governed-waiver siblings
+  # (by + reason + expires), not just a bare reason (chaos-engineer no_go remediation, batch P0). A
+  # `continue-on-error: true` is waived to INFO/tracked ONLY when its inline annotation carries ALL of:
+  #   gate-integrity-waiver: <reason…>  by=<who>  expires=YYYY-MM-DD
+  # and expires is NOT in the past. A missing field, or an EXPIRED date, is NOT a waiver and still BLOCKS —
+  # so a deferral is attributed, time-boxed, and forces re-review; it cannot silently stand forever or be
+  # copy-pasted onto a future gate without a fresh, dated, owned commitment. (presence enforced; the
+  # truthfulness of the reason is the human's, as with the sibling waivers.)
+  today="$(date +%F)"
+  ce_waived=""; ce_rest=""
+  while IFS= read -r cl; do
+    [ -n "$cl" ] || continue
+    if printf '%s' "$cl" | grep -qE 'gate-integrity-waiver:[[:space:]]+[^[:space:]].*[[:space:]]by=[^[:space:]]+.*[[:space:]]expires=[0-9]{4}-[0-9]{2}-[0-9]{2}'; then
+      exp="$(printf '%s' "$cl" | grep -oE 'expires=[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1 | cut -d= -f2)"
+      # lexicographic compare is correct for YYYY-MM-DD and needs no non-portable date -d/-j.
+      if [ -n "$exp" ] && ! [[ "$exp" < "$today" ]]; then
+        ce_waived="${ce_waived}${cl}
+"
+        continue
+      fi
+    fi
+    ce_rest="${ce_rest}${cl}
+"
+  done <<EOF
+$ce
+EOF
+  ce_waived="$(printf '%s' "$ce_waived" | grep -vE '^$' || true)"
+  ce="$(printf '%s' "$ce_rest" | grep -vE '^$' || true)"
   if [ -n "$ce_waived" ]; then
     echo "check-gate-integrity: INFO — continue-on-error with a gate-integrity-waiver (deferred/tracked, NOT blocking):" >&2
     printf '%s\n' "$ce_waived" | sed 's/^/    /' >&2
